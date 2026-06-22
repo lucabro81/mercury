@@ -4,6 +4,20 @@ set -euo pipefail
 REPO="lucabro81/CLI-monorepo"
 CRATES=(jira bitbucket)   # add gchat once the crate has a first release
 
+# releases now publish one asset per platform: "<crate>-linux-x86_64",
+# "<crate>-linux-arm64", "<crate>-macos-arm64" (no Intel Mac asset)
+case "$(uname -s)" in
+  Linux) os=linux ;;
+  Darwin) os=macos ;;
+  *) echo "unsupported OS: $(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch=x86_64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+platform="${os}-${arch}"
+
 mkdir -p ./bin
 
 for crate in "${CRATES[@]}"; do
@@ -17,8 +31,8 @@ for crate in "${CRATES[@]}"; do
     exit 1
   fi
 
-  url="https://github.com/${REPO}/releases/download/${tag}/${crate}-linux-x86_64"
+  url="https://github.com/${REPO}/releases/download/${tag}/${crate}-${platform}"
   curl -fsSL "$url" -o "./bin/${crate}"
   chmod +x "./bin/${crate}"
-  echo "installed ${crate} (${tag})"
+  echo "installed ${crate} (${tag}, ${platform})"
 done

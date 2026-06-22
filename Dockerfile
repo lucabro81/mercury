@@ -1,25 +1,39 @@
-FROM oven/bun:1-alpine
+# Debian-based, not Alpine: the downloaded Rust CLIs are dynamically linked
+# glibc binaries (verified: interpreter /lib64/ld-linux-x86-64.so.2 /
+# /lib/ld-linux-aarch64.so.1, per architecture). Alpine's gcompat shim doesn't
+# implement the full glibc resolver (missing __res_init), so the CLIs fail to
+# run there even with gcompat installed. A glibc-native base avoids the
+# compatibility layer entirely instead of chasing partial shims. Reopens D-13
+# (originally chosen on the now-disproven assumption that the CLIs are static).
 
-# apk upgrade: applies security fixes already published in the Alpine repos but
-#   not yet included in the base image at build time (e.g. CVE-2026-45447, openssl)
-# bash: required by the shebang of scripts/install-clis.sh (not present in Alpine by default)
-# curl/jq: used by scripts/install-clis.sh to resolve and download the Rust CLIs
-# gcompat: the downloaded Rust CLIs are dynamically linked glibc binaries (verified:
-#   interpreter /lib64/ld-linux-x86-64.so.2), Alpine is musl — needs the compat layer
-RUN apk upgrade --no-cache && apk add --no-cache bash curl jq gcompat
+# curl/jq are only needed to download the CLI binaries — kept out of the final
+# image so their (currently unpatched) CVEs don't end up in the running container
+FROM oven/bun:1 AS clis
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl jq ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY scripts/install-clis.sh ./scripts/install-clis.sh
+RUN ./scripts/install-clis.sh
 
-RUN addgroup -S mercury && adduser -S mercury -G mercury
+FROM oven/bun:1
+
+# apt upgrade: applies security fixes already published in the Debian repos but
+#   not yet included in the base image at build time
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r mercury && useradd -r -g mercury mercury
 WORKDIR /app
 
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+# chown combined into the same layer as each COPY/install — a separate final
+# `chown -R /app` would duplicate every file already written in prior layers
+COPY --chown=mercury:mercury package.json bun.lock ./
+RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules
 
-COPY scripts/install-clis.sh ./scripts/install-clis.sh
-RUN ./scripts/install-clis.sh && mv ./bin/* /usr/local/bin/ && rmdir ./bin
+COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
 
-COPY src ./src
+COPY --chown=mercury:mercury src ./src
 
-RUN chown -R mercury:mercury /app
 USER mercury
 
 CMD ["bun", "run", "src/index.ts"]
