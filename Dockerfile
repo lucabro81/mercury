@@ -13,6 +13,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends curl jq ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+# which CLIs to install is a per-deployment choice (MERCURY_CLIS in .env), not
+# baked into this script — see docker-compose.yml's build.args
+ARG MERCURY_CLIS=jira,bitbucket
 COPY scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 

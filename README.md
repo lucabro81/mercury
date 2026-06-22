@@ -6,6 +6,7 @@
 - [Installation](#installation)
 - [Running it](#running-it)
 - [CLIs and service authentication](#clis-and-service-authentication)
+- [Architecture](ARCHITECTURE.md)
 
 ## What it is
 

@@ -2,7 +2,11 @@
 set -euo pipefail
 
 REPO="lucabro81/CLI-monorepo"
-CRATES=(jira bitbucket)   # add gchat once the crate has a first release
+
+# which crates to install comes from MERCURY_CLIS (comma-separated), not
+# hardcoded here — this script is committed, the list of CLIs isn't
+: "${MERCURY_CLIS:?MERCURY_CLIS is not set, e.g. MERCURY_CLIS=jira,bitbucket}"
+IFS=',' read -ra CRATES <<< "$MERCURY_CLIS"
 
 # releases now publish one asset per platform: "<crate>-linux-x86_64",
 # "<crate>-linux-arm64", "<crate>-macos-arm64" (no Intel Mac asset)
