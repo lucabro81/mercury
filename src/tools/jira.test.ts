@@ -24,6 +24,23 @@ describe("isAllowed", () => {
     expect(isAllowed(["issue", "create", "--help"])).toBe(true);
     expect(isAllowed(["--help"])).toBe(true);
   });
+
+  // Regression: jira's --select is a global flag, documented (top-level
+  // --help: "Usage: jira [OPTIONS] <COMMAND>") to come BEFORE the
+  // subcommand, not just after. Observed for real: the model called
+  // ["--select", "issues.key", "issue", "search", "--jql", "..."] for an
+  // ordinary read query, and the old positional-prefix check rejected it
+  // as "not permitted" since args[0] was "--select", not "issue".
+  it("allows a read-only subcommand even when --select appears before it", () => {
+    expect(
+      isAllowed(["--select", "issues.key,issues.fields.summary", "issue", "search", "--jql", "project=KAN"]),
+    ).toBe(true);
+    expect(isAllowed(["--select", "id", "doctor"])).toBe(true);
+  });
+
+  it("still rejects a write subcommand when --select appears before it", () => {
+    expect(isAllowed(["--select", "id", "issue", "delete", "KAN-1", "--confirm"])).toBe(false);
+  });
 });
 
 describe("createJiraTool", () => {

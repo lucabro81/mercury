@@ -49,17 +49,41 @@ export const READ_ONLY_PREFIXES: string[][] = [
 ];
 
 /**
+ * Removes `--select <value>` from `args`. `--select` is `jira`'s one
+ * global flag (per its own `--help`: "Usage: jira [OPTIONS] <COMMAND>")
+ * and can legitimately appear before the subcommand, not just after —
+ * confirmed for real when the model called
+ * `["--select", "...", "issue", "search", ...]` for an ordinary read
+ * query. Stripping it before matching prefixes is safe: `--select` only
+ * projects which fields come back, it can never turn a read into a
+ * write.
+ */
+function stripSelectFlag(args: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--select") {
+      i++; // also skip its value
+      continue;
+    }
+    result.push(args[i] as string);
+  }
+  return result;
+}
+
+/**
  * Whether `args` is safe to execute on a read-only Mercury instance:
- * either it matches one of `READ_ONLY_PREFIXES`, or it's a `--help`
- * invocation (always allowed, since it's discovery rather than
- * execution — even `jira issue create --help` is harmless).
+ * either it matches one of `READ_ONLY_PREFIXES` (ignoring a leading or
+ * interspersed `--select`), or it's a `--help` invocation (always
+ * allowed, since it's discovery rather than execution — even `jira
+ * issue create --help` is harmless).
  */
 export function isAllowed(args: string[]): boolean {
   if (args[args.length - 1] === "--help") {
     return true;
   }
+  const stripped = stripSelectFlag(args);
   return READ_ONLY_PREFIXES.some((prefix) =>
-    prefix.every((part, i) => args[i] === part),
+    prefix.every((part, i) => stripped[i] === part),
   );
 }
 
