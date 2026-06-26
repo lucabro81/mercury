@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { startTerminalRepl } from "./terminal.ts";
+import { startTerminalRepl, PROMPT } from "./terminal.ts";
 
 function fakeOutput() {
   const lines: string[] = [];
@@ -17,16 +17,25 @@ async function* manyLines(lines: string[]): AsyncIterable<string> {
 }
 
 describe("startTerminalRepl", () => {
+  it("writes a prompt before the first input and after each result, so it's clear when an answer is done", async () => {
+    const output = fakeOutput();
+    const handleInput = async (input: string) => input.toUpperCase();
+
+    await startTerminalRepl(handleInput, { input: oneLine("hello"), output });
+
+    expect(output.lines).toEqual([PROMPT, "HELLO", PROMPT]);
+  });
+
   it("writes handleInput's result for each input line, then returns on EOF", async () => {
     const output = fakeOutput();
     const handleInput = async (input: string) => input.toUpperCase();
 
     await startTerminalRepl(handleInput, { input: oneLine("hello"), output });
 
-    expect(output.lines).toEqual(["HELLO"]);
+    expect(output.lines).toContain("HELLO");
   });
 
-  it("processes multiple lines in order", async () => {
+  it("processes multiple lines in order, with a prompt between each", async () => {
     const output = fakeOutput();
     const handleInput = async (input: string) => `echo: ${input}`;
 
@@ -35,7 +44,15 @@ describe("startTerminalRepl", () => {
       output,
     });
 
-    expect(output.lines).toEqual(["echo: a", "echo: b", "echo: c"]);
+    expect(output.lines).toEqual([
+      PROMPT,
+      "echo: a",
+      PROMPT,
+      "echo: b",
+      PROMPT,
+      "echo: c",
+      PROMPT,
+    ]);
   });
 
   it("writes an error line and keeps going when handleInput rejects, instead of crashing", async () => {
@@ -52,8 +69,9 @@ describe("startTerminalRepl", () => {
       output,
     });
 
-    expect(output.lines[0]).toBe("ok: good-before");
-    expect(output.lines[1]).toContain("boom");
-    expect(output.lines[2]).toBe("ok: good-after");
+    const results = output.lines.filter((l) => l !== PROMPT);
+    expect(results[0]).toBe("ok: good-before");
+    expect(results[1]).toContain("boom");
+    expect(results[2]).toBe("ok: good-after");
   });
 });

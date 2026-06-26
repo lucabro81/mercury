@@ -36,6 +36,14 @@ function realOutputWrite(s: string): void {
 }
 
 /**
+ * Written before the first input and again after every result, so a
+ * human at the terminal can tell an answer has finished and the next
+ * question can be typed — without this, a multi-line answer and the
+ * start of a new question were visually indistinguishable.
+ */
+export const PROMPT = "> ";
+
+/**
  * Runs the REPL loop: read a line, pass it to `handleInput`, write the
  * result, repeat until the input source is exhausted (EOF).
  *
@@ -54,6 +62,7 @@ export async function startTerminalRepl(
   const input = io?.input ?? realStdinLines();
   const output = io?.output ?? { write: realOutputWrite };
 
+  output.write(PROMPT);
   for await (const line of input) {
     try {
       const result = await handleInput(line);
@@ -61,5 +70,6 @@ export async function startTerminalRepl(
     } catch (err) {
       output.write(`error: ${String(err instanceof Error ? err.message : err)}`);
     }
+    output.write(PROMPT);
   }
 }

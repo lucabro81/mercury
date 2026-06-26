@@ -33,12 +33,24 @@ import { stepCountIs, type LanguageModel, type Tool } from "ai";
 import { generateText } from "ai-sdk-ollama";
 import type { Message, SessionHistory } from "./history.ts";
 
+/**
+ * Minimal shape of a finished generation step that callers might care
+ * about — just enough to show what tool Mercury called and with what
+ * input. The real AI SDK step object has many more fields; this is a
+ * subset, which is fine since function parameter types only need to be
+ * structurally compatible, not identical.
+ */
+export type StepInfo = {
+  toolCalls: Array<{ toolName: string; input: unknown }>;
+};
+
 /** The shape of the AI SDK call this module needs, injectable for tests. */
 type GenerateTextFn = (params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
   system: string;
+  onStepFinish?: (step: StepInfo) => void;
 }) => Promise<{ text: string }>;
 
 /**
@@ -69,6 +81,7 @@ export function buildGenerateTextParams(params: {
   messages: Message[];
   tools: Record<string, Tool>;
   system: string;
+  onStepFinish?: (step: StepInfo) => void;
 }) {
   return { ...params, stopWhen: stepCountIs(5) };
 }
@@ -92,6 +105,13 @@ const defaultGenerateTextFn: GenerateTextFn = (params) =>
  *   describe only the tools actually present in `deps.tools` — this
  *   function doesn't validate that, the caller is responsible for
  *   keeping the two in sync.
+ * @param deps.onStepFinish - Optional, called once per generation step
+ *   (including intermediate ones with only a tool call, no text). The
+ *   terminal channel uses this to print what Mercury did before
+ *   producing a final answer — see `src/router/terminal.ts` and
+ *   `src/index.ts`. Google Chat doesn't wire this up; showing raw tool
+ *   calls to a chat audience isn't the same call as showing them to
+ *   whoever's debugging at a terminal.
  * @param deps.generateTextFn - Test seam; defaults to the real AI SDK
  *   call. Injecting a fake here only tests this function's own
  *   sequencing — it does not exercise the real model or the real AI SDK
@@ -104,6 +124,7 @@ export async function runTurn(
     model: LanguageModel;
     tools: Record<string, Tool>;
     system: string;
+    onStepFinish?: (step: StepInfo) => void;
     generateTextFn?: GenerateTextFn;
   },
 ): Promise<string> {
@@ -115,6 +136,7 @@ export async function runTurn(
     messages: history.getMessages(),
     tools: deps.tools,
     system: deps.system,
+    onStepFinish: deps.onStepFinish,
   });
 
   await history.addAssistantMessage(text);

@@ -102,5 +102,17 @@ if (googleChatTopic) {
 }
 
 await startTerminalRepl((input) =>
-  runTurn(getOrCreateHistory("terminal"), input, { model, tools, system }),
+  runTurn(getOrCreateHistory("terminal"), input, {
+    model,
+    tools,
+    system,
+    // Visibility into what Mercury did before answering — the terminal
+    // exists for bootstrap/debugging, so showing this here is in scope;
+    // Google Chat's wiring above deliberately doesn't do the same.
+    onStepFinish: (step) => {
+      for (const call of step.toolCalls) {
+        console.error(`[tool] ${call.toolName}(${JSON.stringify(call.input)})`);
+      }
+    },
+  }),
 );

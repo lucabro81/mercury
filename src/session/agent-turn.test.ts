@@ -96,6 +96,29 @@ describe("runTurn", () => {
 
     expect(receivedSystem).toBe(SYSTEM);
   });
+
+  // The terminal channel uses this to print tool calls as they happen,
+  // since otherwise there's no visibility into what Mercury did before
+  // producing a final answer — see src/router/terminal.ts.
+  it("passes an onStepFinish callback through to the generation call when provided", async () => {
+    const history = createSessionHistory(neverSummarize);
+    let receivedOnStepFinish: unknown;
+    const generateTextFn = async (params: { onStepFinish?: unknown }) => {
+      receivedOnStepFinish = params.onStepFinish;
+      return { text: "ok" };
+    };
+    const onStepFinish = () => {};
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      generateTextFn,
+      onStepFinish,
+    });
+
+    expect(receivedOnStepFinish).toBe(onStepFinish);
+  });
 });
 
 describe("buildGenerateTextParams", () => {
