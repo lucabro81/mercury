@@ -23,7 +23,14 @@ FROM oven/bun:1
 
 # apt upgrade: applies security fixes already published in the Debian repos but
 #   not yet included in the base image at build time
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+# ca-certificates: the CLI binaries are Rust/reqwest, which verifies TLS
+#   against the OS trust store (unlike Bun's fetch, which bundles its own
+#   roots and works fine without this) — without it every HTTPS call from
+#   jira/google-chat-cli fails with a generic "error sending request",
+#   confirmed live: DNS resolved fine, Bun's fetch succeeded, jira-cli didn't
+RUN apt-get update && apt-get upgrade -y \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r mercury && useradd -r -g mercury mercury
 WORKDIR /app
