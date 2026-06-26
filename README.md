@@ -10,7 +10,7 @@
 
 ## What it is
 
-Mercury is an internal AI agent for Comperio: answers natural-language Jira queries, performs actions on Jira (create/transition/comment/delete, with explicit confirmation for irreversible ones), and proactively watches stalled PRs and tickets. Runs on-premise, primarily on Google Chat, with a terminal interface for bootstrap and debugging.
+Mercury is an agent built on a fixed orchestration loop and a pluggable tool layer. Give it the CLI for a service and it can query and act on whatever that CLI exposes. Today that's Jira and Bitbucket, with Confluence and other internal tools coming. Channels work the same way: Google Chat is the primary one right now, with a terminal interface for bootstrap and debugging, but the router isn't wired to either specifically.
 
 ## Installation
 
