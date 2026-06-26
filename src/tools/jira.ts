@@ -103,10 +103,10 @@ export function createJiraTool(runCliFn: typeof runCli) {
     inputSchema: z.object({ args: z.array(z.string()).min(1) }),
     execute: async ({ args }) => {
       if (!isAllowed(args)) {
+        const validPrefixes = READ_ONLY_PREFIXES.map((p) => p.join(" ")).join(", ");
         return {
           ok: false,
-          error:
-            "not permitted on this Mercury instance — read-only Jira access only",
+          error: `not permitted on this Mercury instance — read-only Jira access only. Valid commands: ${validPrefixes}. If "${args.join(" ")}" doesn't match one of these, it's not a recognized command shape — try again with the right prefix, or run --help to check.`,
         };
       }
       return runCliFn("jira", args);

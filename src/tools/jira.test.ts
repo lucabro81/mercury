@@ -85,6 +85,33 @@ describe("createJiraTool", () => {
     }
   });
 
+  // Observed for real with a smaller (9b) model: it called ["search", "--jql",
+  // ...] — a genuinely invalid command (missing "issue", confirmed against
+  // the real CLI: "unrecognized subcommand 'search'") — and the rejection
+  // message ("not permitted... read-only access only") read as a permissions
+  // problem rather than "this exact shape isn't recognized," so the model
+  // spent its next turn guessing at permissions instead of retrying with the
+  // right prefix. Listing the valid prefixes in the error gives it what it
+  // needs to self-correct in one step instead of needing a --help round trip.
+  it("lists the valid read-only prefixes in the rejection error, to help a model self-correct", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const { jiraCli } = createJiraTool(runCliFn);
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await jiraCli.execute(
+      { args: ["search", "--jql", "project=KAN"] },
+      {} as never,
+    )) as CliResult;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("issue search");
+      expect(result.error).toContain("issue get");
+      expect(result.error).toContain("issue transitions");
+      expect(result.error).toContain("doctor");
+      expect(result.error).toContain("auth whoami");
+    }
+  });
+
   it("execute propagates a runCliFn error result as-is, never throws", async () => {
     const runCliFn = async (): Promise<CliResult> => ({
       ok: false,
