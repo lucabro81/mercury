@@ -4,9 +4,11 @@
  * this Mercury instance has wired in), append the response to history,
  * return it.
  *
- * This is the one place that calls the AI SDK's `generateText` for the
- * main agent loop (as opposed to `src/session/summarizer.ts`, which
- * calls it for summarization). The real call is injected as
+ * This is the one place that calls `generateText` for the main agent
+ * loop (as opposed to `src/session/summarizer.ts`, which calls it for
+ * summarization) — see `buildGenerateTextParams` below for why it's
+ * `ai-sdk-ollama`'s enhanced version, not the plain `ai` one. The real
+ * call is injected as
  * `generateTextFn` so tests can exercise the sequencing/wiring logic
  * here without needing a real model — see the test file for what that
  * does and doesn't cover.
@@ -27,7 +29,8 @@
  * in, a string out) — `runTurn` itself doesn't know or care which
  * channel a given conversation came from.
  */
-import { generateText, type LanguageModel, type Tool } from "ai";
+import { stepCountIs, type LanguageModel, type Tool } from "ai";
+import { generateText } from "ai-sdk-ollama";
 import type { Message, SessionHistory } from "./history.ts";
 
 /** The shape of the AI SDK call this module needs, injectable for tests. */
@@ -38,9 +41,41 @@ type GenerateTextFn = (params: {
   system: string;
 }) => Promise<{ text: string }>;
 
+/**
+ * Builds the params object passed to the real `generateText`. Extracted
+ * as its own pure function so it's unit-testable without a real model —
+ * `defaultGenerateTextFn` below is otherwise a thin, untestable wrapper
+ * around a direct SDK call.
+ *
+ * `stopWhen: stepCountIs(5)` is the one non-obvious part: `generateText`
+ * defaults to stopping after a single step. If that step is a tool call
+ * with no accompanying text (the normal case — the model calls a tool,
+ * then needs the tool's result before it can answer), the call returns
+ * with `text: ""` and no error, having never given the model a chance to
+ * read the tool result and respond. 5 steps is enough headroom for a
+ * couple of tool calls in sequence before a final answer.
+ *
+ * `generateText` itself is imported from `ai-sdk-ollama`, not the plain
+ * `ai` package — confirmed by a real run: with the standard SDK's
+ * version, Ollama executed the tool call but `text` still came back
+ * empty even with multi-step enabled. `ai-sdk-ollama`'s enhanced
+ * `generateText` is a drop-in replacement (same params/return shape)
+ * that specifically synthesizes a real response when this happens —
+ * documented as a known Ollama-provider quirk, not something to patch
+ * around here by hand.
+ */
+export function buildGenerateTextParams(params: {
+  model: LanguageModel;
+  messages: Message[];
+  tools: Record<string, Tool>;
+  system: string;
+}) {
+  return { ...params, stopWhen: stepCountIs(5) };
+}
+
 /** Default production implementation: calls the real `generateText` from `ai`. */
-const defaultGenerateTextFn: GenerateTextFn = ({ model, messages, tools, system }) =>
-  generateText({ model, messages, tools, system });
+const defaultGenerateTextFn: GenerateTextFn = (params) =>
+  generateText(buildGenerateTextParams(params));
 
 /**
  * Runs one turn: records `userInput`, generates a response with the

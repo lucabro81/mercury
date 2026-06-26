@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runTurn } from "./agent-turn.ts";
+import { runTurn, buildGenerateTextParams } from "./agent-turn.ts";
 import { createSessionHistory } from "./history.ts";
 import type { Message } from "./history.ts";
 import type { Tool } from "ai";
@@ -95,5 +95,24 @@ describe("runTurn", () => {
     });
 
     expect(receivedSystem).toBe(SYSTEM);
+  });
+});
+
+describe("buildGenerateTextParams", () => {
+  // Regression test: generateText's stopWhen defaults to stepCountIs(1),
+  // meaning it stops after a single step. If the model's first step is a
+  // tool call (no accompanying text), generateText never gets a second
+  // step to synthesize a final answer from the tool result — text comes
+  // back empty. Observed for real: asking Mercury a Jira question made it
+  // call jiraCli and return an empty string, with no error anywhere.
+  it("includes a stopWhen that allows more than one step, so a tool call isn't the final step", () => {
+    const params = buildGenerateTextParams({
+      model: "fake-model" as never,
+      messages: [],
+      tools: {},
+      system: SYSTEM,
+    });
+
+    expect(params.stopWhen).toBeDefined();
   });
 });
