@@ -69,6 +69,11 @@ export const PROMPT = "> ";
  *   before streaming existed — this is what keeps the `/dump` command
  *   and any other non-streaming reply working unchanged.
  * @param io - Test seam. Defaults to real stdin/stdout when omitted.
+ * @param opts.promptSuffix - Optional, called fresh right before every
+ *   prompt (including the very first one) and written ahead of it — e.g.
+ *   a live context-usage indicator (see `src/router/tool-log.ts`'s
+ *   `formatContextUsage`), recomputed each time since the value changes
+ *   turn to turn.
  */
 export async function startTerminalRepl(
   handleInput: (input: string, onChunk: (chunk: string) => void) => Promise<string>,
@@ -76,11 +81,19 @@ export async function startTerminalRepl(
     input?: AsyncIterable<string>;
     output?: { write(s: string, opts?: { newline?: boolean }): void };
   },
+  opts?: { promptSuffix?: () => string },
 ): Promise<void> {
   const input = io?.input ?? realStdinLines();
   const output = io?.output ?? { write: realOutputWrite };
 
-  output.write(PROMPT, { newline: false });
+  const writePrompt = () => {
+    if (opts?.promptSuffix) {
+      output.write(opts.promptSuffix(), { newline: false });
+    }
+    output.write(PROMPT, { newline: false });
+  };
+
+  writePrompt();
   for await (const line of input) {
     let streamed = false;
     const onChunk = (chunk: string) => {
@@ -98,6 +111,6 @@ export async function startTerminalRepl(
       }
       output.write(`error: ${String(err instanceof Error ? err.message : err)}`);
     }
-    output.write(PROMPT, { newline: false });
+    writePrompt();
   }
 }

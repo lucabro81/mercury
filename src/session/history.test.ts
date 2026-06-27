@@ -73,4 +73,26 @@ describe("createSessionHistory", () => {
     expect(messages[0]?.content).toContain("a summary");
     expect(messages[1]).toEqual({ role: "user", content: "what's next?" });
   });
+
+  // Lets the terminal show a live "how full is the context" indicator
+  // (see src/router/terminal.ts's promptSuffix) — useful for telling
+  // apart "the model is confused" from "the context is actually full".
+  it("getCharCount reports the total length of what getMessages() would return", async () => {
+    const history = createSessionHistory(fakeSummarizer());
+    expect(history.getCharCount()).toBe(0);
+
+    await history.addUserMessage("hi"); // 2 chars
+    await history.addAssistantMessage("hello"); // 5 chars
+    expect(history.getCharCount()).toBe(7);
+  });
+
+  it("getCharCount counts the summary message's length after a summarization happens", async () => {
+    const history = createSessionHistory(fakeSummarizer());
+    const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+    await history.addUserMessage(big);
+
+    const messages = history.getMessages();
+    const expected = messages.reduce((sum, m) => sum + m.content.length, 0);
+    expect(history.getCharCount()).toBe(expected);
+  });
 });

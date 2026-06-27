@@ -7,6 +7,7 @@ import {
   writeDump,
   defaultDumpPath,
   describeToolOutcome,
+  formatContextUsage,
 } from "./tool-log.ts";
 import type { StepInfo } from "../session/agent-turn.ts";
 
@@ -130,5 +131,20 @@ describe("describeToolOutcome", () => {
     };
 
     expect(describeToolOutcome(step, "1", 500)).toBe("[tool result] (none)");
+  });
+});
+
+describe("formatContextUsage", () => {
+  // The model degrading under a long multi-turn conversation is hard to
+  // tell apart from "context is actually near full" by eye — this gives
+  // a live char/4-token estimate next to the prompt (see src/index.ts),
+  // same heuristic and threshold src/session/history.ts already uses to
+  // decide when to summarize.
+  it("formats a rounded k-token estimate of charCount over maxChars", () => {
+    expect(formatContextUsage(12_000, 60_000)).toBe("[~3k/~15k tokens] ");
+  });
+
+  it("rounds down to 0k for a small charCount instead of showing 0.x", () => {
+    expect(formatContextUsage(100, 60_000)).toBe("[~0k/~15k tokens] ");
   });
 });

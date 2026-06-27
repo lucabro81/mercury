@@ -89,3 +89,17 @@ export function describeToolOutcome(step: StepInfo, toolCallId: string, maxChars
   }
   return "[tool result] (none)";
 }
+
+/**
+ * Formats a rounded `chars/4` token estimate of `charCount` against
+ * `maxChars` (the same heuristic and threshold `src/session/history.ts`
+ * uses to decide when to summarize), for display next to the terminal
+ * prompt. A model degrading over a long conversation is hard to tell
+ * apart by eye from "the context is genuinely near full" — this gives a
+ * live number instead of having to guess.
+ */
+export function formatContextUsage(charCount: number, maxChars: number): string {
+  const used = Math.floor(charCount / 4 / 1000);
+  const max = Math.floor(maxChars / 4 / 1000);
+  return `[~${used}k/~${max}k tokens] `;
+}

@@ -42,6 +42,14 @@ export type SessionHistory = {
    * messages accumulated since the last summarization.
    */
   getMessages(): Message[];
+  /**
+   * Total character length of what `getMessages()` would currently
+   * return — a live read on how close this conversation is to
+   * `MAX_HISTORY_CHARS` (and so to triggering summarization). Exposed so
+   * a channel can show this to a human, e.g. to tell apart "the model
+   * lost track of something" from "the context is actually near full".
+   */
+  getCharCount(): number;
 };
 
 /** Wraps a summary string as the synthetic leading message `getMessages()` prepends. */
@@ -78,9 +86,14 @@ export function createSessionHistory(
     }
   }
 
+  function getMessages(): Message[] {
+    return summary ? [summaryMessage(summary), ...rawMessages] : [...rawMessages];
+  }
+
   return {
     addUserMessage: (content) => add({ role: "user", content }),
     addAssistantMessage: (content) => add({ role: "assistant", content }),
-    getMessages: () => (summary ? [summaryMessage(summary), ...rawMessages] : [...rawMessages]),
+    getMessages,
+    getCharCount: () => getMessages().reduce((sum, m) => sum + m.content.length, 0),
   };
 }

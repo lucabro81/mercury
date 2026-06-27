@@ -14,13 +14,14 @@ import { getOllamaProvider } from "./model/client.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
 import { createJiraTool } from "./tools/jira.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
-import { createSessionHistory, type SessionHistory } from "./session/history.ts";
+import { createSessionHistory, MAX_HISTORY_CHARS, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
 import {
   truncateForDisplay,
   describeToolOutcome,
+  formatContextUsage,
   parseDumpCommand,
   defaultDumpPath,
   writeDump,
@@ -148,36 +149,43 @@ if (googleChatTopic) {
 const MAX_INLINE_CHARS = 600;
 let lastSteps: StepInfo[] = [];
 
-await startTerminalRepl(async (input, onChunk) => {
-  const dumpCommand = parseDumpCommand(input);
-  if (dumpCommand) {
-    const path = dumpCommand.path ?? defaultDumpPath();
-    await writeDump(path, lastSteps);
-    return `wrote ${lastSteps.length} tool step(s) from the last turn to ${path}`;
-  }
+await startTerminalRepl(
+  async (input, onChunk) => {
+    const dumpCommand = parseDumpCommand(input);
+    if (dumpCommand) {
+      const path = dumpCommand.path ?? defaultDumpPath();
+      await writeDump(path, lastSteps);
+      return `wrote ${lastSteps.length} tool step(s) from the last turn to ${path}`;
+    }
 
-  lastSteps = [];
-  return runTurn(getOrCreateHistory("terminal"), input, {
-    model,
-    tools,
-    system,
-    // Streams the answer to the terminal as it's generated instead of
-    // going silent for however long the full response takes — the local
-    // development model can take several seconds. Google Chat's wiring
-    // above never sets this, since `messages send` needs one complete
-    // message anyway.
-    onTextChunk: onChunk,
-    // Visibility into what Mercury did before answering — the terminal
-    // exists for bootstrap/debugging, so showing this here is in scope;
-    // Google Chat's wiring above deliberately doesn't do the same.
-    onStepFinish: (step) => {
-      lastSteps.push(step);
-      for (const call of step.toolCalls) {
-        console.error(
-          `[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
-        );
-        console.error(describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS));
-      }
-    },
-  });
-});
+    lastSteps = [];
+    return runTurn(getOrCreateHistory("terminal"), input, {
+      model,
+      tools,
+      system,
+      // Streams the answer to the terminal as it's generated instead of
+      // going silent for however long the full response takes — the local
+      // development model can take several seconds. Google Chat's wiring
+      // above never sets this, since `messages send` needs one complete
+      // message anyway.
+      onTextChunk: onChunk,
+      // Visibility into what Mercury did before answering — the terminal
+      // exists for bootstrap/debugging, so showing this here is in scope;
+      // Google Chat's wiring above deliberately doesn't do the same.
+      onStepFinish: (step) => {
+        lastSteps.push(step);
+        for (const call of step.toolCalls) {
+          console.error(
+            `[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
+          );
+          console.error(describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS));
+        }
+      },
+    });
+  },
+  undefined,
+  // A degraded answer under a long conversation is hard to tell apart by
+  // eye from "the context is genuinely near full" — this shows a live
+  // estimate right before every prompt, terminal-only debugging aid.
+  { promptSuffix: () => formatContextUsage(getOrCreateHistory("terminal").getCharCount(), MAX_HISTORY_CHARS) },
+);

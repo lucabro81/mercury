@@ -148,4 +148,44 @@ describe("startTerminalRepl", () => {
     expect(texts[3]).toContain("boom");
     expect(texts[4]).toBe(PROMPT);
   });
+
+  // Lets the caller show a live indicator (e.g. context usage, see
+  // src/router/tool-log.ts's formatContextUsage) right before "> ",
+  // recomputed each time since the value it reports changes turn to turn.
+  // Regression: the suffix was written with the default newline, landing
+  // on its own line above "> " instead of right next to it.
+  it("writes the result of promptSuffix() right before every prompt, on the same line, recomputing it each time", async () => {
+    const output = fakeOutput();
+    const handleInput = async (input: string) => `echo: ${input}`;
+    let counter = 0;
+    const promptSuffix = () => `[call ${++counter}] `;
+
+    await startTerminalRepl(
+      handleInput,
+      { input: manyLines(["a", "b"]), output },
+      { promptSuffix },
+    );
+
+    expect(output.lines).toEqual([
+      "[call 1] ",
+      PROMPT,
+      "echo: a",
+      "[call 2] ",
+      PROMPT,
+      "echo: b",
+      "[call 3] ",
+      PROMPT,
+    ]);
+    const suffixCalls = output.calls.filter((c) => c.text.startsWith("[call"));
+    expect(suffixCalls.every((c) => c.newline === false)).toBe(true);
+  });
+
+  it("writes no suffix at all when promptSuffix is omitted", async () => {
+    const output = fakeOutput();
+    const handleInput = async (input: string) => `echo: ${input}`;
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.lines).toEqual([PROMPT, "echo: hi", PROMPT]);
+  });
 });
