@@ -51,7 +51,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): st
   const lines = ["You are Mercury, an internal assistant."];
   if (opts.jira) {
     lines.push(
-      'You have access to the jiraCli tool, which runs the "jira" CLI binary for read-only Jira access. Use it to get real data — never invent ticket data. Use --help on any subcommand if you\'re unsure of its flags. Relative dates in JQL are native JQL syntax (e.g. now()) — don\'t compute dates yourself. Only read-only subcommands are permitted on this instance.',
+      'You have access to the jiraCli tool, which runs the "jira" CLI binary for read-only Jira access. Use it to get real data — never invent ticket data. Use --help on any subcommand if you\'re unsure of its flags. Relative dates in JQL are native JQL syntax (e.g. now()) — don\'t compute dates yourself. Only read-only subcommands are permitted on this instance. If a call is rejected or its result is empty or doesn\'t actually answer the question, don\'t conclude there\'s no data — say explicitly that you\'re retrying with a different command/JQL, then call jiraCli again before giving a final answer.',
     );
   }
   if (opts.googleChatJoin) {
