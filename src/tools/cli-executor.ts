@@ -14,9 +14,10 @@
  */
 
 /**
- * Result of running a CLI command: either parsed JSON stdout on success,
- * or a human/model-readable error string. Never throws — callers branch
- * on `ok` instead of catching.
+ * Result of running a CLI command: on success, `data` is the parsed JSON
+ * stdout, or the raw trimmed text when stdout isn't JSON (e.g. `--help`
+ * output); on failure, `error` is a human/model-readable string. Never
+ * throws — callers branch on `ok` instead of catching.
  */
 export type CliResult =
   | { ok: true; data: unknown }
@@ -36,13 +37,17 @@ function spawnPiped(binary: string, args: string[]) {
 
 /**
  * Runs `binary` with `args`, waits for it to exit, and parses its
- * stdout as JSON.
+ * stdout as JSON when possible.
  *
- * Resolves to `{ ok: false, error }` — never rejects/throws — for every
- * failure mode: the binary not existing on `PATH`, a non-zero exit code
- * (the error includes the exit code and stderr), or stdout that isn't
- * valid JSON. Callers (model-invoked tools) need a result they can
- * always read and pass back to the model, not an exception to catch.
+ * Resolves to `{ ok: false, error }` — never rejects/throws — for the
+ * binary not existing on `PATH` or a non-zero exit code (the error
+ * includes the exit code and stderr). Success is exit code 0, full stop:
+ * if stdout happens to be valid JSON it's parsed into `data`, otherwise
+ * the raw trimmed text is `data` instead. Non-JSON stdout on a 0 exit is
+ * not a parse failure — `--help` output is exactly this shape (plain
+ * text, exit 0), and treating it as `ok: false` meant the model saw a
+ * "failed" tool call for what was actually a successful discovery call —
+ * observed live to send it into a confused, apologetic retry spiral.
  */
 export async function runCli(
   binary: string,
@@ -71,10 +76,7 @@ export async function runCli(
   try {
     return { ok: true, data: JSON.parse(stdout) };
   } catch {
-    return {
-      ok: false,
-      error: `failed to parse JSON output from ${binary}: ${stdout.trim()}`,
-    };
+    return { ok: true, data: stdout.trim() };
   }
 }
 

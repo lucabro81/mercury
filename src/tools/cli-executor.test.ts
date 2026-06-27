@@ -22,20 +22,22 @@ describe("runCli", () => {
     }
   });
 
-  it("returns a structured error when stdout is not valid JSON", async () => {
+  // Regression: exit 0 with non-JSON stdout was reported as a tool
+  // failure ({ ok: false, error: "failed to parse JSON..." }). `jira
+  // --help`/`jira issue --help` are exactly this shape — plain text, exit
+  // 0 — so the model saw three "failed" tool calls before its first real
+  // success on every session that started with discovery via --help,
+  // observed live to send it into a confused, apologetic retry spiral.
+  // Exit 0 is success regardless of whether stdout happens to be JSON;
+  // non-JSON stdout is just plain-text data, not a parse error.
+  it("returns the raw text as data when stdout is not valid JSON but exit code is 0", async () => {
     const result = await runCli("bun", ["-e", "console.log('not json')"]);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.toLowerCase()).toContain("json");
-    }
+    expect(result).toEqual({ ok: true, data: "not json" });
   });
 
-  it("returns a structured error when stdout is empty", async () => {
-    const result = await runCli("bun", ["-e", ""]);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.toLowerCase()).toContain("json");
-    }
+  it("returns an empty string as data when stdout is empty and exit code is 0", async () => {
+    const result = await runCli("bun", ["-e", "1"]);
+    expect(result).toEqual({ ok: true, data: "" });
   });
 
   it("returns a structured error when the binary does not exist on PATH, never crashes", async () => {
