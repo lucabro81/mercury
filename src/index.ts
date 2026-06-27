@@ -170,6 +170,12 @@ if (googleChatTopic) {
     {
       topic: googleChatTopic,
       discoveryIntervalMs: Number(process.env.GOOGLE_CHAT_DISCOVERY_INTERVAL_MS) || 60_000,
+      // Defaults to enabled (matches every previous deployment's
+      // behavior). Set to exactly "false" for controlled manual testing,
+      // or on any account that's a member of many unrelated spaces —
+      // discovery tries to start a channel for every membership found,
+      // unconditionally.
+      discoveryEnabled: process.env.GOOGLE_CHAT_DISCOVERY_ENABLED !== "false",
     },
   );
   Object.assign(tools, createJoinSpaceTool(manager.ensureChannel));

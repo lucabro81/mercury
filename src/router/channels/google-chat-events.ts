@@ -195,6 +195,15 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * running against `listSpacesFn`'s result — starting channels for newly
  * discovered spaces, stopping channels for spaces Mercury is no longer
  * a member of.
+ *
+ * @param opts.discoveryEnabled - Defaults to `true`. Set `false` to skip
+ *   the periodic loop entirely — `ensureChannel` (and so `joinSpace`,
+ *   see `src/tools/google-chat-join.ts`) still works for attaching to one
+ *   space at a time on purpose. Useful for controlled manual testing,
+ *   and for any real account that's a member of many unrelated spaces —
+ *   discovery has no concept of "only these spaces", it tries to start a
+ *   channel for every membership found, which doesn't scale to a busy
+ *   account and isn't always what's wanted.
  */
 export function startGoogleChatChannelManager(
   handleInput: (input: string, space: string) => Promise<string>,
@@ -205,7 +214,12 @@ export function startGoogleChatChannelManager(
     listSpacesFn: typeof listSpaces;
     runCliFn: typeof runCli;
   },
-  opts: { topic: string; discoveryIntervalMs: number; signal?: AbortSignal },
+  opts: {
+    topic: string;
+    discoveryIntervalMs: number;
+    discoveryEnabled?: boolean;
+    signal?: AbortSignal;
+  },
 ): ChannelManager {
   const activeChannels = new Map<string, AbortController>();
   const managerController = new AbortController();
@@ -257,19 +271,21 @@ export function startGoogleChatChannelManager(
     }
   }
 
-  (async () => {
-    while (!managerController.signal.aborted) {
-      try {
-        await tick();
-      } catch (err) {
-        // A failed tick (e.g. expired credentials, a transient API error)
-        // must not take down the whole process — this loop runs in the
-        // same process as every other channel, including the terminal.
-        console.error(`[google-chat] discovery tick failed: ${String(err)}`);
+  if (opts.discoveryEnabled ?? true) {
+    (async () => {
+      while (!managerController.signal.aborted) {
+        try {
+          await tick();
+        } catch (err) {
+          // A failed tick (e.g. expired credentials, a transient API error)
+          // must not take down the whole process — this loop runs in the
+          // same process as every other channel, including the terminal.
+          console.error(`[google-chat] discovery tick failed: ${String(err)}`);
+        }
+        await sleep(opts.discoveryIntervalMs, managerController.signal);
       }
-      await sleep(opts.discoveryIntervalMs, managerController.signal);
-    }
-  })();
+    })();
+  }
 
   return {
     ensureChannel,

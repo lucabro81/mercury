@@ -383,4 +383,38 @@ describe("startGoogleChatChannelManager", () => {
 
     await manager.stop();
   });
+
+  // For controlled manual testing (and any account with many unrelated
+  // spaces — periodic discovery unconditionally tries to start a channel
+  // for every space the identity is a member of, which doesn't scale to
+  // a busy real account and isn't always what's wanted). ensureChannel
+  // must keep working for the explicit, one-space-at-a-time joinSpace
+  // path even with the periodic loop off.
+  it("never calls listSpacesFn when discoveryEnabled is false, but ensureChannel still works", async () => {
+    let listSpacesCalls = 0;
+    const ensureCalls: string[] = [];
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
+      ensureCalls.push(space);
+      return { name: `subscriptions/${space}` };
+    };
+    const listSpacesFn: typeof listSpaces = async () => {
+      listSpacesCalls++;
+      return ["spaces/should-never-be-discovered"];
+    };
+    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
+
+    const manager = startGoogleChatChannelManager(
+      async () => "ok",
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
+      { topic: "projects/p/topics/t", discoveryIntervalMs: 10, discoveryEnabled: false },
+    );
+
+    await new Promise((r) => setTimeout(r, 30));
+    expect(listSpacesCalls).toBe(0);
+
+    await manager.ensureChannel("spaces/chosen-for-testing");
+    expect(ensureCalls).toEqual(["spaces/chosen-for-testing"]);
+
+    await manager.stop();
+  });
 });
