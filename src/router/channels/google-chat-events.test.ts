@@ -323,6 +323,45 @@ describe("startGoogleChatChannelManager", () => {
     await manager.stop();
   });
 
+  // Regression: ensureChannel fires startGoogleChatSpaceChannel without
+  // awaiting it, so a failure there (e.g. subscription creation
+  // rejected, the listen subprocess failing to spawn) was caught and
+  // silently dropped — joinSpace would report success (the call was
+  // made) while the channel had actually died with zero visibility.
+  // Observed live: joinSpace said "ok" but no message ever triggered a
+  // response, with nothing in the logs explaining why.
+  it("logs when a channel started via ensureChannel fails, instead of staying silent", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => {
+      throw new Error("permission denied creating subscription");
+    };
+    const listSpacesFn: typeof listSpaces = async () => [];
+    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
+
+    const originalConsoleError = console.error;
+    const loggedMessages: string[] = [];
+    console.error = (msg: unknown) => {
+      loggedMessages.push(String(msg));
+    };
+
+    try {
+      const manager = startGoogleChatChannelManager(
+        async () => "ok",
+        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
+        { topic: "projects/p/topics/t", discoveryIntervalMs: 10_000, discoveryEnabled: false },
+      );
+
+      await manager.ensureChannel("spaces/C");
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(loggedMessages.some((m) => m.includes("spaces/C"))).toBe(true);
+      expect(loggedMessages.some((m) => m.includes("permission denied"))).toBe(true);
+
+      await manager.stop();
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   it("stop aborts active channels and halts the discovery loop", async () => {
     let listSpacesCalls = 0;
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => ({

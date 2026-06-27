@@ -244,8 +244,14 @@ export function startGoogleChatChannelManager(
       },
       { topic: opts.topic, pubsubSubscription, signal: controller.signal },
     )
-      .catch(() => {
-        // the channel exited unexpectedly; drop it so a future tick can restart it
+      .catch((err) => {
+        // The channel exited unexpectedly — drop it so a future tick (or
+        // another ensureChannel/joinSpace call) can restart it. Logged,
+        // not swallowed: this is fired-and-forgotten by ensureChannel
+        // (never awaited), so a failure here is otherwise invisible —
+        // joinSpace would report success (the call was made) while the
+        // channel had actually died with nothing explaining why.
+        console.error(`[google-chat] channel for ${space} failed: ${String(err)}`);
       })
       .finally(() => {
         if (activeChannels.get(space) === controller) {
