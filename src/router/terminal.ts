@@ -18,7 +18,11 @@
  *
  * Used by: `src/index.ts` (wiring), which supplies `handleInput` as a
  * closure over `runTurn` and a `SessionHistory` (see
- * `src/session/agent-turn.ts`).
+ * `src/session/agent-turn.ts`). `handleInput` also receives an `onChunk`
+ * callback (see `startTerminalRepl`'s doc comment) — `src/index.ts`
+ * forwards it as `runTurn`'s `onTextChunk`, so a model response prints as
+ * it streams in rather than going silent for however long the full
+ * answer takes.
  */
 import * as readline from "node:readline";
 
@@ -56,11 +60,18 @@ export const PROMPT = "> ";
  * with the next line — one bad turn shouldn't kill the whole session.
  *
  * @param handleInput - Turns one line of input into one line of output.
- *   Knows nothing about this being a terminal.
+ *   Knows nothing about this being a terminal. Receives `onChunk`, which
+ *   it may call zero or more times with pieces of the answer as they
+ *   become available (e.g. while streaming a model response) — each
+ *   call is written immediately, without waiting for `handleInput` to
+ *   resolve. If `onChunk` is never called, the function's returned
+ *   string is written instead once `handleInput` resolves, exactly as
+ *   before streaming existed — this is what keeps the `/dump` command
+ *   and any other non-streaming reply working unchanged.
  * @param io - Test seam. Defaults to real stdin/stdout when omitted.
  */
 export async function startTerminalRepl(
-  handleInput: (input: string) => Promise<string>,
+  handleInput: (input: string, onChunk: (chunk: string) => void) => Promise<string>,
   io?: {
     input?: AsyncIterable<string>;
     output?: { write(s: string, opts?: { newline?: boolean }): void };
@@ -71,10 +82,20 @@ export async function startTerminalRepl(
 
   output.write(PROMPT, { newline: false });
   for await (const line of input) {
+    let streamed = false;
+    const onChunk = (chunk: string) => {
+      streamed = true;
+      output.write(chunk, { newline: false });
+    };
     try {
-      const result = await handleInput(line);
-      output.write(result);
+      const result = await handleInput(line, onChunk);
+      // If chunks were already written live, the line just needs closing
+      // with a newline — writing `result` again would duplicate the text.
+      output.write(streamed ? "" : result);
     } catch (err) {
+      if (streamed) {
+        output.write("");
+      }
       output.write(`error: ${String(err instanceof Error ? err.message : err)}`);
     }
     output.write(PROMPT, { newline: false });

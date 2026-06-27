@@ -28,9 +28,17 @@
  * google-chat-events.ts` both call this with the same shape (a string
  * in, a string out) — `runTurn` itself doesn't know or care which
  * channel a given conversation came from.
+ *
+ * Streaming (see `buildStreamTextParams`/`runTurn`'s `onTextChunk`) is
+ * opt-in and terminal-only: providing `onTextChunk` switches this call to
+ * `streamText`, so a human watching the terminal sees the answer arrive
+ * incrementally instead of waiting in silence for a full response — which
+ * can take several seconds on the local development model. Google Chat
+ * never sets it, since `messages send` needs one complete message anyway
+ * — it stays on the plain `generateText` path below unchanged.
  */
 import { stepCountIs, type LanguageModel, type Tool } from "ai";
-import { generateText } from "ai-sdk-ollama";
+import { generateText, streamText } from "ai-sdk-ollama";
 import type { Message, SessionHistory } from "./history.ts";
 
 /**
@@ -57,6 +65,15 @@ type GenerateTextFn = (params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) => Promise<{ text: string }>;
+
+/** The shape of the AI SDK streaming call this module needs, injectable for tests. */
+type StreamTextFn = (params: {
+  model: LanguageModel;
+  messages: Message[];
+  tools: Record<string, Tool>;
+  system: string;
+  onStepFinish?: (step: StepInfo) => void;
+}) => Promise<{ textStream: AsyncIterable<string> }>;
 
 /**
  * Builds the params object passed to the real `generateText`. Extracted
@@ -96,6 +113,28 @@ const defaultGenerateTextFn: GenerateTextFn = (params) =>
   generateText(buildGenerateTextParams(params));
 
 /**
+ * Builds the params object passed to the real `streamText`. Same
+ * `stopWhen` reasoning as `buildGenerateTextParams` — a tool-call-only
+ * first step must not be the stream's last step either. `ai-sdk-ollama`'s
+ * `streamText` carries its own equivalent of the empty-text-after-
+ * tool-call fix (`enableStreamingSynthesis`, on by default) — verified by
+ * reading its source before relying on it, not assumed from the
+ * non-streaming behavior.
+ */
+export function buildStreamTextParams(params: {
+  model: LanguageModel;
+  messages: Message[];
+  tools: Record<string, Tool>;
+  system: string;
+  onStepFinish?: (step: StepInfo) => void;
+}) {
+  return { ...params, stopWhen: stepCountIs(5) };
+}
+
+/** Default production implementation: calls the real `streamText` from `ai-sdk-ollama`. */
+const defaultStreamTextFn: StreamTextFn = (params) => streamText(buildStreamTextParams(params));
+
+/**
  * Runs one turn: records `userInput`, generates a response with the
  * given model/tools/system prompt, records the response, and returns it.
  *
@@ -117,10 +156,18 @@ const defaultGenerateTextFn: GenerateTextFn = (params) =>
  *   `src/index.ts`. Google Chat doesn't wire this up; showing raw tool
  *   calls to a chat audience isn't the same call as showing them to
  *   whoever's debugging at a terminal.
- * @param deps.generateTextFn - Test seam; defaults to the real AI SDK
- *   call. Injecting a fake here only tests this function's own
- *   sequencing — it does not exercise the real model or the real AI SDK
- *   integration, which can only be verified by an actual end-to-end run.
+ * @param deps.onTextChunk - Optional. When provided, this turn uses
+ *   `streamText` instead of `generateText`, calling this once per text
+ *   chunk as it arrives — see the file header for why this is terminal-
+ *   only. The returned string and the recorded history entry are the
+ *   same either way: the full text, joined from every chunk.
+ * @param deps.generateTextFn - Test seam for the non-streaming path;
+ *   defaults to the real AI SDK call. Injecting a fake here only tests
+ *   this function's own sequencing — it does not exercise the real model
+ *   or the real AI SDK integration, which can only be verified by an
+ *   actual end-to-end run.
+ * @param deps.streamTextFn - Test seam for the streaming path (used when
+ *   `onTextChunk` is provided), same caveat as `generateTextFn`.
  */
 export async function runTurn(
   history: SessionHistory,
@@ -130,10 +177,32 @@ export async function runTurn(
     tools: Record<string, Tool>;
     system: string;
     onStepFinish?: (step: StepInfo) => void;
+    onTextChunk?: (chunk: string) => void;
     generateTextFn?: GenerateTextFn;
+    streamTextFn?: StreamTextFn;
   },
 ): Promise<string> {
   await history.addUserMessage(userInput);
+
+  if (deps.onTextChunk) {
+    const stream = deps.streamTextFn ?? defaultStreamTextFn;
+    const { textStream } = await stream({
+      model: deps.model,
+      messages: history.getMessages(),
+      tools: deps.tools,
+      system: deps.system,
+      onStepFinish: deps.onStepFinish,
+    });
+
+    let fullText = "";
+    for await (const chunk of textStream) {
+      fullText += chunk;
+      deps.onTextChunk(chunk);
+    }
+
+    await history.addAssistantMessage(fullText);
+    return fullText;
+  }
 
   const generate = deps.generateTextFn ?? defaultGenerateTextFn;
   const { text } = await generate({

@@ -99,4 +99,53 @@ describe("startTerminalRepl", () => {
     expect(results[1]).toContain("boom");
     expect(results[2]).toBe("ok: good-after");
   });
+
+  // The terminal-side half of streaming: handleInput receives an onChunk
+  // it can call as text arrives, so the REPL doesn't sit silent for the
+  // several seconds a full local-model response can take.
+  it("writes each chunk as handleInput emits it via onChunk, then a closing newline and the next prompt", async () => {
+    const output = fakeOutput();
+    const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {
+      onChunk("Hel");
+      onChunk("lo");
+      return "Hello";
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.calls).toEqual([
+      { text: PROMPT, newline: false },
+      { text: "Hel", newline: false },
+      { text: "lo", newline: false },
+      { text: "", newline: true },
+      { text: PROMPT, newline: false },
+    ]);
+  });
+
+  it("doesn't duplicate output: when handleInput never calls onChunk, the returned result is written once", async () => {
+    const output = fakeOutput();
+    const handleInput = async (input: string, _onChunk: (chunk: string) => void) =>
+      `echo: ${input}`;
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.lines).toEqual([PROMPT, "echo: hi", PROMPT]);
+  });
+
+  it("ends the streamed line before printing an error, when handleInput streams then rejects", async () => {
+    const output = fakeOutput();
+    const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {
+      onChunk("partial");
+      throw new Error("boom");
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    const texts = output.calls.map((c) => c.text);
+    expect(texts[0]).toBe(PROMPT);
+    expect(texts[1]).toBe("partial");
+    expect(texts[2]).toBe("");
+    expect(texts[3]).toContain("boom");
+    expect(texts[4]).toBe(PROMPT);
+  });
 });

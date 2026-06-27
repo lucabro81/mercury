@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runTurn, buildGenerateTextParams } from "./agent-turn.ts";
+import { runTurn, buildGenerateTextParams, buildStreamTextParams } from "./agent-turn.ts";
 import { createSessionHistory } from "./history.ts";
 import type { Message } from "./history.ts";
 import type { Tool } from "ai";
@@ -119,6 +119,77 @@ describe("runTurn", () => {
 
     expect(receivedOnStepFinish).toBe(onStepFinish);
   });
+
+  // The terminal channel uses onTextChunk to print Mercury's answer as it
+  // arrives instead of waiting for the whole thing — see
+  // src/router/terminal.ts. Google Chat never sets onTextChunk, so it
+  // keeps using the generateTextFn path above unchanged.
+  it("streams chunks via onTextChunk and returns the full joined text, when onTextChunk is provided", async () => {
+    async function* fakeStream(chunks: string[]) {
+      for (const chunk of chunks) {
+        yield chunk;
+      }
+    }
+    const history = createSessionHistory(neverSummarize);
+    const received: string[] = [];
+    const streamTextFn = async () => ({ textStream: fakeStream(["Hel", "lo, ", "world"]) });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: (chunk) => received.push(chunk),
+    });
+
+    expect(received).toEqual(["Hel", "lo, ", "world"]);
+    expect(result).toBe("Hello, world");
+  });
+
+  it("records the full joined streamed text as the assistant's message", async () => {
+    async function* fakeStream(chunks: string[]) {
+      for (const chunk of chunks) {
+        yield chunk;
+      }
+    }
+    const history = createSessionHistory(neverSummarize);
+    const streamTextFn = async () => ({ textStream: fakeStream(["foo", "bar"]) });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+    });
+
+    expect(history.getMessages()).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "foobar" },
+    ]);
+  });
+
+  it("passes an onStepFinish callback through to the streaming call too", async () => {
+    async function* fakeStream() {}
+    const history = createSessionHistory(neverSummarize);
+    let received: unknown;
+    const streamTextFn = async (params: { onStepFinish?: unknown }) => {
+      received = params.onStepFinish;
+      return { textStream: fakeStream() };
+    };
+    const onStepFinish = () => {};
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onStepFinish,
+    });
+
+    expect(received).toBe(onStepFinish);
+  });
 });
 
 describe("buildGenerateTextParams", () => {
@@ -130,6 +201,21 @@ describe("buildGenerateTextParams", () => {
   // call jiraCli and return an empty string, with no error anywhere.
   it("includes a stopWhen that allows more than one step, so a tool call isn't the final step", () => {
     const params = buildGenerateTextParams({
+      model: "fake-model" as never,
+      messages: [],
+      tools: {},
+      system: SYSTEM,
+    });
+
+    expect(params.stopWhen).toBeDefined();
+  });
+});
+
+describe("buildStreamTextParams", () => {
+  // Same regression as buildGenerateTextParams's, for the streaming path:
+  // a tool-call-only first step must not be the stream's last step.
+  it("includes a stopWhen that allows more than one step, so a tool call isn't the final step", () => {
+    const params = buildStreamTextParams({
       model: "fake-model" as never,
       messages: [],
       tools: {},

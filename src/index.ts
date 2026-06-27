@@ -59,6 +59,8 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): st
       "You have access to the joinSpace tool: if a user asks you to participate in a specific Google Chat space, use it to start listening immediately instead of waiting for periodic discovery.",
     );
   }
+
+  lines.push("Never introduce yourself as Mercury unless requested; the user most likely already knows who you are. NEVER respond in Markdown—prefer plain text; a different formatting is permissible only if explicitly requested. Communication MUST be dry yet respectful and nonetheless comprehensive; further explanations or extra actions should be performed only if requested. No follow-up questions—only presentation, interpretation, and possibly considerations on the results obtained. If you believe a point of view is necessary, feel free to provide it, but always make it concise and place it strictly at the end.")
   return lines.join("\n");
 }
 
@@ -115,7 +117,7 @@ if (googleChatTopic) {
 const MAX_INLINE_CHARS = 600;
 let lastSteps: StepInfo[] = [];
 
-await startTerminalRepl(async (input) => {
+await startTerminalRepl(async (input, onChunk) => {
   const dumpCommand = parseDumpCommand(input);
   if (dumpCommand) {
     const path = dumpCommand.path ?? defaultDumpPath();
@@ -128,6 +130,12 @@ await startTerminalRepl(async (input) => {
     model,
     tools,
     system,
+    // Streams the answer to the terminal as it's generated instead of
+    // going silent for however long the full response takes — the local
+    // development model can take several seconds. Google Chat's wiring
+    // above never sets this, since `messages send` needs one complete
+    // message anyway.
+    onTextChunk: onChunk,
     // Visibility into what Mercury did before answering — the terminal
     // exists for bootstrap/debugging, so showing this here is in scope;
     // Google Chat's wiring above deliberately doesn't do the same.
