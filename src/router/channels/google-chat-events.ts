@@ -259,7 +259,14 @@ export function startGoogleChatChannelManager(
 
   (async () => {
     while (!managerController.signal.aborted) {
-      await tick();
+      try {
+        await tick();
+      } catch (err) {
+        // A failed tick (e.g. expired credentials, a transient API error)
+        // must not take down the whole process — this loop runs in the
+        // same process as every other channel, including the terminal.
+        console.error(`[google-chat] discovery tick failed: ${String(err)}`);
+      }
       await sleep(opts.discoveryIntervalMs, managerController.signal);
     }
   })();

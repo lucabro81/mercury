@@ -347,4 +347,40 @@ describe("startGoogleChatChannelManager", () => {
     await new Promise((r) => setTimeout(r, 60));
     expect(listSpacesCalls).toBe(callsAtStop);
   });
+
+  // Regression: a tick that throws (e.g. listSpacesFn failing on expired
+  // credentials) was an unhandled rejection inside the discovery loop's
+  // un-awaited IIFE — which crashed the entire Mercury process, not just
+  // the Google Chat channel, since both run in the same process.
+  // Observed live: discovery hit expired Google Chat credentials, and
+  // took the terminal REPL down with it.
+  it("keeps polling on the next tick after a tick throws, instead of crashing", async () => {
+    const ensureCalls: string[] = [];
+    let listSpacesCalls = 0;
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
+      ensureCalls.push(space);
+      return { name: `subscriptions/${space}` };
+    };
+    const listSpacesFn: typeof listSpaces = async () => {
+      listSpacesCalls++;
+      if (listSpacesCalls === 1) {
+        throw new Error("credentials expired");
+      }
+      return ["spaces/A"];
+    };
+    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
+
+    const manager = startGoogleChatChannelManager(
+      async () => "ok",
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
+      { topic: "projects/p/topics/t", discoveryIntervalMs: 15 },
+    );
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(listSpacesCalls).toBeGreaterThan(1);
+    expect(ensureCalls).toEqual(["spaces/A"]);
+
+    await manager.stop();
+  });
 });
