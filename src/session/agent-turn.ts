@@ -70,7 +70,7 @@ type GenerateTextFn = (params: {
   tools: Record<string, Tool>;
   system: string;
   onStepFinish?: (step: StepInfo) => void;
-}) => Promise<{ text: string }>;
+}) => Promise<{ text: string; totalUsage?: { inputTokens: number | undefined } }>;
 
 /** The shape of the AI SDK streaming call this module needs, injectable for tests. */
 type StreamTextFn = (params: {
@@ -79,7 +79,10 @@ type StreamTextFn = (params: {
   tools: Record<string, Tool>;
   system: string;
   onStepFinish?: (step: StepInfo) => void;
-}) => Promise<{ textStream: AsyncIterable<string> }>;
+}) => Promise<{
+  textStream: AsyncIterable<string>;
+  totalUsage?: PromiseLike<{ inputTokens: number | undefined }>;
+}>;
 
 /**
  * Builds the params object passed to the real `generateText`. Extracted
@@ -174,6 +177,14 @@ const defaultStreamTextFn: StreamTextFn = (params) => streamText(buildStreamText
  *   actual end-to-end run.
  * @param deps.streamTextFn - Test seam for the streaming path (used when
  *   `onTextChunk` is provided), same caveat as `generateTextFn`.
+ * @param deps.onUsage - Optional, called once per turn with the real
+ *   `inputTokens` count the model actually consumed (summed across every
+ *   step, including tool calls) — not an estimate. The terminal channel
+ *   uses this for a real context-usage indicator (see
+ *   `src/router/tool-log.ts`'s `formatContextUsage`); Mercury's own char-
+ *   count heuristic in `src/session/history.ts` is for a different
+ *   purpose (deciding when to summarize) and intentionally untouched by
+ *   this.
  */
 export async function runTurn(
   history: SessionHistory,
@@ -184,6 +195,7 @@ export async function runTurn(
     system: string;
     onStepFinish?: (step: StepInfo) => void;
     onTextChunk?: (chunk: string) => void;
+    onUsage?: (inputTokens: number | undefined) => void;
     generateTextFn?: GenerateTextFn;
     streamTextFn?: StreamTextFn;
   },
@@ -192,7 +204,7 @@ export async function runTurn(
 
   if (deps.onTextChunk) {
     const stream = deps.streamTextFn ?? defaultStreamTextFn;
-    const { textStream } = await stream({
+    const result = await stream({
       model: deps.model,
       messages: history.getMessages(),
       tools: deps.tools,
@@ -201,24 +213,26 @@ export async function runTurn(
     });
 
     let fullText = "";
-    for await (const chunk of textStream) {
+    for await (const chunk of result.textStream) {
       fullText += chunk;
       deps.onTextChunk(chunk);
     }
+    deps.onUsage?.((await result.totalUsage)?.inputTokens);
 
     await history.addAssistantMessage(fullText);
     return fullText;
   }
 
   const generate = deps.generateTextFn ?? defaultGenerateTextFn;
-  const { text } = await generate({
+  const result = await generate({
     model: deps.model,
     messages: history.getMessages(),
     tools: deps.tools,
     system: deps.system,
     onStepFinish: deps.onStepFinish,
   });
+  deps.onUsage?.(result.totalUsage?.inputTokens);
 
-  await history.addAssistantMessage(text);
-  return text;
+  await history.addAssistantMessage(result.text);
+  return result.text;
 }

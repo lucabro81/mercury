@@ -11,10 +11,11 @@
  * make that call in one place.
  */
 import { getOllamaProvider } from "./model/client.ts";
+import { getLoadedContextLength } from "./model/context-size.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
 import { createJiraTool } from "./tools/jira.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
-import { createSessionHistory, MAX_HISTORY_CHARS, type SessionHistory } from "./session/history.ts";
+import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
@@ -106,7 +107,9 @@ const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic) });
 
 const provider = getOllamaProvider();
-const model = provider(requireEnv("OLLAMA_MODEL"));
+const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for getLoadedContextLength's direct HTTP call
+const ollamaModel = requireEnv("OLLAMA_MODEL");
+const model = provider(ollamaModel);
 const summarize = createSummarizer(model);
 
 const histories = new Map<string, SessionHistory>();
@@ -149,6 +152,14 @@ if (googleChatTopic) {
 const MAX_INLINE_CHARS = 600;
 let lastSteps: StepInfo[] = [];
 
+// Real (not estimated) context-usage figures for the prompt indicator
+// below. lastInputTokens comes from runTurn's onUsage, once a turn has
+// actually completed. contextLength is fetched lazily, after the first
+// turn — /api/ps only reports models that are actually loaded, and the
+// model isn't loaded until its first real call.
+let lastInputTokens: number | undefined;
+let contextLength: number | null = null;
+
 await startTerminalRepl(
   async (input, onChunk) => {
     const dumpCommand = parseDumpCommand(input);
@@ -159,7 +170,7 @@ await startTerminalRepl(
     }
 
     lastSteps = [];
-    return runTurn(getOrCreateHistory("terminal"), input, {
+    const result = await runTurn(getOrCreateHistory("terminal"), input, {
       model,
       tools,
       system,
@@ -181,11 +192,18 @@ await startTerminalRepl(
           console.error(describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS));
         }
       },
+      onUsage: (inputTokens) => {
+        lastInputTokens = inputTokens;
+      },
     });
+    if (contextLength === null) {
+      contextLength = await getLoadedContextLength(ollamaHost, ollamaModel);
+    }
+    return result;
   },
   undefined,
   // A degraded answer under a long conversation is hard to tell apart by
-  // eye from "the context is genuinely near full" — this shows a live
-  // estimate right before every prompt, terminal-only debugging aid.
-  { promptSuffix: () => formatContextUsage(getOrCreateHistory("terminal").getCharCount(), MAX_HISTORY_CHARS) },
+  // eye from "the context is genuinely near full" — this shows a live,
+  // real figure right before every prompt, terminal-only debugging aid.
+  { promptSuffix: () => formatContextUsage(lastInputTokens, contextLength) },
 );

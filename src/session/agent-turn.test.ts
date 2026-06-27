@@ -190,6 +190,55 @@ describe("runTurn", () => {
 
     expect(received).toBe(onStepFinish);
   });
+
+  // The terminal channel shows this next to the prompt as a real (not
+  // estimated) context-usage indicator — see src/router/tool-log.ts's
+  // formatContextUsage and src/index.ts's wiring.
+  it("passes the real inputTokens from totalUsage to onUsage, on the generateText path", async () => {
+    const history = createSessionHistory(neverSummarize);
+    let receivedInputTokens: number | undefined;
+    const generateTextFn = async () => ({
+      text: "ok",
+      totalUsage: { inputTokens: 1234 },
+    });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      generateTextFn,
+      onUsage: (inputTokens) => {
+        receivedInputTokens = inputTokens;
+      },
+    });
+
+    expect(receivedInputTokens).toBe(1234);
+  });
+
+  it("passes the real inputTokens from totalUsage to onUsage, on the streaming path", async () => {
+    async function* fakeStream() {
+      yield "ok";
+    }
+    const history = createSessionHistory(neverSummarize);
+    let receivedInputTokens: number | undefined;
+    const streamTextFn = async () => ({
+      textStream: fakeStream(),
+      totalUsage: Promise.resolve({ inputTokens: 5678 }),
+    });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onUsage: (inputTokens) => {
+        receivedInputTokens = inputTokens;
+      },
+    });
+
+    expect(receivedInputTokens).toBe(5678);
+  });
 });
 
 describe("buildGenerateTextParams", () => {

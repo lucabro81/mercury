@@ -136,15 +136,30 @@ describe("describeToolOutcome", () => {
 
 describe("formatContextUsage", () => {
   // The model degrading under a long multi-turn conversation is hard to
-  // tell apart from "context is actually near full" by eye — this gives
-  // a live char/4-token estimate next to the prompt (see src/index.ts),
-  // same heuristic and threshold src/session/history.ts already uses to
-  // decide when to summarize.
-  it("formats a rounded k-token estimate of charCount over maxChars", () => {
-    expect(formatContextUsage(12_000, 60_000)).toBe("[~3k/~15k tokens] ");
+  // tell apart from "context is actually near full" by eye — this shows
+  // real token counts next to the prompt (see src/index.ts): usedTokens
+  // is the real inputTokens the last call reported (src/session/
+  // agent-turn.ts's onUsage), maxTokens is what Ollama actually has the
+  // model loaded with right now (src/model/context-size.ts), not an
+  // estimate or the model's architectural maximum.
+  it("formats a rounded k-token count of real usedTokens over real maxTokens", () => {
+    expect(formatContextUsage(12_345, 262_144)).toBe("[~12k/~262k tokens] ");
   });
 
-  it("rounds down to 0k for a small charCount instead of showing 0.x", () => {
-    expect(formatContextUsage(100, 60_000)).toBe("[~0k/~15k tokens] ");
+  it("rounds down to 0k for a small usedTokens instead of showing 0.x", () => {
+    expect(formatContextUsage(100, 262_144)).toBe("[~0k/~262k tokens] ");
+  });
+
+  // maxTokens is null before the model has been loaded at least once
+  // (src/model/context-size.ts's getLoadedContextLength can't find it
+  // yet) — show what we do know rather than a misleading "/~0k".
+  it("omits the denominator when maxTokens isn't known yet", () => {
+    expect(formatContextUsage(12_345, null)).toBe("[~12k tokens] ");
+  });
+
+  // usedTokens is undefined before the first turn has completed (no real
+  // usage figure exists yet).
+  it("shows a placeholder for usedTokens before any turn has completed", () => {
+    expect(formatContextUsage(undefined, 262_144)).toBe("[~?k/~262k tokens] ");
   });
 });

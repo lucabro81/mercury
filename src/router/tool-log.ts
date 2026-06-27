@@ -91,15 +91,26 @@ export function describeToolOutcome(step: StepInfo, toolCallId: string, maxChars
 }
 
 /**
- * Formats a rounded `chars/4` token estimate of `charCount` against
- * `maxChars` (the same heuristic and threshold `src/session/history.ts`
- * uses to decide when to summarize), for display next to the terminal
- * prompt. A model degrading over a long conversation is hard to tell
+ * Formats real token counts for display next to the terminal prompt:
+ * `usedTokens` is the real `inputTokens` the last turn's call reported
+ * (see `src/session/agent-turn.ts`'s `onUsage`), `maxTokens` is the
+ * context length Ollama actually has the model loaded with right now
+ * (see `src/model/context-size.ts`) — not an estimate, and not the
+ * model's architectural maximum, which can overstate what's really
+ * usable. A model degrading over a long conversation is hard to tell
  * apart by eye from "the context is genuinely near full" — this gives a
  * live number instead of having to guess.
+ *
+ * `maxTokens` is `null` before the model has been loaded at least once
+ * this process (nothing to report yet) — the denominator is omitted
+ * rather than showing a misleading `/~0k`. `usedTokens` is `undefined`
+ * before the first turn has completed, shown as `?` for the same reason.
  */
-export function formatContextUsage(charCount: number, maxChars: number): string {
-  const used = Math.floor(charCount / 4 / 1000);
-  const max = Math.floor(maxChars / 4 / 1000);
+export function formatContextUsage(usedTokens: number | undefined, maxTokens: number | null): string {
+  const used = usedTokens === undefined ? "?" : Math.floor(usedTokens / 1000);
+  if (maxTokens === null) {
+    return `[~${used}k tokens] `;
+  }
+  const max = Math.floor(maxTokens / 1000);
   return `[~${used}k/~${max}k tokens] `;
 }
