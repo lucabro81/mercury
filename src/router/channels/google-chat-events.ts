@@ -137,6 +137,11 @@ export async function startGoogleChatSpaceChannel(
   );
 
   async function processLine(line: string): Promise<void> {
+    // The exact NDJSON shape `listen` prints was never verified against
+    // a real run before this — server-side only, so a real event that
+    // parseMessageEventLine fails to recognize is visible instead of
+    // silently doing nothing.
+    console.error(`[chat:${space}] raw event: ${line}`);
     const event = parseMessageEventLine(line);
     if (!event || sentMessageNames.has(event.messageName)) {
       return;
