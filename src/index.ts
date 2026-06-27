@@ -20,6 +20,7 @@ import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
 import {
   truncateForDisplay,
+  describeToolOutcome,
   parseDumpCommand,
   defaultDumpPath,
   writeDump,
@@ -145,12 +146,7 @@ await startTerminalRepl(async (input, onChunk) => {
         console.error(
           `[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
         );
-        const result = step.toolResults.find((r) => r.toolCallId === call.toolCallId);
-        console.error(
-          result
-            ? `[tool result] ${truncateForDisplay(result.output, MAX_INLINE_CHARS)}`
-            : "[tool result] (none)",
-        );
+        console.error(describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS));
       }
     },
   });

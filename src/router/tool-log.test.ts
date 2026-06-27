@@ -1,7 +1,13 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { truncateForDisplay, parseDumpCommand, writeDump, defaultDumpPath } from "./tool-log.ts";
+import {
+  truncateForDisplay,
+  parseDumpCommand,
+  writeDump,
+  defaultDumpPath,
+  describeToolOutcome,
+} from "./tool-log.ts";
 import type { StepInfo } from "../session/agent-turn.ts";
 
 describe("truncateForDisplay", () => {
@@ -76,6 +82,7 @@ describe("writeDump", () => {
       {
         toolCalls: [{ toolCallId: "1", toolName: "jiraCli", input: { args: ["doctor"] } }],
         toolResults: [{ toolCallId: "1", toolName: "jiraCli", output: { ok: true, data: {} } }],
+        content: [],
       },
     ];
 
@@ -84,5 +91,44 @@ describe("writeDump", () => {
     const written = await Bun.file(path).text();
     expect(written).toContain("\n  "); // indented, not a single minified line
     expect(JSON.parse(written)).toEqual(steps);
+  });
+});
+
+describe("describeToolOutcome", () => {
+  // Regression: a tool call that fails before ever executing (e.g.
+  // malformed arguments that don't match the tool's schema) has no
+  // entry in toolResults — printing "(none)" for it hid a real error
+  // behind a label that looked like "nothing happened", observed live
+  // right after the model sent args as a JSON string instead of an array.
+  it("reports a tool-error content part for a call with no matching result", () => {
+    const step: StepInfo = {
+      toolCalls: [{ toolCallId: "1", toolName: "jiraCli", input: "not-an-array" }],
+      toolResults: [],
+      content: [{ type: "tool-error", toolCallId: "1", error: "invalid arguments" }],
+    };
+
+    expect(describeToolOutcome(step, "1", 500)).toBe(
+      '[tool error] "invalid arguments"',
+    );
+  });
+
+  it("reports the matching tool result when one exists", () => {
+    const step: StepInfo = {
+      toolCalls: [{ toolCallId: "1", toolName: "jiraCli", input: { args: ["doctor"] } }],
+      toolResults: [{ toolCallId: "1", toolName: "jiraCli", output: { ok: true } }],
+      content: [],
+    };
+
+    expect(describeToolOutcome(step, "1", 500)).toBe('[tool result] {"ok":true}');
+  });
+
+  it("falls back to (none) when there's neither a result nor a tool-error for that call", () => {
+    const step: StepInfo = {
+      toolCalls: [{ toolCallId: "1", toolName: "jiraCli", input: {} }],
+      toolResults: [],
+      content: [],
+    };
+
+    expect(describeToolOutcome(step, "1", 500)).toBe("[tool result] (none)");
   });
 });

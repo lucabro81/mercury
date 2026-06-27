@@ -46,15 +46,21 @@ import type { Message, SessionHistory } from "./history.ts";
  * about — just enough to show what tool Mercury called, with what
  * input, and what it got back. `toolCallId` is what links an entry in
  * `toolCalls` to its entry in `toolResults` — a call with no matching
- * result (still running, or errored) is a real case callers need to
- * handle explicitly rather than assume a 1:1 pairing. The real AI SDK
- * step object has many more fields; this is a subset, which is fine
+ * result is a real case callers need to handle explicitly rather than
+ * assume a 1:1 pairing: it means the call failed before ever executing
+ * (e.g. malformed arguments that don't match the tool's schema), which
+ * shows up as a `tool-error` entry in `content`, not in `toolResults` —
+ * confirmed against the real AI SDK's `StepResult` type, which has no
+ * separate `toolErrors` array; `content` is the one place every part
+ * (text/tool-call/tool-result/tool-error) actually lives. The real AI
+ * SDK step object has many more fields; this is a subset, which is fine
  * since function parameter types only need to be structurally
  * compatible, not identical.
  */
 export type StepInfo = {
   toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
   toolResults: Array<{ toolCallId: string; toolName: string; output: unknown }>;
+  content: Array<{ type: string; toolCallId?: string; error?: unknown }>;
 };
 
 /** The shape of the AI SDK call this module needs, injectable for tests. */

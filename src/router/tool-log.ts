@@ -67,3 +67,25 @@ export function parseDumpCommand(line: string): { path: string | undefined } | n
 export async function writeDump(path: string, steps: StepInfo[]): Promise<void> {
   await Bun.write(path, JSON.stringify(steps, null, 2));
 }
+
+/**
+ * Describes what happened to the tool call identified by `toolCallId`
+ * within `step`: its result if it executed, the `tool-error` content
+ * part if it failed before executing (e.g. arguments that don't match
+ * the tool's schema — there's no `toolResults` entry for this case, it
+ * only shows up in `content`), or an explicit "(none)" if neither is
+ * present. Printing "(none)" for an actual failure was the bug this
+ * fixes — it read as "nothing happened" when something had, in fact,
+ * gone wrong and been silently dropped from view.
+ */
+export function describeToolOutcome(step: StepInfo, toolCallId: string, maxChars: number): string {
+  const result = step.toolResults.find((r) => r.toolCallId === toolCallId);
+  if (result) {
+    return `[tool result] ${truncateForDisplay(result.output, maxChars)}`;
+  }
+  const errorPart = step.content.find((p) => p.type === "tool-error" && p.toolCallId === toolCallId);
+  if (errorPart) {
+    return `[tool error] ${truncateForDisplay(errorPart.error, maxChars)}`;
+  }
+  return "[tool result] (none)";
+}
