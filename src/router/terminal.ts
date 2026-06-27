@@ -27,23 +27,6 @@
 import * as readline from "node:readline";
 
 /**
- * Lines from the real process stdin, one per line, ending at EOF
- * (Ctrl+D).
- *
- * `output` must be given for Node to enable raw-mode line editing
- * (arrow keys, backspace, history) — readline only infers `terminal:
- * true` when both `input` and `output` are TTYs. Without it, arrow keys
- * arrived as literal escape sequence characters (`^[[C`, `^[[D`) instead
- * of moving the cursor, since nothing was interpreting them.
- */
-async function* realStdinLines(): AsyncIterable<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  for await (const line of rl) {
-    yield line;
-  }
-}
-
-/**
  * Writes to the real process stdout. Appends a newline by default — the
  * prompt is the one caller that passes `{ newline: false }`, since it
  * must stay on the same line as whatever the user types next.
@@ -92,12 +75,26 @@ export async function startTerminalRepl(
   },
   opts?: { promptSuffix?: () => string },
 ): Promise<void> {
-  const input = io?.input ?? realStdinLines();
+  // Real stdin: readline itself must own prompt rendering (via
+  // setPrompt/prompt(), not a plain output.write), or its own redraws —
+  // e.g. when the user presses an arrow key to recall history — only
+  // know how to repaint the prompt text *it* set, wiping out anything
+  // (like the dynamic promptSuffix below) written outside of it.
+  const rl = io?.input
+    ? null
+    : readline.createInterface({ input: process.stdin, output: process.stdout });
+  const input = io?.input ?? rl!;
   const output = io?.output ?? { write: realOutputWrite };
 
   const writePrompt = () => {
-    if (opts?.promptSuffix) {
-      output.write(opts.promptSuffix(), { newline: false });
+    const suffix = opts?.promptSuffix?.() ?? "";
+    if (rl) {
+      rl.setPrompt(suffix + PROMPT);
+      rl.prompt();
+      return;
+    }
+    if (suffix) {
+      output.write(suffix, { newline: false });
     }
     output.write(PROMPT, { newline: false });
   };
