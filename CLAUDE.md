@@ -15,7 +15,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 - LLM: Ollama-compatible endpoint, always via `OLLAMA_HOST`, never hardcoded
 - Vector store: Qdrant
 - External integrations: dedicated CLI binaries per service (separate repo), invoked as subprocesses — never MCP
-- Container: Docker, single container, Debian base (`oven/bun:1`) — not Alpine, see M0 scaffold notes below
+- Container: Docker, single container, Debian base (`oven/bun:1`) — not Alpine, see Operational notes below
 
 ## Non-negotiable principles
 
@@ -40,26 +40,29 @@ mercury/
 ├── docs/
 │   ...
 ├── scripts/
-│   └── install-clis.sh     
+│   └── install-clis.sh
 ├── src/
-│   ├── router/             
-│   │   └── channels/
-│   ├── session/            
-│   ├── memory/              
-│   ├── wiki/                
-│   ├── tools/               
-│   ├── cron/                
-│   └── model/               
+│   ├── index.ts              # composition root — wires model/tools/channels
+│   ├── model/                # Ollama provider, real context-window lookup
+│   ├── session/               # Layer 1 history + summarizer + agent-turn loop
+│   ├── tools/                 # CLI executor + per-CLI tool modules (jira, joinSpace)
+│   ├── router/
+│   │   ├── terminal.ts         # REPL channel
+│   │   ├── tool-log.ts         # terminal-only debug visibility helpers
+│   │   └── channels/           # Google Chat channel (discovery + per-space listen)
+│   ├── memory/                # Layer 3 — empty until M2
+│   ├── wiki/                  # Layer 2 — empty until M2
+│   └── cron/                  # empty until M2
 ├── Dockerfile
-├── docker-compose.yml          
-├── docker-compose.override.yml 
+├── docker-compose.yml
+├── docker-compose.override.yml
 ├── .env.example
 └── package.json
 ```
 
-The directories under `src/` are still empty (only `.gitkeep`) — no application logic written until TDD is followed for each module.
+M1 (Jira read-only path, Layer 1 memory, terminal channel, Google Chat channel) is implemented and verified live on both channels — see `CLAUDE.local.md` for current milestone status and what M2 adds. `memory/`, `wiki/`, `cron/` stay empty (`.gitkeep` only) until then.
 
-## M0 scaffold — operational notes
+## Operational notes
 
 - **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
@@ -70,3 +73,11 @@ The directories under `src/` are still empty (only `.gitkeep`) — no applicatio
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
+
+## Hard-won conventions (from M1, apply going forward)
+
+- **An unhandled rejection in an un-awaited async loop kills the whole process**, not just the feature it belongs to — every channel/poller's loop body must be wrapped in try/catch and log on failure, never let one bad tick take down the rest of Mercury (observed live: a Google Chat discovery failure took the terminal REPL down with it, since both run in the same process)
+- **A long-running spawned process (`spawnLines`) must surface its own exit code and stderr** — a process that crashes on its own, silently, looks identical to a clean exit unless you check; `exited` must reject when the exit wasn't caused by the caller's own abort signal
+- **Exit 0 with non-JSON stdout is success, not a parse failure** (`runCli`) — `--help` output is exactly this shape; treating it as an error sent a model into a confused retry spiral on every session that started with `--help` discovery
+- **`readline`'s `output` option (needed for arrow-key/history support) must be gated on `stdin.isTTY` alone, not on whether `io.input` was injected** — passing it against a non-TTY-but-real stdin (e.g. a piped exec session) breaks normal input; passing it against a fully detached/closed stdin (a backgrounded container) crashes the process outright
+- **A Pub/Sub topic shared across multiple subscriptions delivers every message to every subscriber** — there's no built-in "this subscription only gets its own events" behavior; a per-space pull-subscription *name* is bookkeeping, not isolation. Application code must filter by the event's actual target, or rely on a subscription-level message filter set at creation time (not yet exposed by the CLI as of M1 — see M2's tech-debt list)
