@@ -35,6 +35,9 @@ function realOutputWrite(s: string, opts?: { newline?: boolean }): void {
   process.stdout.write(opts?.newline === false ? s : s + "\n");
 }
 
+/** Never yields — the input source for when there's no real terminal to read from. */
+async function* noInput(): AsyncIterable<string> {}
+
 /**
  * Written before the first input and again after every result, so a
  * human at the terminal can tell an answer has finished and the next
@@ -75,15 +78,27 @@ export async function startTerminalRepl(
   },
   opts?: { promptSuffix?: () => string },
 ): Promise<void> {
-  // Real stdin: readline itself must own prompt rendering (via
-  // setPrompt/prompt(), not a plain output.write), or its own redraws —
-  // e.g. when the user presses an arrow key to recall history — only
-  // know how to repaint the prompt text *it* set, wiping out anything
-  // (like the dynamic promptSuffix below) written outside of it.
-  const rl = io?.input
-    ? null
-    : readline.createInterface({ input: process.stdin, output: process.stdout });
-  const input = io?.input ?? rl!;
+  // Real stdin, and only when it's an actual TTY: readline itself must
+  // own prompt rendering (via setPrompt/prompt(), not a plain
+  // output.write), or its own redraws — e.g. when the user presses an
+  // arrow key to recall history — only know how to repaint the prompt
+  // text *it* set, wiping out anything (like the dynamic promptSuffix
+  // below) written outside of it.
+  //
+  // Without the isTTY guard, creating this against Docker's detached
+  // (no terminal attached) stdin crashed the whole process on startup —
+  // observed live: `AbortError: Stream reader cancelled via
+  // releaseLock()`, thrown from inside readline's own stream handling
+  // against that kind of stdin, not something this file can catch
+  // around. There's no one to type arrow keys for in that case anyway —
+  // falling back to `noInput()` ends this REPL's loop immediately and
+  // lets whatever else (e.g. the Google Chat channel) keeps the process
+  // alive run as a background-only instance.
+  const isInteractive = !io?.input && process.stdin.isTTY;
+  const rl = isInteractive
+    ? readline.createInterface({ input: process.stdin, output: process.stdout })
+    : null;
+  const input = io?.input ?? rl ?? noInput();
   const output = io?.output ?? { write: realOutputWrite };
 
   const writePrompt = () => {
