@@ -26,9 +26,18 @@
  */
 import * as readline from "node:readline";
 
-/** Lines from the real process stdin, one per line, ending at EOF (Ctrl+D). */
+/**
+ * Lines from the real process stdin, one per line, ending at EOF
+ * (Ctrl+D).
+ *
+ * `output` must be given for Node to enable raw-mode line editing
+ * (arrow keys, backspace, history) — readline only infers `terminal:
+ * true` when both `input` and `output` are TTYs. Without it, arrow keys
+ * arrived as literal escape sequence characters (`^[[C`, `^[[D`) instead
+ * of moving the cursor, since nothing was interpreting them.
+ */
 async function* realStdinLines(): AsyncIterable<string> {
-  const rl = readline.createInterface({ input: process.stdin });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   for await (const line of rl) {
     yield line;
   }
