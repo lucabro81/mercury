@@ -32,19 +32,23 @@ import {
 } from "./google-chat-client.ts";
 
 /** A parsed incoming message event, ready to hand to `handleInput`. */
-export type ChatMessageEvent = { text: string; messageName: string };
+export type ChatMessageEvent = { text: string; messageName: string; space: string };
 
 /**
  * Parses one line of `google-chat listen`'s NDJSON output into a
  * `ChatMessageEvent`, or `null` if the line isn't a message-created
  * event worth acting on (a different event type, or invalid JSON).
  *
- * The exact event envelope shape is provisional — it hasn't been
- * verified against a real `listen` run yet (no live credentials were
- * available while this was written). Confirm and adjust this against
- * real output before relying on it; the surrounding channel/manager
- * logic doesn't depend on the specifics, only on this function's
- * contract.
+ * The envelope is the raw Pub/Sub message (`attributes` + `data`) wrapping
+ * a CloudEvent — confirmed against a real `listen` run with a real
+ * message in a real space. The event type lives at
+ * `attributes["ce-type"]`, not a top-level `eventType` field as
+ * originally assumed before any real run existed to check it against.
+ * `data.message.space.name` is required: every Workspace Events
+ * subscription publishes to the *same* shared Pub/Sub topic (also
+ * confirmed live — a channel listening for one space received other
+ * spaces' events too), so callers need this to filter out events that
+ * aren't actually for the space they're listening to.
  */
 export function parseMessageEventLine(line: string): ChatMessageEvent | null {
   let parsed: unknown;
@@ -54,32 +58,42 @@ export function parseMessageEventLine(line: string): ChatMessageEvent | null {
     return null;
   }
 
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("eventType" in parsed) ||
-    !("message" in parsed)
-  ) {
+  if (typeof parsed !== "object" || parsed === null) {
+    return null;
+  }
+  const { attributes, data } = parsed as { attributes?: unknown; data?: unknown };
+  if (typeof attributes !== "object" || attributes === null) {
+    return null;
+  }
+  const ceType = (attributes as Record<string, unknown>)["ce-type"];
+  if (ceType !== "google.workspace.chat.message.v1.created") {
     return null;
   }
 
-  const { eventType, message } = parsed as { eventType: unknown; message: unknown };
-  if (eventType !== "google.workspace.chat.message.v1.created") {
+  if (typeof data !== "object" || data === null || !("message" in data)) {
     return null;
   }
-  if (
-    typeof message !== "object" ||
-    message === null ||
-    !("name" in message) ||
-    !("text" in message)
-  ) {
+  const { message } = data as { message: unknown };
+  if (typeof message !== "object" || message === null) {
     return null;
   }
-  const { name, text } = message as { name: unknown; text: unknown };
+  const { name, text, space } = message as {
+    name: unknown;
+    text: unknown;
+    space: unknown;
+  };
   if (typeof name !== "string" || typeof text !== "string") {
     return null;
   }
-  return { text, messageName: name };
+  if (typeof space !== "object" || space === null) {
+    return null;
+  }
+  const spaceName = (space as Record<string, unknown>).name;
+  if (typeof spaceName !== "string") {
+    return null;
+  }
+
+  return { text, messageName: name, space: spaceName };
 }
 
 /**
@@ -143,7 +157,7 @@ export async function startGoogleChatSpaceChannel(
     // silently doing nothing.
     console.error(`[chat:${space}] raw event: ${line}`);
     const event = parseMessageEventLine(line);
-    if (!event || sentMessageNames.has(event.messageName)) {
+    if (!event || event.space !== space || sentMessageNames.has(event.messageName)) {
       return;
     }
     const reply = await handleInput(event.text, space);

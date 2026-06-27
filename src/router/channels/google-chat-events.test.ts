@@ -10,15 +10,31 @@ import type { ensureSpaceSubscription, sendMessage, listSpaces } from "./google-
 
 const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
 
+/**
+ * Builds a `listen` NDJSON line matching the real CloudEvents-over-Pub/Sub
+ * envelope confirmed live (a real message sent in a real space) —
+ * `attributes["ce-type"]` carries the event type, the payload is under
+ * `data.message`. Replaces the flat `{ eventType, message }` shape this
+ * file assumed before any real run existed to check it against.
+ */
+function fakeMessageCreatedEventLine(opts: { space: string; name: string; text: string }): string {
+  return JSON.stringify({
+    attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
+    data: { message: { name: opts.name, text: opts.text, space: { name: opts.space } } },
+  });
+}
+
 describe("parseMessageEventLine", () => {
-  it("parses a valid message-created event line", () => {
-    const line = JSON.stringify({
-      eventType: "google.workspace.chat.message.v1.created",
-      message: { name: "spaces/X/messages/Y", text: "hello there" },
+  it("parses a real message-created event line", () => {
+    const line = fakeMessageCreatedEventLine({
+      space: "spaces/X",
+      name: "spaces/X/messages/Y",
+      text: "hello there",
     });
     expect(parseMessageEventLine(line)).toEqual({
       text: "hello there",
       messageName: "spaces/X/messages/Y",
+      space: "spaces/X",
     });
   });
 
@@ -26,17 +42,29 @@ describe("parseMessageEventLine", () => {
     expect(parseMessageEventLine("not json at all")).toBeNull();
   });
 
-  it("returns null for a non-created event type (.updated/.deleted)", () => {
-    const updated = JSON.stringify({
-      eventType: "google.workspace.chat.message.v1.updated",
-      message: { name: "spaces/X/messages/Y", text: "edited" },
+  // Real shapes observed live: subscription lifecycle events (renewal
+  // reminders, expiry) arrive on the same stream as message events,
+  // sharing one Pub/Sub topic across every space's subscription — see
+  // ce-type below, confirmed against a real listen run.
+  it("returns null for a non-message-created event type (subscription lifecycle events)", () => {
+    const expired = JSON.stringify({
+      attributes: { "ce-type": "google.workspace.events.subscription.v1.expired" },
+      data: { subscription: { name: "subscriptions/abc" } },
     });
-    const deleted = JSON.stringify({
-      eventType: "google.workspace.chat.message.v1.deleted",
-      message: { name: "spaces/X/messages/Y" },
+    const reminder = JSON.stringify({
+      attributes: { "ce-type": "google.workspace.events.subscription.v1.expirationReminder" },
+      data: { subscription: { name: "subscriptions/abc" } },
     });
-    expect(parseMessageEventLine(updated)).toBeNull();
-    expect(parseMessageEventLine(deleted)).toBeNull();
+    expect(parseMessageEventLine(expired)).toBeNull();
+    expect(parseMessageEventLine(reminder)).toBeNull();
+  });
+
+  it("returns null when message.space is missing", () => {
+    const line = JSON.stringify({
+      attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
+      data: { message: { name: "spaces/X/messages/Y", text: "hi" } },
+    });
+    expect(parseMessageEventLine(line)).toBeNull();
   });
 });
 
@@ -132,9 +160,10 @@ describe("startGoogleChatSpaceChannel", () => {
     await new Promise((r) => setTimeout(r, 0));
 
     capturedOnLine?.(
-      JSON.stringify({
-        eventType: "google.workspace.chat.message.v1.created",
-        message: { name: "spaces/X/messages/incoming-1", text: "hi mercury" },
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "hi mercury",
       }),
     );
     resolveExited?.();
@@ -145,6 +174,55 @@ describe("startGoogleChatSpaceChannel", () => {
     expect(receivedSpace).toBe("spaces/X");
     expect(sentSpace).toBe("spaces/X");
     expect(sentText).toBe("the reply");
+  });
+
+  // Every Workspace Events subscription publishes to the same shared
+  // Pub/Sub topic (confirmed live) — Pub/Sub itself doesn't filter by
+  // who registered the subscription, so a channel listening for
+  // spaces/X's events also receives every other space's events on the
+  // same topic. Without this check, Mercury would answer in spaces/X
+  // using content read from a space it isn't even supposed to be
+  // listening to.
+  it("ignores an event for a different space than the one this channel is listening to", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    const sendMessageFn: typeof sendMessage = async () => ({ name: "spaces/X/messages/reply-1" });
+
+    let handleInputCalls = 0;
+    const handleInput = async () => {
+      handleInputCalls++;
+      return "reply";
+    };
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/some-other-space",
+        name: "spaces/some-other-space/messages/incoming-1",
+        text: "not for this channel",
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    resolveExited?.();
+
+    await channelPromise;
+
+    expect(handleInputCalls).toBe(0);
   });
 
   it("ignores an event whose messageName was already sent by Mercury itself (loop prevention)", async () => {
@@ -180,18 +258,20 @@ describe("startGoogleChatSpaceChannel", () => {
 
     // first incoming message triggers a reply, which Mercury "sends" as self-sent-1
     capturedOnLine?.(
-      JSON.stringify({
-        eventType: "google.workspace.chat.message.v1.created",
-        message: { name: "spaces/X/messages/incoming-1", text: "hi" },
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "hi",
       }),
     );
     await new Promise((r) => setTimeout(r, 0));
 
     // that same self-sent message now shows up as an incoming event (Mercury is a space member)
     capturedOnLine?.(
-      JSON.stringify({
-        eventType: "google.workspace.chat.message.v1.created",
-        message: { name: "spaces/X/messages/self-sent-1", text: "reply" },
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/self-sent-1",
+        text: "reply",
       }),
     );
     await new Promise((r) => setTimeout(r, 0));
