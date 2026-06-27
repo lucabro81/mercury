@@ -35,9 +35,6 @@ function realOutputWrite(s: string, opts?: { newline?: boolean }): void {
   process.stdout.write(opts?.newline === false ? s : s + "\n");
 }
 
-/** Never yields — the input source for when there's no real terminal to read from. */
-async function* noInput(): AsyncIterable<string> {}
-
 /**
  * Written before the first input and again after every result, so a
  * human at the terminal can tell an answer has finished and the next
@@ -78,32 +75,30 @@ export async function startTerminalRepl(
   },
   opts?: { promptSuffix?: () => string },
 ): Promise<void> {
-  // Real stdin, and only when it's an actual TTY: readline itself must
-  // own prompt rendering (via setPrompt/prompt(), not a plain
-  // output.write), or its own redraws — e.g. when the user presses an
-  // arrow key to recall history — only know how to repaint the prompt
-  // text *it* set, wiping out anything (like the dynamic promptSuffix
-  // below) written outside of it.
-  //
-  // Without the isTTY guard, creating this against Docker's detached
-  // (no terminal attached) stdin crashed the whole process on startup —
-  // observed live: `AbortError: Stream reader cancelled via
-  // releaseLock()`, thrown from inside readline's own stream handling
-  // against that kind of stdin, not something this file can catch
-  // around. There's no one to type arrow keys for in that case anyway —
-  // falling back to `noInput()` ends this REPL's loop immediately and
-  // lets whatever else (e.g. the Google Chat channel) keeps the process
-  // alive run as a background-only instance.
-  const isInteractive = !io?.input && process.stdin.isTTY;
-  const rl = isInteractive
-    ? readline.createInterface({ input: process.stdin, output: process.stdout })
-    : null;
-  const input = io?.input ?? rl ?? noInput();
+  // Real stdin. Passing `output` (needed for readline to own prompt
+  // rendering — see below) only when stdin is an actual TTY: passing it
+  // against a non-TTY stdin (a Docker container with nothing attached at
+  // all — distinct from a *piped* stdin, e.g. `printf ... | docker
+  // compose exec -T ...`, which still has real lines to read and works
+  // fine either way) crashed the whole process on startup — observed
+  // live: `AbortError: Stream reader cancelled via releaseLock()`,
+  // thrown from inside readline's own stream handling, not something
+  // this file can catch around. Without `output`, the same
+  // already-closed stdin just ends the loop with zero lines, same as
+  // before today's arrow-key fix — confirmed safe by every previous
+  // detached `docker compose up -d` in this project's history.
+  const isTTY = !io?.input && process.stdin.isTTY;
+  const rl = io?.input
+    ? null
+    : isTTY
+      ? readline.createInterface({ input: process.stdin, output: process.stdout })
+      : readline.createInterface({ input: process.stdin });
+  const input = io?.input ?? rl!;
   const output = io?.output ?? { write: realOutputWrite };
 
   const writePrompt = () => {
     const suffix = opts?.promptSuffix?.() ?? "";
-    if (rl) {
+    if (isTTY && rl) {
       rl.setPrompt(suffix + PROMPT);
       rl.prompt();
       return;
