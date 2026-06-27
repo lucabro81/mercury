@@ -30,9 +30,13 @@ async function* realStdinLines(): AsyncIterable<string> {
   }
 }
 
-/** Writes a line to the real process stdout. */
-function realOutputWrite(s: string): void {
-  process.stdout.write(s + "\n");
+/**
+ * Writes to the real process stdout. Appends a newline by default — the
+ * prompt is the one caller that passes `{ newline: false }`, since it
+ * must stay on the same line as whatever the user types next.
+ */
+function realOutputWrite(s: string, opts?: { newline?: boolean }): void {
+  process.stdout.write(opts?.newline === false ? s : s + "\n");
 }
 
 /**
@@ -57,12 +61,15 @@ export const PROMPT = "> ";
  */
 export async function startTerminalRepl(
   handleInput: (input: string) => Promise<string>,
-  io?: { input?: AsyncIterable<string>; output?: { write(s: string): void } },
+  io?: {
+    input?: AsyncIterable<string>;
+    output?: { write(s: string, opts?: { newline?: boolean }): void };
+  },
 ): Promise<void> {
   const input = io?.input ?? realStdinLines();
   const output = io?.output ?? { write: realOutputWrite };
 
-  output.write(PROMPT);
+  output.write(PROMPT, { newline: false });
   for await (const line of input) {
     try {
       const result = await handleInput(line);
@@ -70,6 +77,6 @@ export async function startTerminalRepl(
     } catch (err) {
       output.write(`error: ${String(err instanceof Error ? err.message : err)}`);
     }
-    output.write(PROMPT);
+    output.write(PROMPT, { newline: false });
   }
 }

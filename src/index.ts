@@ -112,6 +112,10 @@ await startTerminalRepl((input) =>
     onStepFinish: (step) => {
       for (const call of step.toolCalls) {
         console.error(`[tool] ${call.toolName}(${JSON.stringify(call.input)})`);
+        const result = step.toolResults.find((r) => r.toolCallId === call.toolCallId);
+        console.error(
+          result ? `[tool result] ${JSON.stringify(result.output)}` : "[tool result] (none)",
+        );
       }
     },
   }),

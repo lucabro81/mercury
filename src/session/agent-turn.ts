@@ -35,13 +35,18 @@ import type { Message, SessionHistory } from "./history.ts";
 
 /**
  * Minimal shape of a finished generation step that callers might care
- * about — just enough to show what tool Mercury called and with what
- * input. The real AI SDK step object has many more fields; this is a
- * subset, which is fine since function parameter types only need to be
- * structurally compatible, not identical.
+ * about — just enough to show what tool Mercury called, with what
+ * input, and what it got back. `toolCallId` is what links an entry in
+ * `toolCalls` to its entry in `toolResults` — a call with no matching
+ * result (still running, or errored) is a real case callers need to
+ * handle explicitly rather than assume a 1:1 pairing. The real AI SDK
+ * step object has many more fields; this is a subset, which is fine
+ * since function parameter types only need to be structurally
+ * compatible, not identical.
  */
 export type StepInfo = {
-  toolCalls: Array<{ toolName: string; input: unknown }>;
+  toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
+  toolResults: Array<{ toolCallId: string; toolName: string; output: unknown }>;
 };
 
 /** The shape of the AI SDK call this module needs, injectable for tests. */
