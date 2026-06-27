@@ -18,6 +18,13 @@ import { createSessionHistory, type SessionHistory } from "./session/history.ts"
 import { createSummarizer } from "./session/summarizer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
+import {
+  truncateForDisplay,
+  parseDumpCommand,
+  defaultDumpPath,
+  writeDump,
+} from "./router/tool-log.ts";
+import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager } from "./router/channels/google-chat-events.ts";
 import {
   ensureSpaceSubscription,
@@ -101,8 +108,23 @@ if (googleChatTopic) {
   Object.assign(tools, createJoinSpaceTool(manager.ensureChannel));
 }
 
-await startTerminalRepl((input) =>
-  runTurn(getOrCreateHistory("terminal"), input, {
+// Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
+// to print live and stay readable. MAX_INLINE_CHARS bounds what's shown
+// per call/result; `/dump` (below) writes the untruncated version for
+// the most recently finished turn when that's actually needed.
+const MAX_INLINE_CHARS = 600;
+let lastSteps: StepInfo[] = [];
+
+await startTerminalRepl(async (input) => {
+  const dumpCommand = parseDumpCommand(input);
+  if (dumpCommand) {
+    const path = dumpCommand.path ?? defaultDumpPath();
+    await writeDump(path, lastSteps);
+    return `wrote ${lastSteps.length} tool step(s) from the last turn to ${path}`;
+  }
+
+  lastSteps = [];
+  return runTurn(getOrCreateHistory("terminal"), input, {
     model,
     tools,
     system,
@@ -110,13 +132,18 @@ await startTerminalRepl((input) =>
     // exists for bootstrap/debugging, so showing this here is in scope;
     // Google Chat's wiring above deliberately doesn't do the same.
     onStepFinish: (step) => {
+      lastSteps.push(step);
       for (const call of step.toolCalls) {
-        console.error(`[tool] ${call.toolName}(${JSON.stringify(call.input)})`);
+        console.error(
+          `[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
+        );
         const result = step.toolResults.find((r) => r.toolCallId === call.toolCallId);
         console.error(
-          result ? `[tool result] ${JSON.stringify(result.output)}` : "[tool result] (none)",
+          result
+            ? `[tool result] ${truncateForDisplay(result.output, MAX_INLINE_CHARS)}`
+            : "[tool result] (none)",
         );
       }
     },
-  }),
-);
+  });
+});
