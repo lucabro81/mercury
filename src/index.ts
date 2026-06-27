@@ -127,9 +127,39 @@ if (jiraEnabled) {
   Object.assign(tools, createJiraTool(runCli));
 }
 
+// Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
+// to print in full and stay readable. MAX_INLINE_CHARS bounds what's
+// shown per call/result; the terminal's `/dump` (below) writes the
+// untruncated version of its own last turn when that's actually needed.
+const MAX_INLINE_CHARS = 600;
+
+/**
+ * Server-side-only tool-call/result visibility for debugging a turn —
+ * written to this process's own stderr (`docker compose logs mercury`),
+ * never sent back to whoever asked the question. `prefix` distinguishes
+ * which conversation a line belongs to when more than one can be running
+ * concurrently (several Google Chat spaces) — the terminal, which only
+ * ever has one conversation at a time, uses an empty prefix.
+ */
+function logStep(prefix: string, step: StepInfo): void {
+  for (const call of step.toolCalls) {
+    console.error(
+      `${prefix}[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
+    );
+    console.error(`${prefix}${describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS)}`);
+  }
+}
+
 if (googleChatTopic) {
   const manager = startGoogleChatChannelManager(
-    (input, space) => runTurn(getOrCreateHistory(space), input, { model, tools, system }),
+    (input, space) =>
+      runTurn(getOrCreateHistory(space), input, {
+        model,
+        tools,
+        system,
+        onStepFinish: (step) => logStep(`[chat:${space}] `, step),
+        onUsage: (inputTokens) => console.error(`[chat:${space}] [usage] inputTokens=${inputTokens ?? "?"}`),
+      }),
     {
       spawnLinesFn: spawnLines,
       sendMessageFn: sendMessage,
@@ -145,11 +175,6 @@ if (googleChatTopic) {
   Object.assign(tools, createJoinSpaceTool(manager.ensureChannel));
 }
 
-// Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
-// to print live and stay readable. MAX_INLINE_CHARS bounds what's shown
-// per call/result; `/dump` (below) writes the untruncated version for
-// the most recently finished turn when that's actually needed.
-const MAX_INLINE_CHARS = 600;
 let lastSteps: StepInfo[] = [];
 
 // Real (not estimated) context-usage figures for the prompt indicator
@@ -180,17 +205,13 @@ await startTerminalRepl(
       // above never sets this, since `messages send` needs one complete
       // message anyway.
       onTextChunk: onChunk,
-      // Visibility into what Mercury did before answering — the terminal
-      // exists for bootstrap/debugging, so showing this here is in scope;
-      // Google Chat's wiring above deliberately doesn't do the same.
+      // Visibility into what Mercury did before answering, same as Google
+      // Chat's wiring above (see logStep) — additionally kept in
+      // lastSteps here so the terminal-only `/dump` command can write the
+      // untruncated version to a file.
       onStepFinish: (step) => {
         lastSteps.push(step);
-        for (const call of step.toolCalls) {
-          console.error(
-            `[tool] ${call.toolName}(${truncateForDisplay(call.input, MAX_INLINE_CHARS)})`,
-          );
-          console.error(describeToolOutcome(step, call.toolCallId, MAX_INLINE_CHARS));
-        }
+        logStep("", step);
       },
       onUsage: (inputTokens) => {
         lastInputTokens = inputTokens;
