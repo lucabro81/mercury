@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { truncateForDisplay, parseDumpCommand, writeDump, defaultDumpPath } from "./tool-log.ts";
 import type { StepInfo } from "../session/agent-turn.ts";
 
@@ -41,13 +42,21 @@ describe("parseDumpCommand", () => {
 });
 
 describe("defaultDumpPath", () => {
-  // Each call without an explicit path must land in its own file —
-  // a fixed default name would silently overwrite the previous dump.
-  it("includes a filesystem-safe timestamp derived from the given date", () => {
+  // Regression: defaulted to a bare filename, written relative to the
+  // process's cwd. Inside the Docker image that's /app, owned by root —
+  // the `mercury` user can read/execute existing files there but can't
+  // create new ones, so a bare-filename default failed with EACCES on
+  // every run in the container. tmpdir() is writable by any user on both
+  // the container (/tmp) and the host, so it's a safe default everywhere.
+  it("lands in the OS temp directory", () => {
     const now = new Date("2026-06-27T14:03:22.123Z");
-    expect(defaultDumpPath(now)).toBe("mercury-last-tools-2026-06-27T14-03-22-123Z.json");
+    expect(defaultDumpPath(now)).toBe(
+      `${tmpdir()}/mercury-last-tools-2026-06-27T14-03-22-123Z.json`,
+    );
   });
 
+  // Each call without an explicit path must land in its own file —
+  // a fixed default name would silently overwrite the previous dump.
   it("produces a different path for a different date", () => {
     const a = defaultDumpPath(new Date("2026-06-27T14:03:22.123Z"));
     const b = defaultDumpPath(new Date("2026-06-27T14:03:23.000Z"));

@@ -11,6 +11,7 @@
  * `src/index.ts` owns the per-turn step history and decides when to call
  * these.
  */
+import { tmpdir } from "node:os";
 import type { StepInfo } from "../session/agent-turn.ts";
 
 /**
@@ -29,13 +30,16 @@ export function truncateForDisplay(value: unknown, maxChars: number): string {
 
 /**
  * Builds the file `/dump` writes to when the user doesn't give an
- * explicit path. Includes a timestamp (colons/dots replaced since they
- * aren't valid in filenames on every filesystem) so repeated `/dump`
- * calls land in separate files instead of silently overwriting a fixed
- * default each time.
+ * explicit path. Lands in the OS temp dir, not the process's cwd — in
+ * the Docker image that's `/app`, owned by root, where the `mercury`
+ * user can read/execute existing files but not create new ones (every
+ * default-path `/dump` failed with EACCES until this). Includes a
+ * timestamp (colons/dots replaced since they aren't valid in filenames
+ * on every filesystem) so repeated `/dump` calls land in separate files
+ * instead of silently overwriting a fixed default each time.
  */
 export function defaultDumpPath(now: Date = new Date()): string {
-  return `mercury-last-tools-${now.toISOString().replace(/[:.]/g, "-")}.json`;
+  return `${tmpdir()}/mercury-last-tools-${now.toISOString().replace(/[:.]/g, "-")}.json`;
 }
 
 /**
