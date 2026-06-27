@@ -98,8 +98,12 @@ export async function runCli(
  *   once it has actually exited. If already aborted before this is
  *   called, the process is never spawned at all and `onLine` is never
  *   called.
- * @returns `exited` resolves once the process has exited (normally or
- *   via the abort signal) and no more `onLine` calls will happen.
+ * @returns `exited` resolves once the process has exited cleanly
+ *   (including via the abort signal) and no more `onLine` calls will
+ *   happen — or rejects, with the exit code and stderr, if the process
+ *   exited non-zero on its own. The exit-code check is skipped when the
+ *   signal caused the exit, since killing a process rarely produces a
+ *   clean code — that's an intentional stop, not a failure.
  */
 export function spawnLines(
   binary: string,
@@ -135,7 +139,11 @@ export function spawnLines(
     } catch {
       // stream torn down (e.g. the process was killed via the abort signal) — stop reading
     }
-    await proc.exited;
+    const exitCode = await proc.exited;
+    if (exitCode !== 0 && !opts?.signal?.aborted) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`${binary} exited with code ${exitCode}: ${stderr.trim()}`);
+    }
   })();
 
   return { exited };

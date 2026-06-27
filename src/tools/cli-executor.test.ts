@@ -99,4 +99,40 @@ describe("spawnLines", () => {
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.length).toBeLessThan(20);
   });
+
+  // Regression: a process that exits non-zero on its own (not via our
+  // abort signal) was treated identically to a clean exit — `exited`
+  // just resolved, silently. Observed live: `google-chat listen` exited
+  // right after starting, for a reason only visible on its own stderr,
+  // and the channel that spawned it just disappeared with no error
+  // anywhere.
+  it("rejects with the exit code and stderr when the process exits non-zero on its own", async () => {
+    const lines: string[] = [];
+    const { exited } = spawnLines("bun", [
+      "-e",
+      "console.error('boom'); process.exit(3)",
+    ], (line) => lines.push(line));
+
+    await expect(exited).rejects.toThrow(/boom/);
+  });
+
+  it("does not reject when the abort signal (not the process itself) caused the exit", async () => {
+    const lines: string[] = [];
+    const controller = new AbortController();
+
+    const { exited } = spawnLines(
+      "bun",
+      [
+        "-e",
+        "for (let i = 0; i < 20; i++) { console.log('line' + i); await new Promise((r) => setTimeout(r, 20)); }",
+      ],
+      (line) => lines.push(line),
+      { signal: controller.signal },
+    );
+
+    await new Promise((r) => setTimeout(r, 30));
+    controller.abort();
+
+    await expect(exited).resolves.toBeUndefined();
+  });
 });
