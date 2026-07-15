@@ -1,35 +1,24 @@
 /**
- * Google Chat channel: discovers which spaces Mercury is currently a
- * member of, keeps one `google-chat listen` process running per space,
- * and turns each incoming message event into a `runTurn` call, replying
- * via `sendMessage`.
+ * Google Chat channel: keeps one `google-chat listen` process running
+ * per configured space, and turns each incoming message event into a
+ * `runTurn` call, replying via `sendMessage`.
  *
- * Why discovery instead of a static list of spaces: Mercury is meant to
- * behave like a regular Workspace member, participating wherever it's
- * actually been added — a human-maintained allowlist would fight that.
- * The CLI has no way to push "you were just added to a new space" in
- * real time today (`subscription create` only supports message events
- * scoped to an already-known space, not membership events), and a
- * real-time version of this would need a broader, user-scoped
- * subscription on top of the per-space ones used here — deliberately
- * not built now, the latency of periodic discovery is an acceptable
- * trade-off at the current scale. Instead, `startGoogleChatChannelManager`
- * polls `listSpaces` periodically and
- * reconciles the result against which per-space channels are currently
- * running. `ensureChannel` is the escape hatch for when waiting for the
- * next poll isn't good enough — see `src/tools/google-chat-join.ts`,
- * which lets a user ask Mercury, mid-conversation, to start listening
- * to a specific space right away.
+ * Which spaces Mercury participates in is a fixed, explicit list
+ * (`opts.spaces` on `startGoogleChatChannelManager`, joined once at
+ * startup) plus whatever `ensureChannel` is asked to join afterwards —
+ * see `src/tools/google-chat-join.ts`, which lets a user ask Mercury,
+ * mid-conversation, to start listening to an additional space right
+ * away. Deliberately not membership-based auto-discovery: every message
+ * in a space Mercury is listening to gets a reply (no way yet to tell
+ * "addressed to Mercury" from "any message here"), so auto-joining every
+ * space Mercury happens to be a member of would mean auto-replying in
+ * all of them too.
  *
  * Used by: `src/index.ts` (wiring), which starts the manager once and
  * passes `manager.ensureChannel` into `createJoinSpaceTool`.
  */
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
-import {
-  ensureSpaceSubscription,
-  sendMessage,
-  listSpaces,
-} from "./google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 
 /** A parsed incoming message event, ready to hand to `handleInput`. */
 export type ChatMessageEvent = { text: string; messageName: string; space: string };
@@ -44,11 +33,12 @@ export type ChatMessageEvent = { text: string; messageName: string; space: strin
  * message in a real space. The event type lives at
  * `attributes["ce-type"]`, not a top-level `eventType` field as
  * originally assumed before any real run existed to check it against.
- * `data.message.space.name` is required: every Workspace Events
- * subscription publishes to the *same* shared Pub/Sub topic (also
- * confirmed live — a channel listening for one space received other
- * spaces' events too), so callers need this to filter out events that
- * aren't actually for the space they're listening to.
+ * `data.message.space.name` is required as part of the real event shape;
+ * cross-space isolation itself is handled upstream by the `--message-filter`
+ * passed to `ensureSpaceSubscription` (see `google-chat-client.ts`), not by
+ * comparing this field here — confirmed live that a per-space `hasPrefix`
+ * filter on the Pub/Sub subscription keeps other spaces' events from ever
+ * being delivered to this channel in the first place.
  */
 export function parseMessageEventLine(line: string): ChatMessageEvent | null {
   let parsed: unknown;
@@ -157,7 +147,7 @@ export async function startGoogleChatSpaceChannel(
     // silently doing nothing.
     console.error(`[chat:${space}] raw event: ${line}`);
     const event = parseMessageEventLine(line);
-    if (!event || event.space !== space || sentMessageNames.has(event.messageName)) {
+    if (!event || sentMessageNames.has(event.messageName)) {
       return;
     }
     const reply = await handleInput(event.text, space);
@@ -189,40 +179,25 @@ export async function startGoogleChatSpaceChannel(
 export type ChannelManager = {
   /** Starts a channel for `space` right now if one isn't already running; a no-op otherwise. */
   ensureChannel(space: string): Promise<void>;
-  /** Stops the discovery loop and every currently running channel. */
+  /** Stops every currently running channel. */
   stop(): Promise<void>;
 };
 
-/** Resolves after `ms`, or immediately if `signal` aborts first. */
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
-}
-
 /**
- * Starts the manager: an immediate discovery tick, then one every
- * `opts.discoveryIntervalMs`, reconciling which per-space channels are
- * running against `listSpacesFn`'s result — starting channels for newly
- * discovered spaces, stopping channels for spaces Mercury is no longer
- * a member of.
+ * Starts the manager: joins every space in `opts.spaces` once, at
+ * startup, and nothing more — no periodic re-discovery. `ensureChannel`
+ * (and so `joinSpace`, see `src/tools/google-chat-join.ts`) still works
+ * afterwards for attaching to an additional space at runtime, without a
+ * restart.
  *
- * @param opts.discoveryEnabled - Defaults to `true`. Set `false` to skip
- *   the periodic loop entirely — `ensureChannel` (and so `joinSpace`,
- *   see `src/tools/google-chat-join.ts`) still works for attaching to one
- *   space at a time on purpose. Useful for controlled manual testing,
- *   and for any real account that's a member of many unrelated spaces —
- *   discovery has no concept of "only these spaces", it tries to start a
- *   channel for every membership found, which doesn't scale to a busy
- *   account and isn't always what's wanted.
+ * This is a deliberately narrow, contingent scope: Mercury only ever
+ * participates in spaces explicitly configured up front (`opts.spaces`)
+ * or explicitly requested mid-conversation (`joinSpace`) — never in a
+ * space just because it happens to be a member of it. `processLine`
+ * (see `startGoogleChatSpaceChannel`) replies to every message in a
+ * space it's listening to, with no way yet to tell "addressed to
+ * Mercury" from "any message in this space" — auto-joining every space
+ * Mercury is a member of would mean auto-replying in all of them too.
  */
 export function startGoogleChatChannelManager(
   handleInput: (input: string, space: string) => Promise<string>,
@@ -230,13 +205,11 @@ export function startGoogleChatChannelManager(
     spawnLinesFn: typeof spawnLines;
     sendMessageFn: typeof sendMessage;
     ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription;
-    listSpacesFn: typeof listSpaces;
     runCliFn: typeof runCli;
   },
   opts: {
     topic: string;
-    discoveryIntervalMs: number;
-    discoveryEnabled?: boolean;
+    spaces: string[];
     signal?: AbortSignal;
   },
 ): ChannelManager {
@@ -284,33 +257,14 @@ export function startGoogleChatChannelManager(
     activeChannels.delete(space);
   }
 
-  async function tick(): Promise<void> {
-    const discovered = new Set(await deps.listSpacesFn(deps.runCliFn));
-    for (const space of discovered) {
+  // Fire-and-forget: joins every configured space once, at startup. Each
+  // failure is handled (and logged) inside ensureChannel itself, so one
+  // bad space here can't take the others down with it.
+  (async () => {
+    for (const space of opts.spaces) {
       await ensureChannel(space);
     }
-    for (const space of [...activeChannels.keys()]) {
-      if (!discovered.has(space)) {
-        stopChannel(space);
-      }
-    }
-  }
-
-  if (opts.discoveryEnabled ?? true) {
-    (async () => {
-      while (!managerController.signal.aborted) {
-        try {
-          await tick();
-        } catch (err) {
-          // A failed tick (e.g. expired credentials, a transient API error)
-          // must not take down the whole process — this loop runs in the
-          // same process as every other channel, including the terminal.
-          console.error(`[google-chat] discovery tick failed: ${String(err)}`);
-        }
-        await sleep(opts.discoveryIntervalMs, managerController.signal);
-      }
-    })();
-  }
+  })();
 
   return {
     ensureChannel,

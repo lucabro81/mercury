@@ -6,7 +6,7 @@ import {
   startGoogleChatChannelManager,
 } from "./google-chat-events.ts";
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
-import type { ensureSpaceSubscription, sendMessage, listSpaces } from "./google-chat-client.ts";
+import type { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 
 const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
 
@@ -176,55 +176,6 @@ describe("startGoogleChatSpaceChannel", () => {
     expect(sentText).toBe("the reply");
   });
 
-  // Every Workspace Events subscription publishes to the same shared
-  // Pub/Sub topic (confirmed live) — Pub/Sub itself doesn't filter by
-  // who registered the subscription, so a channel listening for
-  // spaces/X's events also receives every other space's events on the
-  // same topic. Without this check, Mercury would answer in spaces/X
-  // using content read from a space it isn't even supposed to be
-  // listening to.
-  it("ignores an event for a different space than the one this channel is listening to", async () => {
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
-      name: "subscriptions/abc",
-    });
-    let capturedOnLine: ((line: string) => void) | undefined;
-    let resolveExited: (() => void) | undefined;
-    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
-      capturedOnLine = onLine;
-      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
-    };
-    const sendMessageFn: typeof sendMessage = async () => ({ name: "spaces/X/messages/reply-1" });
-
-    let handleInputCalls = 0;
-    const handleInput = async () => {
-      handleInputCalls++;
-      return "reply";
-    };
-
-    const channelPromise = startGoogleChatSpaceChannel(
-      "spaces/X",
-      handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
-      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
-    );
-
-    await new Promise((r) => setTimeout(r, 0));
-
-    capturedOnLine?.(
-      fakeMessageCreatedEventLine({
-        space: "spaces/some-other-space",
-        name: "spaces/some-other-space/messages/incoming-1",
-        text: "not for this channel",
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-    resolveExited?.();
-
-    await channelPromise;
-
-    expect(handleInputCalls).toBe(0);
-  });
-
   it("ignores an event whose messageName was already sent by Mercury itself (loop prevention)", async () => {
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
       name: "subscriptions/abc",
@@ -294,103 +245,60 @@ describe("startGoogleChatChannelManager", () => {
     return { spawnLinesFn, sendMessageFn };
   }
 
-  it("starts a channel for a newly discovered space after a discovery tick", async () => {
+  // No periodic discovery: Mercury joins exactly the spaces given in
+  // opts.spaces once at startup, nothing more.
+  it("joins every space in opts.spaces once at startup", async () => {
     const ensureCalls: string[] = [];
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
       ensureCalls.push(space);
       return { name: `subscriptions/${space}` };
     };
-    const listSpacesFn: typeof listSpaces = async () => ["spaces/A"];
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 10_000 },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", spaces: ["spaces/A", "spaces/B"] },
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(ensureCalls).toEqual(["spaces/A"]);
-
-    await manager.stop();
-  });
-
-  it("only starts the channel for a newly added space on the next tick, not the already-running one", async () => {
-    const ensureCalls: string[] = [];
-    let discovered = ["spaces/A"];
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
-      ensureCalls.push(space);
-      return { name: `subscriptions/${space}` };
-    };
-    const listSpacesFn: typeof listSpaces = async () => discovered;
-    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
-
-    const manager = startGoogleChatChannelManager(
-      async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 20 },
-    );
-
-    await new Promise((r) => setTimeout(r, 10));
-    discovered = ["spaces/A", "spaces/B"];
-    await new Promise((r) => setTimeout(r, 40));
-
     expect(ensureCalls).toEqual(["spaces/A", "spaces/B"]);
 
     await manager.stop();
   });
 
-  it("stops a channel for a space that disappears from discovery", async () => {
-    let discovered = ["spaces/A"];
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => ({
-      name: `subscriptions/${space}`,
-    });
-    const listSpacesFn: typeof listSpaces = async () => discovered;
-
-    let capturedSignal: AbortSignal | undefined;
-    const spawnLinesFn: typeof spawnLines = (_binary, _args, _onLine, opts) => {
-      capturedSignal = opts?.signal;
-      return {
-        exited: new Promise<void>((resolve) => {
-          opts?.signal?.addEventListener("abort", () => resolve(), { once: true });
-        }),
-      };
-    };
-    const sendMessageFn: typeof sendMessage = async () => ({ name: "n" });
-
-    const manager = startGoogleChatChannelManager(
-      async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 20 },
-    );
-
-    await new Promise((r) => setTimeout(r, 10));
-    expect(capturedSignal?.aborted).toBe(false);
-
-    discovered = [];
-    await new Promise((r) => setTimeout(r, 40));
-
-    expect(capturedSignal?.aborted).toBe(true);
-
-    await manager.stop();
-  });
-
-  it("ensureChannel starts a channel immediately, idempotently, without waiting for a discovery tick", async () => {
+  it("starts no channel when opts.spaces is empty", async () => {
     const ensureCalls: string[] = [];
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
       ensureCalls.push(space);
       return { name: `subscriptions/${space}` };
     };
-    // Mercury is actually a member of spaces/C (joinSpace's documented assumption) —
-    // discovery would otherwise immediately tear the manually-started channel back
-    // down on its first tick, since it wouldn't see spaces/C in the discovered set.
-    const listSpacesFn: typeof listSpaces = async () => ["spaces/C"];
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 10_000 },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", spaces: [] },
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ensureCalls).toEqual([]);
+
+    await manager.stop();
+  });
+
+  it("ensureChannel starts a channel immediately and idempotently", async () => {
+    const ensureCalls: string[] = [];
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
+      ensureCalls.push(space);
+      return { name: `subscriptions/${space}` };
+    };
+    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
+
+    const manager = startGoogleChatChannelManager(
+      async () => "ok",
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", spaces: [] },
     );
 
     // called twice on purpose — this is what the test is actually checking:
@@ -414,7 +322,6 @@ describe("startGoogleChatChannelManager", () => {
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => {
       throw new Error("permission denied creating subscription");
     };
-    const listSpacesFn: typeof listSpaces = async () => [];
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const originalConsoleError = console.error;
@@ -426,8 +333,8 @@ describe("startGoogleChatChannelManager", () => {
     try {
       const manager = startGoogleChatChannelManager(
         async () => "ok",
-        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-        { topic: "projects/p/topics/t", discoveryIntervalMs: 10_000, discoveryEnabled: false },
+        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+        { topic: "projects/p/topics/t", spaces: [] },
       );
 
       await manager.ensureChannel("spaces/C");
@@ -442,98 +349,31 @@ describe("startGoogleChatChannelManager", () => {
     }
   });
 
-  it("stop aborts active channels and halts the discovery loop", async () => {
-    let listSpacesCalls = 0;
+  it("stop aborts every active channel", async () => {
+    let capturedSignal: AbortSignal | undefined;
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => ({
       name: `subscriptions/${space}`,
     });
-    const listSpacesFn: typeof listSpaces = async () => {
-      listSpacesCalls++;
-      return ["spaces/A"];
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, _onLine, opts) => {
+      capturedSignal = opts?.signal;
+      return {
+        exited: new Promise<void>((resolve) => {
+          opts?.signal?.addEventListener("abort", () => resolve(), { once: true });
+        }),
+      };
     };
-    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
+    const sendMessageFn: typeof sendMessage = async () => ({ name: "n" });
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 15 },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", spaces: ["spaces/A"] },
     );
 
     await new Promise((r) => setTimeout(r, 10));
-    await manager.stop();
-    const callsAtStop = listSpacesCalls;
-
-    await new Promise((r) => setTimeout(r, 60));
-    expect(listSpacesCalls).toBe(callsAtStop);
-  });
-
-  // Regression: a tick that throws (e.g. listSpacesFn failing on expired
-  // credentials) was an unhandled rejection inside the discovery loop's
-  // un-awaited IIFE — which crashed the entire Mercury process, not just
-  // the Google Chat channel, since both run in the same process.
-  // Observed live: discovery hit expired Google Chat credentials, and
-  // took the terminal REPL down with it.
-  it("keeps polling on the next tick after a tick throws, instead of crashing", async () => {
-    const ensureCalls: string[] = [];
-    let listSpacesCalls = 0;
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
-      ensureCalls.push(space);
-      return { name: `subscriptions/${space}` };
-    };
-    const listSpacesFn: typeof listSpaces = async () => {
-      listSpacesCalls++;
-      if (listSpacesCalls === 1) {
-        throw new Error("credentials expired");
-      }
-      return ["spaces/A"];
-    };
-    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
-
-    const manager = startGoogleChatChannelManager(
-      async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 15 },
-    );
-
-    await new Promise((r) => setTimeout(r, 40));
-
-    expect(listSpacesCalls).toBeGreaterThan(1);
-    expect(ensureCalls).toEqual(["spaces/A"]);
+    expect(capturedSignal?.aborted).toBe(false);
 
     await manager.stop();
-  });
-
-  // For controlled manual testing (and any account with many unrelated
-  // spaces — periodic discovery unconditionally tries to start a channel
-  // for every space the identity is a member of, which doesn't scale to
-  // a busy real account and isn't always what's wanted). ensureChannel
-  // must keep working for the explicit, one-space-at-a-time joinSpace
-  // path even with the periodic loop off.
-  it("never calls listSpacesFn when discoveryEnabled is false, but ensureChannel still works", async () => {
-    let listSpacesCalls = 0;
-    const ensureCalls: string[] = [];
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async (space) => {
-      ensureCalls.push(space);
-      return { name: `subscriptions/${space}` };
-    };
-    const listSpacesFn: typeof listSpaces = async () => {
-      listSpacesCalls++;
-      return ["spaces/should-never-be-discovered"];
-    };
-    const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
-
-    const manager = startGoogleChatChannelManager(
-      async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, listSpacesFn, runCliFn },
-      { topic: "projects/p/topics/t", discoveryIntervalMs: 10, discoveryEnabled: false },
-    );
-
-    await new Promise((r) => setTimeout(r, 30));
-    expect(listSpacesCalls).toBe(0);
-
-    await manager.ensureChannel("spaces/chosen-for-testing");
-    expect(ensureCalls).toEqual(["spaces/chosen-for-testing"]);
-
-    await manager.stop();
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });
