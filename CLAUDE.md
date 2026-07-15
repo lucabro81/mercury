@@ -29,7 +29,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only fixed, known binaries with argv matching a read-only prefix allowlist ever execute
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is recognized but always rejected today, since the actual confirmation mechanism (principle 6) doesn't exist yet
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
@@ -41,11 +41,12 @@ mercury/
 │   ...
 ├── scripts/
 │   └── install-clis.sh
+├── cli-configs/               # maintainer-authored per-CLI allowlist config (reference: jira.json)
 ├── src/
 │   ├── index.ts              # composition root — wires model/tools/channels
 │   ├── model/                # Ollama provider, real context-window lookup
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
-│   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + per-CLI config (jira) + joinSpace
+│   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
 │   ├── router/
 │   │   ├── terminal.ts         # REPL channel
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers
