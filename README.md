@@ -15,7 +15,7 @@ Mercury is an agent built on a fixed orchestration loop and a pluggable tool lay
 
 ## What works today
 
-Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `jiraCli` and answers with real data. The model figures out the CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed, read-only for now.
+Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `runCommand` and answers with real data. The model figures out the CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed, read-only for now.
 
 Conversation history survives across turns in the same session and summarizes itself once it grows past a size threshold, instead of overflowing the model's context window.
 
@@ -69,3 +69,5 @@ docker compose down
 External integrations (Jira, Bitbucket, Google Chat, ...) are independent CLI binaries, downloaded from [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo) via `scripts/install-clis.sh`, not part of this repo's code.
 
 For onboarding and authentication of each service: check the README of the specific crate in CLI-monorepo, or run the `init` command of the corresponding CLI (e.g. `jira init`, `google-chat init`) and follow the on-screen instructions.
+
+A CLI being installed and authenticated isn't enough on its own for the model to use it: each active CLI also needs a maintainer-authored allowlist config at `MERCURY_CLI_CONFIG_DIR` (default `/app/cli-config`, bind-mounted from `./cli-configs` in dev — see `cli-configs/jira.json` for the reference example, and the CLI's own README in CLI-monorepo for what subcommands/flags it actually has). Editing a config file only needs a container restart, no rebuild.

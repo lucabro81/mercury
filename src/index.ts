@@ -4,7 +4,9 @@
  * configured) into running conversations.
  *
  * This is the only file that decides which tools actually exist on
- * this instance — `jiraCli` only if `jira` is in `MERCURY_CLIS`,
+ * this instance — `runCommand` only if `loadActiveCliConfigs` (see
+ * `src/tools/cli-config-loader.ts`) successfully loads at least one
+ * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`,
  * `joinSpace` only if the Google Chat channel is configured. Every
  * other module (`runTurn`, the channels) takes tools/system as inputs
  * rather than assuming any of them exist, specifically so this file can
@@ -13,7 +15,8 @@
 import { getOllamaProvider } from "./model/client.ts";
 import { getLoadedContextLength } from "./model/context-size.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
-import { createJiraTool } from "./tools/jira.ts";
+import { createCliTool } from "./tools/cli-tool.ts";
+import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -51,17 +54,17 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): st
   if (opts.jira) {
     lines.push(
       [
-        'You have access to the jiraCli tool, which runs the "jira" CLI binary for read-only Jira access.',
+        "You have access to the runCommand tool, which runs a CLI command for read-only Jira access.",
         "DO:",
-        "- Use jiraCli to get real data — never invent ticket data.",
+        '- Call runCommand with `command` set to the exact command line you would type in a terminal, e.g. `jira issue search --jql "project = KAN"` — quote values containing spaces, exactly like a real shell.',
+        "- Use runCommand to get real data — never invent ticket data.",
         "- Use --help on any subcommand if you're unsure of its flags.",
         "- Use native JQL syntax for relative dates (e.g. now()) — don't compute dates yourself.",
         '- When a search can return more than one or two issues, add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.',
-        '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call jiraCli again, in this same turn, with a corrected command/JQL before giving your final answer.',
+        '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.',
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
         "",
         "DON'T:",
-        "- DON'T run any subcommand other than read-only ones — only read-only subcommands are permitted on this instance.",
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
       ].join("\n"),
     );
@@ -97,7 +100,21 @@ const enabledClis = (process.env.MERCURY_CLIS ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const jiraEnabled = enabledClis.includes("jira");
+
+// The known-CLI boundary for this instance is no longer a hardcoded
+// TypeScript map — it's whatever maintainer-authored config files exist
+// in cliConfigDir, one per binary, bind-mounted at runtime (see
+// docker-compose.override.yml, .env.example). Only a binary with a
+// present, schema-valid, version-checked config file ever reaches
+// runCommand, no matter what MERCURY_CLIS says — bitbucket/google-chat
+// can be listed there with no effect until someone adds a config file
+// for them.
+const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
+const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
+  configDir: cliConfigDir,
+  runCliFn: runCli,
+});
+const jiraEnabled = Boolean(activeCliConfigs.jira);
 const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 
 const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic) });
@@ -119,8 +136,8 @@ function getOrCreateHistory(key: string): SessionHistory {
 }
 
 const tools: Record<string, Tool> = {};
-if (jiraEnabled) {
-  Object.assign(tools, createJiraTool(runCli));
+if (Object.keys(activeCliConfigs).length > 0) {
+  Object.assign(tools, createCliTool(runCli, activeCliConfigs));
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
