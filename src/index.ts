@@ -65,7 +65,6 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): st
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
         "",
         "DON'T:",
-        "- DON'T run any subcommand other than read-only ones — only read-only subcommands are permitted on this instance.",
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
       ].join("\n"),
     );
