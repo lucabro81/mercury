@@ -37,12 +37,32 @@ Leave `GOOGLE_CHAT_PUBSUB_TOPIC` empty to run with the terminal channel only.
 ## Running it
 
 ```bash
-docker compose up
+docker compose up -d
 ```
 
-Starts Mercury and Qdrant. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required.
+Starts Mercury and Qdrant in the background. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required.
 
-The terminal is always on. Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough.
+**Using the terminal REPL**
+
+The terminal is always on. To attach to it interactively:
+
+```bash
+docker compose run --rm mercury
+```
+
+Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough.
+
+`Ctrl+C` exits the REPL and stops the container. To follow logs without attaching to the REPL:
+
+```bash
+docker compose logs -f mercury
+```
+
+**Stopping everything**
+
+```bash
+docker compose down
+```
 
 ## CLIs and service authentication
 

@@ -93,6 +93,14 @@ export async function startTerminalRepl(
     : isTTY
       ? readline.createInterface({ input: process.stdin, output: process.stdout })
       : readline.createInterface({ input: process.stdin });
+  // readline in TTY mode intercepts Ctrl+C and emits 'SIGINT' on the interface
+  // instead of letting it propagate as a process signal — without this handler
+  // Ctrl+C does nothing and the only way to stop Mercury is kill from outside.
+  // Not unit-tested: this path requires the real readline in TTY mode, which
+  // the io.input test seam bypasses entirely.
+  if (isTTY && rl) {
+    rl.on("SIGINT", () => process.exit(0));
+  }
   const input = io?.input ?? rl!;
   const output = io?.output ?? { write: realOutputWrite };
 
