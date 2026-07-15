@@ -34,13 +34,24 @@ describe("cli-configs/jira.json", () => {
     expect(matchCommand(["auth", "whoami"], jiraConfig)).toEqual({ kind: "allowed" });
   });
 
-  it("rejects write subcommands", () => {
-    expect(matchCommand(["issue", "delete", "KAN-1", "--confirm"], jiraConfig)).toEqual({ kind: "not-allowed" });
+  it("rejects write subcommands that aren't configured at all", () => {
     expect(matchCommand(["issue", "create", "--project", "KAN"], jiraConfig)).toEqual({ kind: "not-allowed" });
     expect(matchCommand(["issue", "transition", "KAN-1", "--to", "Done"], jiraConfig)).toEqual({
       kind: "not-allowed",
     });
     expect(matchCommand(["issue", "comment", "add", "KAN-1"], jiraConfig)).toEqual({ kind: "not-allowed" });
+  });
+
+  // issue delete IS recognized (unlike the other writes above, which
+  // aren't configured at all) but gated on confirm: true — Mercury could
+  // run it once M2's confirmation mechanism exists, it just can't yet.
+  // Distinct from "not-allowed": the model gets told why this specific
+  // shape doesn't work, not just that it doesn't match anything known.
+  it("requires confirmation for issue delete, which is not yet supported", () => {
+    expect(matchCommand(["issue", "delete", "KAN-1", "--confirm"], jiraConfig)).toEqual({
+      kind: "confirm-required",
+      prefix: ["issue", "delete"],
+    });
   });
 
   it("always allows --help, even on a write subcommand", () => {
@@ -64,13 +75,15 @@ describe("cli-configs/jira.json", () => {
     expect(matchCommand(["--select", "id", "doctor"], jiraConfig)).toEqual({ kind: "allowed" });
   });
 
-  it("still rejects a write subcommand when --select appears before it", () => {
+  it("still requires confirmation for issue delete when --select appears before it", () => {
     expect(matchCommand(["--select", "id", "issue", "delete", "KAN-1", "--confirm"], jiraConfig)).toEqual({
-      kind: "not-allowed",
+      kind: "confirm-required",
+      prefix: ["issue", "delete"],
     });
   });
 
-  it("has no confirm-gated commands today, matching the current allowlist exactly", () => {
-    expect(jiraConfig.allowedPrefixes.every((c) => !c.confirm)).toBe(true);
+  it("has exactly one confirm-gated command today (issue delete)", () => {
+    const confirmGated = jiraConfig.allowedPrefixes.filter((c) => c.confirm);
+    expect(confirmGated).toEqual([{ prefix: ["issue", "delete"], confirm: true }]);
   });
 });
