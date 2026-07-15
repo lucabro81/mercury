@@ -4,18 +4,19 @@
  * configured) into running conversations.
  *
  * This is the only file that decides which tools actually exist on
- * this instance — `runCommand` only if at least one entry of
- * `KNOWN_CLI_CONFIGS` is in `MERCURY_CLIS`, `joinSpace` only if the
- * Google Chat channel is configured. Every other module (`runTurn`, the
- * channels) takes tools/system as inputs rather than assuming any of
- * them exist, specifically so this file can make that call in one
- * place.
+ * this instance — `runCommand` only if `loadActiveCliConfigs` (see
+ * `src/tools/cli-config-loader.ts`) successfully loads at least one
+ * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`,
+ * `joinSpace` only if the Google Chat channel is configured. Every
+ * other module (`runTurn`, the channels) takes tools/system as inputs
+ * rather than assuming any of them exist, specifically so this file can
+ * make that call in one place.
  */
 import { getOllamaProvider } from "./model/client.ts";
 import { getLoadedContextLength } from "./model/context-size.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
-import { createCliTool, type CliConfig } from "./tools/cli-tool.ts";
-import { jiraCliConfig } from "./tools/jira.ts";
+import { createCliTool } from "./tools/cli-tool.ts";
+import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -101,18 +102,19 @@ const enabledClis = (process.env.MERCURY_CLIS ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-// The fixed, known-CLI allowlist for this codebase — only binaries with a
-// reviewed CliConfig (readOnlyPrefixes + any CLI-specific flag-stripping)
-// can ever be reached through runCommand, no matter what MERCURY_CLIS says.
-// MERCURY_CLIS is the per-instance subset of this fixed set that's
-// active — e.g. bitbucket/google-chat can be listed there with no effect,
-// because neither has a CliConfig yet.
-const KNOWN_CLI_CONFIGS: Record<string, CliConfig> = { jira: jiraCliConfig };
-const activeCliConfigs: Record<string, CliConfig> = {};
-for (const name of enabledClis) {
-  const config = KNOWN_CLI_CONFIGS[name];
-  if (config) activeCliConfigs[name] = config;
-}
+// The known-CLI boundary for this instance is no longer a hardcoded
+// TypeScript map — it's whatever maintainer-authored config files exist
+// in cliConfigDir, one per binary, bind-mounted at runtime (see
+// docker-compose.override.yml, .env.example). Only a binary with a
+// present, schema-valid, version-checked config file ever reaches
+// runCommand, no matter what MERCURY_CLIS says — bitbucket/google-chat
+// can be listed there with no effect until someone adds a config file
+// for them.
+const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
+const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
+  configDir: cliConfigDir,
+  runCliFn: runCli,
+});
 const jiraEnabled = Boolean(activeCliConfigs.jira);
 const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 

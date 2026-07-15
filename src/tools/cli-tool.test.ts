@@ -1,56 +1,102 @@
 import { describe, it, expect } from "bun:test";
-import { isPrefixAllowed, formatPrefixes, createCliTool, type CliConfig } from "./cli-tool.ts";
+import {
+  stripGlobalFlags,
+  matchCommand,
+  formatPrefixes,
+  createCliTool,
+  type CliConfig,
+} from "./cli-tool.ts";
 import type { CliResult } from "./cli-executor.ts";
 
-describe("isPrefixAllowed", () => {
+describe("stripGlobalFlags", () => {
+  it("removes a value-taking flag and its value from anywhere in args", () => {
+    expect(
+      stripGlobalFlags(["--select", "id", "issue", "search"], [{ flag: "--select", takesValue: true }]),
+    ).toEqual(["issue", "search"]);
+  });
+
+  it("removes a valueless flag without consuming the next token", () => {
+    expect(stripGlobalFlags(["--verbose", "issue", "search"], [{ flag: "--verbose", takesValue: false }])).toEqual([
+      "issue",
+      "search",
+    ]);
+  });
+
+  it("leaves args untouched when no global flags are configured", () => {
+    expect(stripGlobalFlags(["--select", "id", "issue", "search"], [])).toEqual([
+      "--select",
+      "id",
+      "issue",
+      "search",
+    ]);
+  });
+
+  it("handles the flag appearing multiple times", () => {
+    expect(
+      stripGlobalFlags(
+        ["--select", "a", "issue", "--select", "b", "search"],
+        [{ flag: "--select", takesValue: true }],
+      ),
+    ).toEqual(["issue", "search"]);
+  });
+});
+
+describe("matchCommand", () => {
   const config: CliConfig = {
-    readOnlyPrefixes: [
-      ["issue", "search"],
-      ["issue", "get"],
-      ["doctor"],
+    allowedPrefixes: [
+      { prefix: ["issue", "search"], confirm: false },
+      { prefix: ["issue", "get"], confirm: false },
+      { prefix: ["doctor"], confirm: false },
+      { prefix: ["issue", "delete"], confirm: true },
     ],
   };
 
-  it("allows args matching a read-only prefix", () => {
-    expect(isPrefixAllowed(["issue", "search", "--jql", "project=KAN"], config)).toBe(true);
-    expect(isPrefixAllowed(["doctor"], config)).toBe(true);
+  it("returns allowed for args matching a confirm:false prefix", () => {
+    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], config)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed" });
   });
 
-  it("rejects args not matching any read-only prefix", () => {
-    expect(isPrefixAllowed(["issue", "delete", "KAN-1", "--confirm"], config)).toBe(false);
-    expect(isPrefixAllowed(["issue", "create", "--project", "KAN"], config)).toBe(false);
+  it("returns confirm-required for args matching a confirm:true prefix", () => {
+    expect(matchCommand(["issue", "delete", "KAN-1"], config)).toEqual({
+      kind: "confirm-required",
+      prefix: ["issue", "delete"],
+    });
+  });
+
+  it("returns not-allowed for args matching no configured prefix", () => {
+    expect(matchCommand(["issue", "create", "--project", "KAN"], config)).toEqual({ kind: "not-allowed" });
   });
 
   it("always allows --help, even for an otherwise-disallowed shape", () => {
-    expect(isPrefixAllowed(["issue", "create", "--help"], config)).toBe(true);
-    expect(isPrefixAllowed(["--help"], config)).toBe(true);
+    expect(matchCommand(["issue", "create", "--help"], config)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["--help"], config)).toEqual({ kind: "allowed" });
   });
 
-  it("applies a config's stripFlags before matching prefixes", () => {
-    const withStrip: CliConfig = {
-      readOnlyPrefixes: [["issue", "search"]],
-      stripFlags: (args) => args.filter((a) => a !== "--select" && a !== "id"),
+  it("applies a config's globalFlags before matching prefixes", () => {
+    const withFlags: CliConfig = {
+      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false }],
+      globalFlags: [{ flag: "--select", takesValue: true }],
     };
-    expect(isPrefixAllowed(["--select", "id", "issue", "search"], withStrip)).toBe(true);
-    expect(isPrefixAllowed(["--select", "id", "issue", "delete"], withStrip)).toBe(false);
+    expect(matchCommand(["--select", "id", "issue", "search"], withFlags)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["--select", "id", "issue", "delete"], withFlags)).toEqual({ kind: "not-allowed" });
   });
 
-  it("uses args as-is when a config has no stripFlags", () => {
-    expect(isPrefixAllowed(["--select", "id", "issue", "search"], config)).toBe(false);
+  it("uses args as-is when a config has no globalFlags", () => {
+    expect(matchCommand(["--select", "id", "issue", "search"], config)).toEqual({ kind: "not-allowed" });
   });
 
   // Proves the allowlist logic is genuinely generic across CLIs, not just
   // "jira with extra steps" — two configs with unrelated prefix sets must
   // each only allow their own shapes.
   it("evaluates independently per config, proving the logic generalizes across CLIs", () => {
-    const jiraLike: CliConfig = { readOnlyPrefixes: [["issue", "search"]] };
-    const chatLike: CliConfig = { readOnlyPrefixes: [["spaces", "list"]] };
+    const jiraLike: CliConfig = { allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false }] };
+    const chatLike: CliConfig = { allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false }] };
 
-    expect(isPrefixAllowed(["issue", "search"], jiraLike)).toBe(true);
-    expect(isPrefixAllowed(["spaces", "list"], jiraLike)).toBe(false);
+    expect(matchCommand(["issue", "search"], jiraLike)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["spaces", "list"], jiraLike)).toEqual({ kind: "not-allowed" });
 
-    expect(isPrefixAllowed(["spaces", "list"], chatLike)).toBe(true);
-    expect(isPrefixAllowed(["issue", "search"], chatLike)).toBe(false);
+    expect(matchCommand(["spaces", "list"], chatLike)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["issue", "search"], chatLike)).toEqual({ kind: "not-allowed" });
   });
 });
 
@@ -72,10 +118,11 @@ describe("formatPrefixes", () => {
 
 describe("createCliTool", () => {
   const jiraConfig: CliConfig = {
-    readOnlyPrefixes: [
-      ["issue", "search"],
-      ["issue", "get"],
-      ["doctor"],
+    allowedPrefixes: [
+      { prefix: ["issue", "search"], confirm: false },
+      { prefix: ["issue", "get"], confirm: false },
+      { prefix: ["doctor"], confirm: false },
+      { prefix: ["issue", "delete"], confirm: true },
     ],
   };
 
@@ -101,9 +148,9 @@ describe("createCliTool", () => {
     expect(result).toEqual(fakeResult);
   });
 
-  // Relocated from the old jira.test.ts's createJiraTool coverage: lists
-  // the valid read-only prefixes in the rejection error, to help a small
-  // model self-correct in one step instead of needing a --help round trip.
+  // Relocated originally from jira.test.ts's createJiraTool coverage: lists
+  // the valid prefixes in the rejection error, to help a small model
+  // self-correct in one step instead of needing a --help round trip.
   it("execute does not call runCliFn for a disallowed subcommand, and lists the valid prefixes", async () => {
     let called = false;
     const runCliFn = async (): Promise<CliResult> => {
@@ -114,7 +161,7 @@ describe("createCliTool", () => {
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
-      { command: "jira issue delete KAN-1 --confirm" },
+      { command: "jira issue create --project KAN" },
       {} as never,
     )) as CliResult;
 
@@ -125,6 +172,49 @@ describe("createCliTool", () => {
       expect(result.error).toContain("issue search");
       expect(result.error).toContain("issue get");
       expect(result.error).toContain("doctor");
+    }
+  });
+
+  // The confirm-required rejection is distinct from "not permitted": the
+  // shape IS recognized, it's just gated on a confirmation mechanism that
+  // doesn't exist yet on this Mercury instance (M2).
+  it("execute does not call runCliFn for a confirm-required command, and returns a distinct message", async () => {
+    let called = false;
+    const runCliFn = async (): Promise<CliResult> => {
+      called = true;
+      return { ok: true, data: {} };
+    };
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await runCommand.execute(
+      { command: "jira issue delete KAN-1" },
+      {} as never,
+    )) as CliResult;
+
+    expect(called).toBe(false);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("requires confirmation");
+      expect(result.error).not.toContain("not permitted");
+    }
+  });
+
+  // The "not permitted" message must only advertise prefixes that will
+  // actually run — otherwise the model would keep retrying a shape that's
+  // recognized but always rejected for a different reason.
+  it("excludes confirm-gated prefixes from the 'not permitted' message's valid-commands list", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await runCommand.execute(
+      { command: "jira issue create --project KAN" },
+      {} as never,
+    )) as CliResult;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).not.toContain("issue delete");
     }
   });
 
@@ -202,7 +292,7 @@ describe("createCliTool", () => {
       calls.push({ binary, args });
       return { ok: true, data: {} };
     };
-    const chatConfig: CliConfig = { readOnlyPrefixes: [["spaces", "list"]] };
+    const chatConfig: CliConfig = { allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false }] };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig, "google-chat": chatConfig });
     // @ts-expect-error - execute is guaranteed present for this tool definition
