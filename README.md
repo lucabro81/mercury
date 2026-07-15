@@ -15,7 +15,7 @@ Mercury is an agent built on a fixed orchestration loop and a pluggable tool lay
 
 ## What works today
 
-Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `jiraCli` and answers with real data. The model figures out the CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed, read-only for now.
+Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `runCommand` and answers with real data. The model figures out the CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed, read-only for now.
 
 Conversation history survives across turns in the same session and summarizes itself once it grows past a size threshold, instead of overflowing the model's context window.
 

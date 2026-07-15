@@ -19,7 +19,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 
 ## Non-negotiable principles
 
-1. **CLI, not MCP.** Every external integration is a CLI binary, discovered via `--help`, never a schema preloaded into context.
+1. **CLI, not MCP.** Every external integration is a CLI binary, discovered via `--help`, never a schema preloaded into context. The model expresses which command to run as a single command-line string, the way it would type it in a terminal — Mercury parses and validates that string before ever executing it, never handing it to a real shell.
 2. **No agent framework.** Custom orchestration on top of Vercel AI SDK only.
 3. **Memory layers have boundaries.** In-context history is a prerequisite for basic functionality. Any external memory/knowledge store is an enrichment — the system must work correctly even when it's empty or unreachable.
 4. **Stateless container.** Anything that must survive a restart lives on an explicit external volume, never only in-process.
@@ -29,7 +29,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run arbitrary shell commands — only fixed, known binaries
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only fixed, known binaries with argv matching a read-only prefix allowlist ever execute
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
@@ -45,7 +45,7 @@ mercury/
 │   ├── index.ts              # composition root — wires model/tools/channels
 │   ├── model/                # Ollama provider, real context-window lookup
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
-│   ├── tools/                 # CLI executor + per-CLI tool modules (jira, joinSpace)
+│   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + per-CLI config (jira) + joinSpace
 │   ├── router/
 │   │   ├── terminal.ts         # REPL channel
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers

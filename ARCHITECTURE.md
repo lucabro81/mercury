@@ -23,7 +23,7 @@ Two things shape almost every other decision in this doc. The LLM endpoint is ha
 │  Google Chat listen ───┼─→ runTurn → Layer 1 history → tools   │
 │  (per joined space)    │                                       │
 │                        └────────────┬─────────────┘            │
-│                              jiraCli, joinSpace                │
+│                              runCommand, joinSpace              │
 └────────────────────┬───────────────────────────────────────────┘
                      │
               ┌──────┴──────┐
@@ -47,9 +47,9 @@ The boundary that matters: Layer 1 is a prerequisite, Mercury doesn't function w
 
 ## Integration layer
 
-Mercury queries services and acts on them through CLI binaries, not MCP. The LLM already knows how to use a command line, discovery happens through `--help` on demand, and nothing gets preloaded into context as a schema. `jiraCli` is one tool, not one tool per subcommand: the model picks the args, Mercury only checks them against a read-only allowlist before running anything. A command outside that allowlist gets rejected with a message that tells the model which prefixes are valid, not just that it failed.
+Mercury queries services and acts on them through CLI binaries, not MCP. The LLM already knows how to use a command line, discovery happens through `--help` on demand, and nothing gets preloaded into context as a schema. `runCommand` is one tool, not one tool per CLI or subcommand: the model writes the entire invocation as a single command-line string, exactly as it would type it in a terminal (e.g. `jira issue search --jql "project = KAN"`), and Mercury tokenizes that string into an argv array itself (`src/tools/command-parser.ts`) before checking it against a read-only allowlist — the model never populates a pre-tokenized args array, and the string never reaches a real shell. A command outside that allowlist (unknown binary, or a subcommand shape that isn't on the read-only list) gets rejected with a message that tells the model which prefixes are valid, not just that it failed.
 
-The CLIs live in a separate repo (CLI-monorepo), one crate per service. Mercury's executor (`src/tools/cli-executor.ts`) spawns them as subprocesses and parses their JSON output. It only runs fixed, known binaries, never arbitrary shell commands. Exit code decides success or failure; if stdout isn't JSON on a clean exit (`--help` output, for instance), that's not an error, the raw text becomes the result.
+The CLIs live in a separate repo (CLI-monorepo), one crate per service. Mercury's executor (`src/tools/cli-executor.ts`) spawns them as subprocesses (`Bun.spawn` with an argv array, never `sh -c`) and parses their JSON output. It only runs fixed, known binaries — the model writes a command as free text, but that text is tokenized and validated by Mercury before anything is spawned, never handed to a real shell. Exit code decides success or failure; if stdout isn't JSON on a clean exit (`--help` output, for instance), that's not an error, the raw text becomes the result.
 
 Which CLIs end up installed isn't decided at runtime. `scripts/install-clis.sh` lists the crates by name, so adding or dropping one means editing that list and rebuilding the image, then restarting the container. There's no hot-add: a maintainer with shell access to this repo decides what Mercury can talk to, Mercury doesn't grant itself new tools.
 
