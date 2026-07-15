@@ -29,11 +29,7 @@ import {
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager } from "./router/channels/google-chat-events.ts";
-import {
-  ensureSpaceSubscription,
-  sendMessage,
-  listSpaces,
-} from "./router/channels/google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage } from "./router/channels/google-chat-client.ts";
 import type { Tool } from "ai";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
@@ -164,18 +160,14 @@ if (googleChatTopic) {
       spawnLinesFn: spawnLines,
       sendMessageFn: sendMessage,
       ensureSpaceSubscriptionFn: ensureSpaceSubscription,
-      listSpacesFn: listSpaces,
       runCliFn: runCli,
     },
     {
       topic: googleChatTopic,
-      discoveryIntervalMs: Number(process.env.GOOGLE_CHAT_DISCOVERY_INTERVAL_MS) || 60_000,
-      // Defaults to enabled (matches every previous deployment's
-      // behavior). Set to exactly "false" for controlled manual testing,
-      // or on any account that's a member of many unrelated spaces —
-      // discovery tries to start a channel for every membership found,
-      // unconditionally.
-      discoveryEnabled: process.env.GOOGLE_CHAT_DISCOVERY_ENABLED !== "false",
+      spaces: (process.env.GOOGLE_CHAT_SPACES ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
     },
   );
   Object.assign(tools, createJoinSpaceTool(manager.ensureChannel));
