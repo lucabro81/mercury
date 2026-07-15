@@ -1,10 +1,10 @@
 /**
- * Thin wrapper around the `google-chat` CLI's `subscription create`,
- * `messages send`, and `spaces list` commands. Not a model-invocable
- * tool — reading/sending Google Chat messages is the transport of the
- * channel itself (see `src/router/channels/google-chat-events.ts`), the
- * same way stdin/stdout is the transport for the terminal channel,
- * never something the model chooses to invoke like `jiraCli`.
+ * Thin wrapper around the `google-chat` CLI's `subscription create` and
+ * `messages send` commands. Not a model-invocable tool —
+ * reading/sending Google Chat messages is the transport of the channel
+ * itself (see `src/router/channels/google-chat-events.ts`), the same
+ * way stdin/stdout is the transport for the terminal channel, never
+ * something the model chooses to invoke like `jiraCli`.
  *
  * `runCliFn` is injected (defaulting to the real `runCli` in production)
  * so tests never spawn a real subprocess or need real Google Chat
@@ -12,8 +12,7 @@
  *
  * Used by: `src/router/channels/google-chat-events.ts`, which calls
  * `ensureSpaceSubscription` once per space before starting to listen,
- * `sendMessage` to reply with the model's response, and `listSpaces`
- * periodically to discover which spaces Mercury should be listening to.
+ * and `sendMessage` to reply with the model's response.
  */
 import type { runCli } from "../../tools/cli-executor.ts";
 
@@ -31,6 +30,16 @@ function unwrap(result: Awaited<ReturnType<typeof runCli>>): unknown {
  * pull subscription if it doesn't already exist — `google-chat
  * subscription create` is idempotent about that part).
  *
+ * Always passes `--message-filter`, scoping delivery on the (shared)
+ * `topic` to this space's own events via the `ce-subject` CloudEvents
+ * attribute — dot notation only, `attributes.ce-subject`, confirmed live
+ * in the CLI-monorepo (google-chat-v0.4.0) to be where the space id
+ * actually lives (not `ce-source`, which holds the Workspace Events
+ * subscription's own name instead). `--topic`/`--message-filter` are
+ * immutable once the pull subscription exists, so `pubsubSubscription`
+ * must be dedicated to this space (see `deriveSubscriptionName` in
+ * `google-chat-events.ts`), not shared across spaces.
+ *
  * Returns the created subscription's `name`, which must be passed to
  * `google-chat listen --workspace-events-subscription` (see
  * `startGoogleChatSpaceChannel` in `google-chat-events.ts`) so the
@@ -45,6 +54,8 @@ export async function ensureSpaceSubscription(
   pubsubSubscription: string,
   runCliFn: typeof runCli,
 ): Promise<{ name: string }> {
+  const bareSpaceId = space.replace(/^spaces\//, "");
+  const messageFilter = `hasPrefix(attributes.ce-subject, "//chat.googleapis.com/spaces/${bareSpaceId}")`;
   const result = await runCliFn("google-chat", [
     "subscription",
     "create",
@@ -54,6 +65,8 @@ export async function ensureSpaceSubscription(
     topic,
     "--pubsub-subscription",
     pubsubSubscription,
+    "--message-filter",
+    messageFilter,
   ]);
   return unwrap(result) as { name: string };
 }
@@ -78,18 +91,4 @@ export async function sendMessage(
     text,
   ]);
   return unwrap(result) as { name: string };
-}
-
-/**
- * Lists the resource names of every space the authenticated identity is
- * currently a member of. This is what `startGoogleChatChannelManager`
- * (see `google-chat-events.ts`) polls periodically to discover which
- * spaces Mercury should be listening to, instead of relying on a
- * human-maintained static list — Mercury participates wherever it's
- * actually been added, the same way a regular Workspace member would.
- */
-export async function listSpaces(runCliFn: typeof runCli): Promise<string[]> {
-  const result = await runCliFn("google-chat", ["spaces", "list"]);
-  const data = unwrap(result) as { spaces: Array<{ name: string }> };
-  return data.spaces.map((s) => s.name);
 }
