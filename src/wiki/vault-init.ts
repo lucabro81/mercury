@@ -1,0 +1,43 @@
+/**
+ * Idempotent scaffolding for the wiki vault (Layer 2) — the vault itself
+ * is a separate git repository (D-16), mounted as an external volume
+ * (`wiki-vault:/app/wiki-vault` in docker-compose.yml, D-17), not part of
+ * Mercury's own repo. This runs at Mercury startup against
+ * `WIKI_VAULT_PATH` to make sure the expected curated/inferred structure
+ * (D-34) and the vault's own git repo exist, without disturbing whatever
+ * content is already there.
+ */
+import { mkdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+
+const SUBDIRS = ["curated/design", "curated/standards", "curated/decisions", "inferred/users"];
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Creates the vault's curated/inferred subdirectories and git-inits the
+ * vault if it isn't already a git repo. Safe to call on every startup:
+ * pre-existing directories/content are left untouched, and re-running
+ * `git init` on an already-initialized repo is a no-op.
+ */
+export async function initVault(vaultPath: string): Promise<void> {
+  for (const sub of SUBDIRS) {
+    await mkdir(join(vaultPath, sub), { recursive: true });
+  }
+
+  if (!(await pathExists(join(vaultPath, ".git")))) {
+    const proc = Bun.spawn(["git", "init"], { cwd: vaultPath, stdout: "pipe", stderr: "pipe" });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      throw new Error(`git init failed in ${vaultPath}: ${stderr}`);
+    }
+  }
+}
