@@ -21,69 +21,98 @@ import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
 import { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 
 /** A parsed incoming message event, ready to hand to `handleInput`. */
-export type ChatMessageEvent = { text: string; messageName: string; space: string };
+export type ChatMessageEvent = { text: string; messageName: string; space: string; sender: string };
+
+/**
+ * Sentinel a model can return to mean "this message isn't addressed to
+ * me" in a shared, multi-person space — `processLine` checks for this
+ * exact value (trimmed) and skips `sendMessageFn` entirely when it
+ * matches, so nothing gets posted back into the space. An interim,
+ * explicitly non-deterministic mitigation for the "replies to every
+ * message" gap tracked in DECISIONS.md D-33/S-08 (which needs Mercury's
+ * own identity + real mention detection) — not a replacement for it.
+ */
+export const NO_REPLY = "NO_REPLY";
+
+/**
+ * Raw shape of one `google-chat listen` NDJSON line — the envelope
+ * (`attributes["ce-type"]` + `data`) and `data.message.{name,text,
+ * space.name}` are confirmed against a real `listen` run with a real
+ * message in a real space. `data.message.sender.name` is assumed
+ * `users/<id>` (same shape family as `space.name`'s `spaces/<id>`) but
+ * **not yet confirmed against a real run** — verify live before trusting
+ * it in production. Every field is optional here on purpose: this
+ * describes what a well-formed event looks like, not a guarantee about
+ * what actually arrived — `parseMessageEventLine` still checks each
+ * field's real type before using it. Other event types share this same
+ * stream (e.g. subscription lifecycle renewal/expiry, confirmed live
+ * too) with a completely different `data` shape (`{ subscription: {
+ * name } }`) — irrelevant here since anything but a message-created
+ * `ce-type` returns `null` before `data` is even read.
+ */
+type GoogleChatListenLine = {
+  attributes?: { "ce-type"?: string };
+  data?: { message?: GoogleChatRawMessage };
+};
+
+type GoogleChatRawMessage = {
+  name?: string;
+  text?: string;
+  space?: { name?: string };
+  sender?: { name?: string };
+};
 
 /**
  * Parses one line of `google-chat listen`'s NDJSON output into a
  * `ChatMessageEvent`, or `null` if the line isn't a message-created
- * event worth acting on (a different event type, or invalid JSON).
+ * event worth acting on (a different event type, invalid JSON, or a
+ * required field that isn't actually the type `GoogleChatListenLine`
+ * expects — the type only describes the well-formed shape, it doesn't
+ * make the runtime checks below optional).
  *
- * The envelope is the raw Pub/Sub message (`attributes` + `data`) wrapping
- * a CloudEvent — confirmed against a real `listen` run with a real
- * message in a real space. The event type lives at
- * `attributes["ce-type"]`, not a top-level `eventType` field as
- * originally assumed before any real run existed to check it against.
- * `data.message.space.name` is required as part of the real event shape;
- * cross-space isolation itself is handled upstream by the `--message-filter`
- * passed to `ensureSpaceSubscription` (see `google-chat-client.ts`), not by
- * comparing this field here — confirmed live that a per-space `hasPrefix`
- * filter on the Pub/Sub subscription keeps other spaces' events from ever
- * being delivered to this channel in the first place.
+ * Cross-space isolation is handled upstream by the `--message-filter`
+ * passed to `ensureSpaceSubscription` (see `google-chat-client.ts`), not
+ * by comparing `space` here — confirmed live that a per-space
+ * `hasPrefix` filter on the Pub/Sub subscription keeps other spaces'
+ * events from ever being delivered to this channel in the first place.
  */
 export function parseMessageEventLine(line: string): ChatMessageEvent | null {
-  let parsed: unknown;
+  let parsed: GoogleChatListenLine;
   try {
     parsed = JSON.parse(line);
   } catch {
     return null;
   }
 
-  if (typeof parsed !== "object" || parsed === null) {
-    return null;
-  }
-  const { attributes, data } = parsed as { attributes?: unknown; data?: unknown };
-  if (typeof attributes !== "object" || attributes === null) {
-    return null;
-  }
-  const ceType = (attributes as Record<string, unknown>)["ce-type"];
-  if (ceType !== "google.workspace.chat.message.v1.created") {
+  if (parsed?.attributes?.["ce-type"] !== "google.workspace.chat.message.v1.created") {
     return null;
   }
 
-  if (typeof data !== "object" || data === null || !("message" in data)) {
-    return null;
-  }
-  const { message } = data as { message: unknown };
-  if (typeof message !== "object" || message === null) {
-    return null;
-  }
-  const { name, text, space } = message as {
-    name: unknown;
-    text: unknown;
-    space: unknown;
-  };
+  const message = parsed.data?.message;
+  const { name, text, space, sender } = message ?? {};
   if (typeof name !== "string" || typeof text !== "string") {
     return null;
   }
-  if (typeof space !== "object" || space === null) {
+  if (typeof space?.name !== "string") {
     return null;
   }
-  const spaceName = (space as Record<string, unknown>).name;
-  if (typeof spaceName !== "string") {
+  if (typeof sender?.name !== "string") {
     return null;
   }
 
-  return { text, messageName: name, space: spaceName };
+  return { text, messageName: name, space: space.name, sender: sender.name };
+}
+
+/**
+ * Composite session key for a Google Chat conversation: `space` alone
+ * mixes every sender in a shared space under one `SessionHistory` (and
+ * one Layer 3/Qdrant identity, D-15) — a real gap once Mercury
+ * participates in spaces with more than one real person, not just DMs.
+ * `${space}:${sender}` keeps each person's conversation with Mercury
+ * isolated, even within the same shared space.
+ */
+export function deriveSessionKey(space: string, sender: string): string {
+  return `${space}:${sender}`;
 }
 
 /**
@@ -122,7 +151,7 @@ export function deriveSubscriptionName(topic: string, space: string): string {
  */
 export async function startGoogleChatSpaceChannel(
   space: string,
-  handleInput: (input: string, space: string) => Promise<string>,
+  handleInput: (input: string, space: string, sender: string) => Promise<string>,
   deps: {
     spawnLinesFn: typeof spawnLines;
     sendMessageFn: typeof sendMessage;
@@ -150,7 +179,15 @@ export async function startGoogleChatSpaceChannel(
     if (!event || sentMessageNames.has(event.messageName)) {
       return;
     }
-    const reply = await handleInput(event.text, space);
+    const reply = await handleInput(event.text, space, event.sender);
+    // NO_REPLY (D-34 prerequisite): the model judged this message isn't
+    // addressed to it in a shared space — post nothing, not even a blank
+    // or apologetic message. Exact match on the trimmed reply, so a
+    // model that doesn't comply exactly just falls through to sending a
+    // normal reply (fails open, not silently swallowing a real answer).
+    if (reply.trim() === NO_REPLY) {
+      return;
+    }
     const sent = await deps.sendMessageFn(space, reply, deps.runCliFn);
     sentMessageNames.add(sent.name);
   }
@@ -200,7 +237,7 @@ export type ChannelManager = {
  * Mercury is a member of would mean auto-replying in all of them too.
  */
 export function startGoogleChatChannelManager(
-  handleInput: (input: string, space: string) => Promise<string>,
+  handleInput: (input: string, space: string, sender: string) => Promise<string>,
   deps: {
     spawnLinesFn: typeof spawnLines;
     sendMessageFn: typeof sendMessage;

@@ -2,13 +2,17 @@ import { describe, it, expect } from "bun:test";
 import {
   parseMessageEventLine,
   deriveSubscriptionName,
+  deriveSessionKey,
   startGoogleChatSpaceChannel,
   startGoogleChatChannelManager,
+  NO_REPLY,
 } from "./google-chat-events.ts";
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
 import type { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 
 const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
+
+const DEFAULT_SENDER = "users/123";
 
 /**
  * Builds a `listen` NDJSON line matching the real CloudEvents-over-Pub/Sub
@@ -16,11 +20,29 @@ const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
  * `attributes["ce-type"]` carries the event type, the payload is under
  * `data.message`. Replaces the flat `{ eventType, message }` shape this
  * file assumed before any real run existed to check it against.
+ *
+ * `sender` defaults to `DEFAULT_SENDER` for tests that don't care about
+ * the exact value — the real `data.message.sender.name` shape (assumed
+ * `users/<id>`, same as `space`'s `spaces/<id>`) still needs live
+ * verification against a real `listen` run, same as `space`/`ce-subject`
+ * were before this fixture existed.
  */
-function fakeMessageCreatedEventLine(opts: { space: string; name: string; text: string }): string {
+function fakeMessageCreatedEventLine(opts: {
+  space: string;
+  name: string;
+  text: string;
+  sender?: string;
+}): string {
   return JSON.stringify({
     attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
-    data: { message: { name: opts.name, text: opts.text, space: { name: opts.space } } },
+    data: {
+      message: {
+        name: opts.name,
+        text: opts.text,
+        space: { name: opts.space },
+        sender: { name: opts.sender ?? DEFAULT_SENDER },
+      },
+    },
   });
 }
 
@@ -30,11 +52,13 @@ describe("parseMessageEventLine", () => {
       space: "spaces/X",
       name: "spaces/X/messages/Y",
       text: "hello there",
+      sender: "users/42",
     });
     expect(parseMessageEventLine(line)).toEqual({
       text: "hello there",
       messageName: "spaces/X/messages/Y",
       space: "spaces/X",
+      sender: "users/42",
     });
   });
 
@@ -62,9 +86,39 @@ describe("parseMessageEventLine", () => {
   it("returns null when message.space is missing", () => {
     const line = JSON.stringify({
       attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
-      data: { message: { name: "spaces/X/messages/Y", text: "hi" } },
+      data: { message: { name: "spaces/X/messages/Y", text: "hi", sender: { name: "users/1" } } },
     });
     expect(parseMessageEventLine(line)).toBeNull();
+  });
+
+  // Prerequisite for per-user session isolation (D-15/D-20/D-34): a
+  // message-created event without a sender can't be attributed to any
+  // user_id, so it's treated as unrecognized rather than assigning a
+  // fallback identity.
+  it("returns null when message.sender is missing", () => {
+    const line = JSON.stringify({
+      attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
+      data: { message: { name: "spaces/X/messages/Y", text: "hi", space: { name: "spaces/X" } } },
+    });
+    expect(parseMessageEventLine(line)).toBeNull();
+  });
+});
+
+describe("deriveSessionKey", () => {
+  it("combines space and sender into a single composite key", () => {
+    expect(deriveSessionKey("spaces/X", "users/42")).toBe("spaces/X:users/42");
+  });
+
+  it("keeps two different senders in the same space distinct", () => {
+    const a = deriveSessionKey("spaces/X", "users/1");
+    const b = deriveSessionKey("spaces/X", "users/2");
+    expect(a).not.toBe(b);
+  });
+
+  it("keeps the same sender in two different spaces distinct", () => {
+    const a = deriveSessionKey("spaces/X", "users/1");
+    const b = deriveSessionKey("spaces/Y", "users/1");
+    expect(a).not.toBe(b);
   });
 });
 
@@ -142,9 +196,11 @@ describe("startGoogleChatSpaceChannel", () => {
 
     let receivedInput: string | undefined;
     let receivedSpace: string | undefined;
-    const handleInput = async (input: string, space: string) => {
+    let receivedSender: string | undefined;
+    const handleInput = async (input: string, space: string, sender: string) => {
       receivedInput = input;
       receivedSpace = space;
+      receivedSender = sender;
       return "the reply";
     };
 
@@ -164,6 +220,7 @@ describe("startGoogleChatSpaceChannel", () => {
         space: "spaces/X",
         name: "spaces/X/messages/incoming-1",
         text: "hi mercury",
+        sender: "users/42",
       }),
     );
     resolveExited?.();
@@ -172,8 +229,94 @@ describe("startGoogleChatSpaceChannel", () => {
 
     expect(receivedInput).toBe("hi mercury");
     expect(receivedSpace).toBe("spaces/X");
+    expect(receivedSender).toBe("users/42");
     expect(sentSpace).toBe("spaces/X");
     expect(sentText).toBe("the reply");
+  });
+
+  // NO_REPLY heuristic (D-34 prerequisite, interim mitigation for D-33/S-08):
+  // a shared-space reply that the model judges isn't addressed to it must
+  // never actually be posted — sendMessageFn must not even be called.
+  it("does not call sendMessageFn when handleInput returns the NO_REPLY sentinel", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    let sendMessageFnCalls = 0;
+    const sendMessageFn: typeof sendMessage = async () => {
+      sendMessageFnCalls++;
+      return { name: "spaces/X/messages/reply-1" };
+    };
+    const handleInput = async () => NO_REPLY;
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "not for you, mercury",
+      }),
+    );
+    resolveExited?.();
+
+    await channelPromise;
+
+    expect(sendMessageFnCalls).toBe(0);
+  });
+
+  // Whitespace around the sentinel (a trailing newline the model added,
+  // say) must not accidentally cause a real reply to be sent instead.
+  it("treats NO_REPLY with surrounding whitespace the same as an exact match", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    let sendMessageFnCalls = 0;
+    const sendMessageFn: typeof sendMessage = async () => {
+      sendMessageFnCalls++;
+      return { name: "spaces/X/messages/reply-1" };
+    };
+    const handleInput = async () => `  ${NO_REPLY}\n`;
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "not for you, mercury",
+      }),
+    );
+    resolveExited?.();
+
+    await channelPromise;
+
+    expect(sendMessageFnCalls).toBe(0);
   });
 
   it("ignores an event whose messageName was already sent by Mercury itself (loop prevention)", async () => {
