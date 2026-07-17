@@ -1,5 +1,5 @@
 /**
- * Typed writers for wiki notes (D-34) — the "template" that takes
+ * Typed writers for wiki notes — the "template" that takes
  * structured fields instead of a free-form file write: each function
  * validates its fields against the frontmatter schema
  * (frontmatter-schema.ts), serializes YAML frontmatter + markdown body,
@@ -11,9 +11,10 @@
  * work, cli-tool.ts wraps a subset in `tool()` for the model). Whether
  * either of these gets a `tool()` wrapper is a separate, later decision:
  * `writeInferredNote` in particular must stay internal-only, called
- * exclusively by the deterministic consolidation engine (D-34) — never
- * exposed to the model, since that would reopen the LLM-judgment
- * question D-34 closed.
+ * exclusively by the deterministic consolidation engine — never
+ * exposed to the model, since that would reopen the question of letting
+ * the LLM decide when to write semantic memory, deliberately kept
+ * mechanical/deterministic instead.
  *
  * Path segments coming from outside Mercury's own code (userId, topic)
  * are resolved and checked against the vault root before any write — a
@@ -76,7 +77,7 @@ export async function writeCuratedNote(
   await writeNoteFile(fullPath, frontmatter, body);
 }
 
-/** Writes a semantic note at `inferred/users/<userId>/<topic>.md` (D-34). */
+/** Writes a semantic note at `inferred/users/<userId>/<topic>.md`. */
 export async function writeInferredNote(
   vaultPath: string,
   userId: string,

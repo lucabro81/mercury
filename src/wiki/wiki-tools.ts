@@ -5,7 +5,7 @@
  * cli-executor.ts/cli-tool.ts for the external CLIs. `write_file` only
  * ever reaches `writeCuratedNote`: `writeInferredNote` is deliberately
  * never wired into a tool here, since inferred/ is written exclusively
- * by the deterministic consolidation engine (D-34), never by model
+ * by the deterministic consolidation engine, never by model
  * choice. Every `execute` returns `{ ok, ... }` instead of throwing, so
  * a rejected/invalid call is a self-correctable model turn, not a
  * crashed tool call.

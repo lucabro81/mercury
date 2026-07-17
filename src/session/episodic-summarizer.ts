@@ -1,12 +1,12 @@
 /**
- * Thin glue turning a closed session's messages into the D-20 episodic
+ * Thin glue turning a closed session's messages into the episodic
  * summary written to Qdrant (see `src/memory/episodic-store.ts`) — a
  * dated account of what happened, not an interpretation. Distinct from
  * `summarizer.ts` (Layer 1): that one condenses history to keep the
  * *next* turn's prompt small, preserving whatever helps continue the
  * same conversation; this one produces a standalone record of a
  * *finished* conversation, and must not infer patterns or preferences
- * (D-34: that inference is a separate, deterministic consolidation step,
+ * (that inference is a separate, deterministic consolidation step,
  * not this LLM call's job).
  *
  * Same "not worth mocking deeply" reasoning as `summarizer.ts` — no

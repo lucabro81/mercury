@@ -1,5 +1,5 @@
 /**
- * Frontmatter schema for wiki notes (D-34), based on Open Knowledge
+ * Frontmatter schema for wiki notes, based on Open Knowledge
  * Format (OKF — https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing):
  * `type` is the only field OKF mandates; `source`/`confidence`/
  * `derived_from`/`last_reviewed` are Mercury-specific extensions, the

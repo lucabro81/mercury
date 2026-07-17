@@ -1,10 +1,10 @@
 /**
  * Idempotent scaffolding for the wiki vault (Layer 2) — the vault itself
- * is a separate git repository (D-16), mounted as an external volume
- * (`wiki-vault:/app/wiki-vault` in docker-compose.yml, D-17), not part of
+ * is a separate git repository, mounted as an external volume
+ * (`wiki-vault:/app/wiki-vault` in docker-compose.yml), not part of
  * Mercury's own repo. This runs at Mercury startup against
  * `WIKI_VAULT_PATH` to make sure the expected curated/inferred structure
- * (D-34) and the vault's own git repo exist, without disturbing whatever
+ * and the vault's own git repo exist, without disturbing whatever
  * content is already there.
  */
 import { mkdir, stat } from "node:fs/promises";

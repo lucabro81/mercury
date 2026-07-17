@@ -28,9 +28,9 @@ export type ChatMessageEvent = { text: string; messageName: string; space: strin
  * me" in a shared, multi-person space — `processLine` checks for this
  * exact value (trimmed) and skips `sendMessageFn` entirely when it
  * matches, so nothing gets posted back into the space. An interim,
- * explicitly non-deterministic mitigation for the "replies to every
- * message" gap tracked in DECISIONS.md D-33/S-08 (which needs Mercury's
- * own identity + real mention detection) — not a replacement for it.
+ * explicitly non-deterministic mitigation for Mercury replying to every
+ * message in a shared space (a real fix needs Mercury's own identity +
+ * real mention detection, not available yet) — not a replacement for it.
  */
 export const NO_REPLY = "NO_REPLY";
 
@@ -106,7 +106,7 @@ export function parseMessageEventLine(line: string): ChatMessageEvent | null {
 /**
  * Composite session key for a Google Chat conversation: `space` alone
  * mixes every sender in a shared space under one `SessionHistory` (and
- * one Layer 3/Qdrant identity, D-15) — a real gap once Mercury
+ * one Layer 3/Qdrant identity) — a real gap once Mercury
  * participates in spaces with more than one real person, not just DMs.
  * `${space}:${sender}` keeps each person's conversation with Mercury
  * isolated, even within the same shared space.
@@ -180,7 +180,7 @@ export async function startGoogleChatSpaceChannel(
       return;
     }
     const reply = await handleInput(event.text, space, event.sender);
-    // NO_REPLY (D-34 prerequisite): the model judged this message isn't
+    // NO_REPLY: the model judged this message isn't
     // addressed to it in a shared space — post nothing, not even a blank
     // or apologetic message. Exact match on the trimmed reply, so a
     // model that doesn't comply exactly just falls through to sending a

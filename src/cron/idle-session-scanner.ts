@@ -1,5 +1,5 @@
 /**
- * Pure idle-tracking for D-20 (session persistence): remembers the last
+ * Pure idle-tracking for session persistence: remembers the last
  * activity time per session key and reports which are idle at a given
  * moment. Time is always passed in, never read internally (`Date.now()`
  * lives in the caller, e.g. `src/index.ts`/`idle-session-cron.ts`) — this
@@ -10,7 +10,7 @@ export type IdleSessionScanner = {
   touch(key: string, now: number): void;
   /** Returns every tracked key whose last activity is at least `idleTimeoutMs` before `now`. */
   scanIdle(now: number, idleTimeoutMs: number): string[];
-  /** Stops tracking `key` — call after a session has been consolidated (D-20's "raw transcript scartato"). */
+  /** Stops tracking `key` — call after a session has been consolidated and its raw transcript discarded. */
   clear(key: string): void;
 };
 

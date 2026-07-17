@@ -1,8 +1,8 @@
 /**
- * Layer 3 (Qdrant) episodic storage, D-20/D-34: one point per closed,
+ * Layer 3 (Qdrant) episodic storage: one point per closed,
  * summarized session — a raw, dated "what happened", not an
- * interpretation. Consolidation into semantic memory (D-22/D-34's
- * per-topic promotion into the wiki) is a separate, later concern that
+ * interpretation. Consolidation into semantic memory (per-topic
+ * promotion into the wiki) is a separate, later concern that
  * reads from this collection; this module only ever writes to it.
  *
  * `QdrantClientLike` describes only the subset of `@qdrant/js-client-rest`'s

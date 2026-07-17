@@ -2,8 +2,8 @@
  * Read-side access to the wiki vault: listing, reading, and searching.
  * Every function is scoped to `curated/` (visible to everyone) plus
  * `inferred/users/<userId>/` for the *calling* userId only — never
- * another user's semantic notes (D-15's per-user isolation, applied to
- * Layer 2 the same way it already applies to Layer 3/Qdrant). Plain
+ * another user's semantic notes (the same per-user isolation already
+ * used for Layer 3/Qdrant, applied to Layer 2 too). Plain
  * functions, not model-invocable tools — wiki-tools.ts wraps a subset of
  * these in `tool()` for the model, same split as
  * cli-executor.ts/cli-tool.ts.

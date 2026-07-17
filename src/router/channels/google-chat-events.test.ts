@@ -91,10 +91,9 @@ describe("parseMessageEventLine", () => {
     expect(parseMessageEventLine(line)).toBeNull();
   });
 
-  // Prerequisite for per-user session isolation (D-15/D-20/D-34): a
-  // message-created event without a sender can't be attributed to any
-  // user_id, so it's treated as unrecognized rather than assigning a
-  // fallback identity.
+  // Prerequisite for per-user session isolation: a message-created event
+  // without a sender can't be attributed to any user_id, so it's treated
+  // as unrecognized rather than assigning a fallback identity.
   it("returns null when message.sender is missing", () => {
     const line = JSON.stringify({
       attributes: { "ce-type": "google.workspace.chat.message.v1.created" },
@@ -234,9 +233,10 @@ describe("startGoogleChatSpaceChannel", () => {
     expect(sentText).toBe("the reply");
   });
 
-  // NO_REPLY heuristic (D-34 prerequisite, interim mitigation for D-33/S-08):
-  // a shared-space reply that the model judges isn't addressed to it must
-  // never actually be posted — sendMessageFn must not even be called.
+  // NO_REPLY heuristic (interim mitigation for Mercury replying to every
+  // message in a shared space): a reply the model judges isn't addressed
+  // to it must never actually be posted — sendMessageFn must not even be
+  // called.
   it("does not call sendMessageFn when handleInput returns the NO_REPLY sentinel", async () => {
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
       name: "subscriptions/abc",

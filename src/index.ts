@@ -86,10 +86,10 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
   }
 
   if (opts.multiUserChannel) {
-    // Interim, explicitly non-deterministic mitigation for the "replies to
-    // every message" gap (DECISIONS.md D-33/S-08) — not a replacement for
-    // real mention detection, which needs Mercury's own identity. See
-    // NO_REPLY in google-chat-events.ts for the code side of this check.
+    // Interim, explicitly non-deterministic mitigation for Mercury replying
+    // to every message in a shared space — not a replacement for real
+    // mention detection, which needs Mercury's own identity (not available
+    // yet). See NO_REPLY in google-chat-events.ts for the code side of this check.
     lines.push(
       [
         "This conversation may be a shared space with more than one person, not a private one-on-one chat.",
@@ -140,8 +140,8 @@ const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 
 // Two separate system prompts, not one shared string: the multiUserChannel
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
-// always 1:1 (D-23) — an operator typing normally shouldn't risk an
-// unexpected NO_REPLY meant for a shared Google Chat space.
+// always a private 1:1 conversation — an operator typing normally
+// shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
 const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: false });
 const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: true });
 
@@ -161,14 +161,14 @@ function getOrCreateHistory(key: string): SessionHistory {
   return history;
 }
 
-// D-20 (session persistence, Layer 3): a Google Chat session idle past
+// Session persistence, Layer 3: a Google Chat session idle past
 // SESSION_IDLE_TIMEOUT_MS is summarized (not the Layer-1 summarizer above —
 // see episodic-summarizer.ts for why) and written to Qdrant as a dated
 // episodic record, then discarded from `histories`. Terminal sessions are
-// never tracked here — D-23, not a real multi-user surface, and D-15's
-// per-user isolation needs a real Google Chat sender, which the terminal
-// doesn't have.
-const sessionUsers = new Map<string, string>(); // session key -> Google Chat sender (userId, D-15)
+// never tracked here — it's a single-operator debug channel, not a real
+// multi-user surface, and per-user isolation needs a real Google Chat
+// sender, which the terminal doesn't have.
+const sessionUsers = new Map<string, string>(); // session key -> Google Chat sender (userId)
 const idleScanner = createIdleSessionScanner();
 const episodicSummarize = createEpisodicSummarizer(model);
 const embeddingModel = provider.textEmbeddingModel(process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text");
@@ -236,7 +236,7 @@ if (googleChatTopic) {
   const manager = startGoogleChatChannelManager(
     (input, space, sender) => {
       const sessionKey = deriveSessionKey(space, sender);
-      // Touch before processing, not after: D-20's idle clock tracks time
+      // Touch before processing, not after: the idle clock should track time
       // since the human's last message, not Mercury's response latency.
       sessionUsers.set(sessionKey, sender);
       idleScanner.touch(sessionKey, Date.now());

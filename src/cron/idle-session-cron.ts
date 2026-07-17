@@ -1,5 +1,5 @@
 /**
- * The cron loop for D-20: periodically sweeps for sessions idle past the
+ * The session-persistence cron loop: periodically sweeps for sessions idle past the
  * configured timeout, summarizes each one (episodic-summarizer.ts),
  * writes the result to Qdrant (episodic-store.ts), and discards the raw
  * transcript (`deps.closeSession`). Every dependency is injected — this
@@ -17,7 +17,7 @@ export type IdleSessionSweepDeps = {
   getSession: (key: string) => IdleSession | undefined;
   summarize: (messages: Message[]) => Promise<string>;
   store: (entry: EpisodicSummary) => Promise<void>;
-  /** Discards the session's raw transcript (D-20) — called only after a successful summarize+store. */
+  /** Discards the session's raw transcript — called only after a successful summarize+store. */
   closeSession: (key: string) => void;
   log?: (msg: string) => void;
 };
