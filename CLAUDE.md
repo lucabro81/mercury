@@ -90,3 +90,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 - **Exit 0 with non-JSON stdout is success, not a parse failure** (`runCli`) — `--help` output is exactly this shape; treating it as an error sent a model into a confused retry spiral on every session that started with `--help` discovery
 - **`readline`'s `output` option (needed for arrow-key/history support) must be gated on `stdin.isTTY` alone, not on whether `io.input` was injected** — passing it against a non-TTY-but-real stdin (e.g. a piped exec session) breaks normal input; passing it against a fully detached/closed stdin (a backgrounded container) crashes the process outright
 - **A Pub/Sub topic shared across multiple subscriptions delivers every message to every subscriber** — there's no built-in "this subscription only gets its own events" behavior; a per-space pull-subscription *name* is bookkeeping, not isolation. Application code must filter by the event's actual target, or rely on a subscription-level message filter set at creation time (not yet exposed by the CLI as of M1 — see M2's tech-debt list)
+
+## **IMPORTANT**
+
+Never add Co-Authored-By lines to commits
