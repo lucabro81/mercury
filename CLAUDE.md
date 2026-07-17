@@ -63,6 +63,14 @@ mercury/
 
 M1 (Jira read-only path, Layer 1 memory, terminal channel, Google Chat channel) is implemented and verified live on both channels — see `CLAUDE.local.md` for current milestone status and what M2 adds. `memory/`, `wiki/`, `cron/` stay empty (`.gitkeep` only) until then.
 
+## Versioning & changelog
+
+SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md` is public — same audience as README/ARCHITECTURE.md.
+
+- Every relevant change gets a changeset: `bun run changeset`, describe it, pick the bump type.
+- Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context — same rule as any other public doc in this repo.
+- No batching: each changeset is consumed on its own via `bun run release` (`changeset version` + commit + `git tag vX.Y.Z`, see `scripts/tag-release.sh`), right after the change it documents.
+
 ## Operational notes
 
 - **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags
