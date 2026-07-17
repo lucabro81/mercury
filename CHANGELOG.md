@@ -1,5 +1,11 @@
 # mercury
 
+## 0.3.0
+
+### Minor Changes
+
+- 79d12a9: Add Changesets-based versioning and changelog workflow: a changeset per relevant change, released individually via `bun run release` (version bump, CHANGELOG.md entry, commit, git tag).
+
 ## 0.2.0
 
 ### Minor Changes
