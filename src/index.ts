@@ -12,6 +12,7 @@
  * rather than assuming any of them exist, specifically so this file can
  * make that call in one place.
  */
+import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { getLoadedContextLength } from "./model/context-size.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
@@ -20,6 +21,7 @@ import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
+import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
 import {
@@ -31,8 +33,12 @@ import {
   writeDump,
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/agent-turn.ts";
-import { startGoogleChatChannelManager } from "./router/channels/google-chat-events.ts";
+import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
 import { ensureSpaceSubscription, sendMessage } from "./router/channels/google-chat-client.ts";
+import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
+import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
+import { ensureEpisodicCollection, storeEpisodicSummary } from "./memory/episodic-store.ts";
+import { createEmbedder } from "./memory/embedder.ts";
 import type { Tool } from "ai";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
@@ -49,7 +55,7 @@ function requireEnv(name: string): string {
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
  * an absent tool is a real bug, not a harmless no-op).
  */
-function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): string {
+function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multiUserChannel: boolean }): string {
   const lines = ["You are Mercury, an internal assistant."];
   if (opts.jira) {
     lines.push(
@@ -75,6 +81,21 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean }): st
         "You have access to the joinSpace tool.",
         "DO:",
         "- If a user asks you to participate in a specific Google Chat space, use it to start listening immediately instead of waiting for periodic discovery.",
+      ].join("\n"),
+    );
+  }
+
+  if (opts.multiUserChannel) {
+    // Interim, explicitly non-deterministic mitigation for the "replies to
+    // every message" gap (DECISIONS.md D-33/S-08) — not a replacement for
+    // real mention detection, which needs Mercury's own identity. See
+    // NO_REPLY in google-chat-events.ts for the code side of this check.
+    lines.push(
+      [
+        "This conversation may be a shared space with more than one person, not a private one-on-one chat.",
+        "DO:",
+        "- Only give a substantive answer if this message is clearly directed at you (e.g. it explicitly mentions/addresses you) or is a direct continuation of an exchange you were already having with this same sender.",
+        `- If the message doesn't seem directed at you or isn't relevant to you, respond with exactly \`${NO_REPLY}\` and nothing else — no punctuation, no explanation, nothing before or after it.`,
       ].join("\n"),
     );
   }
@@ -117,7 +138,12 @@ const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
 const jiraEnabled = Boolean(activeCliConfigs.jira);
 const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 
-const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic) });
+// Two separate system prompts, not one shared string: the multiUserChannel
+// clause (NO_REPLY heuristic) must never reach the terminal, which is
+// always 1:1 (D-23) — an operator typing normally shouldn't risk an
+// unexpected NO_REPLY meant for a shared Google Chat space.
+const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: true });
 
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for getLoadedContextLength's direct HTTP call
@@ -134,6 +160,49 @@ function getOrCreateHistory(key: string): SessionHistory {
   }
   return history;
 }
+
+// D-20 (session persistence, Layer 3): a Google Chat session idle past
+// SESSION_IDLE_TIMEOUT_MS is summarized (not the Layer-1 summarizer above —
+// see episodic-summarizer.ts for why) and written to Qdrant as a dated
+// episodic record, then discarded from `histories`. Terminal sessions are
+// never tracked here — D-23, not a real multi-user surface, and D-15's
+// per-user isolation needs a real Google Chat sender, which the terminal
+// doesn't have.
+const sessionUsers = new Map<string, string>(); // session key -> Google Chat sender (userId, D-15)
+const idleScanner = createIdleSessionScanner();
+const episodicSummarize = createEpisodicSummarizer(model);
+const embeddingModel = provider.textEmbeddingModel(process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text");
+const embed = createEmbedder(embeddingModel);
+const qdrant = new QdrantClient({ url: process.env.QDRANT_URL ?? "http://qdrant:6333" });
+const episodicCollection = process.env.QDRANT_EPISODIC_COLLECTION ?? "episodic_memory";
+const episodicVectorSize = Number(process.env.QDRANT_EPISODIC_VECTOR_SIZE ?? "768");
+await ensureEpisodicCollection(qdrant, episodicCollection, episodicVectorSize);
+
+const idleCron = startIdleSessionCron(
+  idleScanner,
+  {
+    getSession: (key) => {
+      const history = histories.get(key);
+      const userId = sessionUsers.get(key);
+      if (!history || !userId) {
+        return undefined;
+      }
+      return { key, userId, messages: history.getMessages() };
+    },
+    summarize: episodicSummarize,
+    store: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+    closeSession: (key) => {
+      histories.delete(key);
+      sessionUsers.delete(key);
+    },
+    log: (msg) => console.error(`[cron] ${msg}`),
+  },
+  {
+    idleTimeoutMs: Number(process.env.SESSION_IDLE_TIMEOUT_MS ?? String(30 * 60_000)),
+    checkIntervalMs: Number(process.env.SESSION_IDLE_CHECK_INTERVAL_MS ?? String(60_000)),
+  },
+);
+void idleCron; // kept alive for the process lifetime; no shutdown hook exists yet (same as the rest of Mercury today)
 
 const tools: Record<string, Tool> = {};
 if (Object.keys(activeCliConfigs).length > 0) {
@@ -165,14 +234,21 @@ function logStep(prefix: string, step: StepInfo): void {
 
 if (googleChatTopic) {
   const manager = startGoogleChatChannelManager(
-    (input, space) =>
-      runTurn(getOrCreateHistory(space), input, {
+    (input, space, sender) => {
+      const sessionKey = deriveSessionKey(space, sender);
+      // Touch before processing, not after: D-20's idle clock tracks time
+      // since the human's last message, not Mercury's response latency.
+      sessionUsers.set(sessionKey, sender);
+      idleScanner.touch(sessionKey, Date.now());
+      return runTurn(getOrCreateHistory(sessionKey), input, {
         model,
         tools,
-        system,
-        onStepFinish: (step) => logStep(`[chat:${space}] `, step),
-        onUsage: (inputTokens) => console.error(`[chat:${space}] [usage] inputTokens=${inputTokens ?? "?"}`),
-      }),
+        system: chatSystem,
+        onStepFinish: (step) => logStep(`[chat:${space}:${sender}] `, step),
+        onUsage: (inputTokens) =>
+          console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
+      });
+    },
     {
       spawnLinesFn: spawnLines,
       sendMessageFn: sendMessage,
