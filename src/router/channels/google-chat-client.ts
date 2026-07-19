@@ -72,6 +72,35 @@ export async function ensureSpaceSubscription(
 }
 
 /**
+ * Resolves `userId` (`users/<id>` or a bare id, same value found in a
+ * message's `sender.name`) to a human display name via `google-chat users
+ * get`, which itself calls the People API — Chat's own API never exposes
+ * a display name on a user-authenticated Chat User resource. Response
+ * shape confirmed live: the real `people.get` payload, `names` is an
+ * array (a person can have entries from more than one source) — picks the
+ * one marked `metadata.primary: true`, falling back to the first entry if
+ * none is marked (better a plausible name than none). Throws if `names`
+ * is missing/empty or the underlying CLI call fails — there's no
+ * fallback identity to show instead.
+ */
+export async function getUser(
+  userId: string,
+  runCliFn: typeof runCli,
+): Promise<{ displayName: string }> {
+  const result = await runCliFn("google-chat", ["users", "get", "--user", userId]);
+  const data = unwrap(result) as { names?: { displayName?: string; metadata?: { primary?: boolean } }[] };
+
+  if (!data.names || data.names.length === 0) {
+    throw new Error(`google-chat users get --user ${userId} returned no names`);
+  }
+  const primary = data.names.find((n) => n.metadata?.primary) ?? data.names[0];
+  if (!primary?.displayName) {
+    throw new Error(`google-chat users get --user ${userId} returned a name entry with no displayName`);
+  }
+  return { displayName: primary.displayName };
+}
+
+/**
  * Sends a plain-text message to `space` and returns the created
  * message's `name` — used by the caller to recognize and ignore this
  * same message if it shows up again as an incoming event (loop

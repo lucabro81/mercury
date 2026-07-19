@@ -4,12 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeCuratedNote, writeInferredNote } from "./wiki-note.ts";
 import { createWikiTools } from "./wiki-tools.ts";
+import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
 
+// writeCuratedNote/writeInferredNote now commit after writing (D-16) —
+// git add/commit fail outright against a non-repo, so the vault needs to
+// be a real git repo before any write, not just a bare temp dir.
 async function makeTempVault(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "mercury-wiki-tools-test-"));
   tempDirs.push(dir);
+  await initVault(dir);
   return dir;
 }
 

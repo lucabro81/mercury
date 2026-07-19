@@ -3,14 +3,33 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { writeCuratedNote, writeInferredNote } from "./wiki-note.ts";
+import { writeCuratedNote, writeInferredNote, writeResolvedNote } from "./wiki-note.ts";
+import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
 
+// Every writer now commits after writing (D-16: every vault write is a
+// commit) — git add/commit fail outright against a non-repo, so every test
+// needs a real git-inited vault, not just a bare temp dir.
 async function makeTempVault(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "mercury-wiki-note-test-"));
   tempDirs.push(dir);
+  await initVault(dir);
   return dir;
+}
+
+async function gitLog(vaultPath: string): Promise<string[]> {
+  const proc = Bun.spawn(["git", "log", "--format=%s"], { cwd: vaultPath, stdout: "pipe" });
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return text.trim().split("\n").filter(Boolean);
+}
+
+async function gitStatusPorcelain(vaultPath: string): Promise<string> {
+  const proc = Bun.spawn(["git", "status", "--porcelain"], { cwd: vaultPath, stdout: "pipe" });
+  const text = await new Response(proc.stdout).text();
+  await proc.exited;
+  return text.trim();
 }
 
 afterEach(async () => {
@@ -43,6 +62,36 @@ describe("writeCuratedNote", () => {
       writeCuratedNote(vaultPath, "../../etc/evil.md", {}, "pwned"),
     ).rejects.toThrow();
   });
+
+  // D-16: every vault write is a commit — audit trail + `git revert` as a
+  // safety net. Regression: a write that lands on disk but is never
+  // committed silently breaks that guarantee.
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "standards/jira-fields.md", { author: "luca" }, "body");
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("standards/jira-fields.md");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  // Found by hand via the maintenance CLI: writing byte-identical content
+  // twice made `git commit` fail with "nothing to commit" (a legitimate git
+  // outcome, since there's no diff to record) — but that surfaced as a
+  // thrown error to the caller, which is surprising: asking the vault to
+  // contain X, when it already contains exactly X, should succeed as a
+  // no-op, not fail.
+  it("succeeds as a no-op, without a new commit, when the content is byte-identical to what's already there", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "standards/jira-fields.md", { author: "luca" }, "body");
+    const logAfterFirst = await gitLog(vaultPath);
+
+    await writeCuratedNote(vaultPath, "standards/jira-fields.md", { author: "luca" }, "body");
+
+    const logAfterSecond = await gitLog(vaultPath);
+    expect(logAfterSecond.length).toBe(logAfterFirst.length);
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
 });
 
 describe("writeInferredNote", () => {
@@ -66,6 +115,21 @@ describe("writeInferredNote", () => {
       last_reviewed: null,
     });
     expect(body).toBe("L'utente tende a chiudere i ticket a lotti.\n");
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeInferredNote(
+      vaultPath,
+      "user-42",
+      "ticket_closing_style",
+      { confidence: "medium", derived_from: ["ep_a1b2"], last_reviewed: null },
+      "body",
+    );
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("user-42/ticket_closing_style");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
   });
 
   it("rejects an invalid confidence value before writing anything", async () => {
@@ -106,5 +170,124 @@ describe("writeInferredNote", () => {
         "body",
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("writeResolvedNote", () => {
+  it("writes a fixed resolved-name.md file under inferred/users/<userId>/ with full frontmatter", async () => {
+    const vaultPath = await makeTempVault();
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
+
+    const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
+    const { frontmatter, body } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-19T12:00:00Z",
+      display_name: "Luca Brognara",
+    });
+    expect(body).toBe("Luca Brognara\n");
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("users/42");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("overwrites an existing resolved note idempotently on re-resolution, with one commit each time", async () => {
+    const vaultPath = await makeTempVault();
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-20T09:00:00Z" }, "Luca B.");
+
+    const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
+    const { frontmatter, body } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-20T09:00:00Z",
+      display_name: "Luca B.",
+    });
+    expect(body).toBe("Luca B.\n");
+
+    const log = await gitLog(vaultPath);
+    expect(log.length).toBe(2);
+  });
+
+  // Unlike writeInferredNote's topic (LLM-produced free text, where a "/"
+  // would never legitimately appear), userId is a deterministic,
+  // Mercury-controlled value that legitimately contains "/" in its normal
+  // shape (e.g. "users/42") — so it's always encoded into a safe single
+  // path segment rather than rejected outright when it contains one. A
+  // "../../evil"-shaped userId just becomes an inert, oddly-named
+  // directory inside inferred/users/, never a real traversal.
+  it("stays within the vault for a userId containing path-traversal-shaped characters", async () => {
+    const vaultPath = await makeTempVault();
+    await writeResolvedNote(vaultPath, "../../evil", { resolvedAt: "2026-07-19T12:00:00Z" }, "pwned");
+
+    const text = await readFile(join(vaultPath, "inferred/users/..%2F..%2Fevil/resolved-name.md"), "utf-8");
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-19T12:00:00Z",
+      display_name: "pwned",
+    });
+  });
+});
+
+// M3.md flagged this exact risk: "scritture serializzate via coda... zero
+// infrastruttura nuova" — git add/commit against the same repo aren't safe
+// to run concurrently (index lock races). Every writer shares one vault,
+// so this must hold across different writer functions, not just repeated
+// calls to the same one.
+describe("concurrent writes", () => {
+  // Found by hand: only git add/commit went through the queue, not the
+  // preceding writeFile — two writers targeting the SAME path raced
+  // directly on disk content (last writeFile wins silently, no error)
+  // while the git layer got confused independently (one commit ends up
+  // holding the other's content under its own message, the other then
+  // fails with "nothing to commit"). Serializing the whole write (file +
+  // commit) as one unit makes the outcome deterministic instead: whichever
+  // call is processed second cleanly overwrites the first, with its own
+  // clean commit — no races, no spurious failures.
+  it("serializes same-path writes deterministically instead of racing on disk content", async () => {
+    const vaultPath = await makeTempVault();
+
+    const results = await Promise.allSettled([
+      writeCuratedNote(vaultPath, "standards/jira-cli.md", {}, "versione A"),
+      writeCuratedNote(vaultPath, "standards/jira-cli.md", {}, "versione B"),
+    ]);
+
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+    const log = await gitLog(vaultPath);
+    expect(log.length).toBe(2);
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+
+    const text = await readFile(join(vaultPath, "curated/standards/jira-cli.md"), "utf-8");
+    expect(["versione A", "versione B"].some((v) => text.includes(v))).toBe(true);
+  });
+
+  it("serializes concurrent writes across writer functions instead of racing on git", async () => {
+    const vaultPath = await makeTempVault();
+
+    await Promise.all([
+      writeCuratedNote(vaultPath, "standards/a.md", {}, "a"),
+      writeResolvedNote(vaultPath, "users/1", { resolvedAt: "2026-07-19T12:00:00Z" }, "User One"),
+      writeInferredNote(
+        vaultPath,
+        "user-2",
+        "topic",
+        { confidence: "low", derived_from: ["ep_1"], last_reviewed: null },
+        "body",
+      ),
+    ]);
+
+    const log = await gitLog(vaultPath);
+    expect(log.length).toBe(3);
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
   });
 });
