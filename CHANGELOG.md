@@ -1,5 +1,11 @@
 # mercury
 
+## 0.4.0
+
+### Minor Changes
+
+- Mercury writes to Jira now: creates issues, transitions them, comments on them, deletes them behind an explicit confirmation you have to type back exactly. It also keeps a git-versioned wiki of its own, read and written through its own tools, consulted before a live query or an honest admission it doesn't know.
+
 ## 0.3.0
 
 ### Minor Changes
