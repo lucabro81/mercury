@@ -17,7 +17,9 @@ import { getOllamaProvider } from "./model/client.ts";
 import { getLoadedContextLength } from "./model/context-size.ts";
 import { runCli, spawnLines } from "./tools/cli-executor.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
+import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
+import { tryConfirm } from "./router/confirm-flow.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -34,11 +36,15 @@ import {
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
-import { ensureSpaceSubscription, sendMessage } from "./router/channels/google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage, getUser } from "./router/channels/google-chat-client.ts";
+import { resolveSenderName } from "./router/user-resolution.ts";
+import { writeResolvedNote } from "./wiki/wiki-note.ts";
+import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
 import { ensureEpisodicCollection, storeEpisodicSummary } from "./memory/episodic-store.ts";
 import { createEmbedder } from "./memory/embedder.ts";
+import { initVault } from "./wiki/vault-init.ts";
 import type { Tool } from "ai";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
@@ -60,7 +66,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
   if (opts.jira) {
     lines.push(
       [
-        "You have access to the runCommand tool, which runs a CLI command for read-only Jira access.",
+        "You have access to the runCommand tool, which runs a CLI command for Jira access — reading issues, and writing via issue create/transition/comment.",
         "DO:",
         '- Call runCommand with `command` set to the exact command line you would type in a terminal, e.g. `jira issue search --jql "project = KAN"` — quote values containing spaces, exactly like a real shell.',
         "- Use runCommand to get real data — never invent ticket data.",
@@ -69,12 +75,36 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
         '- When a search can return more than one or two issues, add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.',
         '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.',
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
+        "- issue create/transition/comment run immediately, no confirmation needed — tell the user what you did (e.g. the new issue's key) after it succeeds.",
+        '- issue delete is irreversible: runCommand won\'t execute it directly. Instead you\'ll get back a `token` and a `pendingConfirmation` result — relay that exact token to the user verbatim and ask them to reply exactly `conferma <token>` to proceed. Never invent a token, never claim the deletion already happened.',
         "",
         "DON'T:",
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
+        "- DON'T alter, abbreviate, or make up a confirmation token — copy it exactly as returned.",
       ].join("\n"),
     );
   }
+  // Always present (WIKI_VAULT_PATH is a required env var, the vault
+  // always exists once Mercury boots) — unlike jira/googleChatJoin, this
+  // block doesn't need its own opts flag.
+  lines.push(
+    [
+      "You have access to wiki tools: list_files, read_file, grep, write_file — Mercury's own knowledge base. " +
+        "curated/ is team knowledge (conventions, docs, project status) — written by maintainers, and by you. " +
+        "inferred/ is private per-user notes managed automatically by a separate process, not by you directly.",
+      "DO:",
+      "- For a CLI's own syntax/flags, rely on --help first. Only check the wiki if --help doesn't cover something specific to how this team uses that tool (a convention, a naming pattern, a policy).",
+      "- For anything else — documentation, project status, how some tool or process is used, team conventions — consult the wiki FIRST (grep/read_file/list_files), before trying a CLI or answering from general knowledge.",
+      "- If the wiki doesn't have the answer, try a live CLI query if one is relevant, before giving up.",
+      "- If you still don't know after checking both, say so plainly — don't guess or invent an answer.",
+      "- If you learn something worth remembering (a useful command pattern, a correction from the user, a new convention), write_file to add it to curated/ — prefer creating a new, clearly-named file over guessing at how to merge into an existing one.",
+      "",
+      "DON'T:",
+      "- DON'T claim something is documented in the wiki without actually reading it via read_file/grep first.",
+      "- DON'T write_file over an existing curated document without reading it first — write_file replaces the whole file, it doesn't merge, so an unread overwrite silently destroys whatever was already there.",
+    ].join("\n"),
+  );
+
   if (opts.googleChatJoin) {
     lines.push(
       [
@@ -204,9 +234,37 @@ const idleCron = startIdleSessionCron(
 );
 void idleCron; // kept alive for the process lifetime; no shutdown hook exists yet (same as the rest of Mercury today)
 
-const tools: Record<string, Tool> = {};
-if (Object.keys(activeCliConfigs).length > 0) {
-  Object.assign(tools, createCliTool(runCli, activeCliConfigs));
+// Idempotent self-heal: the vault lives on a named Docker volume, empty on
+// first boot and not pre-populatable at build time like the CLI binaries —
+// re-running this every startup is cheap and means a wiped/fresh volume
+// never needs a separate manual provisioning step.
+const wikiVaultPath = requireEnv("WIKI_VAULT_PATH");
+await initVault(wikiVaultPath);
+
+// runCommand's confirm-required branch stages a command per-session (see
+// createCliTool's opts) — the tool itself must therefore be rebuilt fresh
+// for each turn, scoped to that turn's own sessionKey, rather than built
+// once here and shared across every session like the rest of `tools`
+// historically was. `staticTools` holds whatever doesn't need that
+// (joinSpace, assigned below), `buildTools` layers the session-scoped
+// runCommand on top for a given turn.
+const confirmationStore = createConfirmationStore();
+const staticTools: Record<string, Tool> = {};
+
+// `wikiUserId` is separate from `sessionKey`: inferred/users/<userId> notes
+// are scoped per-person, not per-(space,person) pair, so it must not
+// include the space. Terminal has no real per-user identity (single
+// operator), so it just uses a fixed "terminal" id.
+function buildTools(sessionKey: string, wikiUserId: string): Record<string, Tool> {
+  const sessionTools: Record<string, Tool> = { ...staticTools };
+  if (Object.keys(activeCliConfigs).length > 0) {
+    Object.assign(
+      sessionTools,
+      createCliTool(runCli, activeCliConfigs, { sessionKey, store: confirmationStore }),
+    );
+  }
+  Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
+  return sessionTools;
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
@@ -234,15 +292,30 @@ function logStep(prefix: string, step: StepInfo): void {
 
 if (googleChatTopic) {
   const manager = startGoogleChatChannelManager(
-    (input, space, sender) => {
+    async (input, space, sender) => {
       const sessionKey = deriveSessionKey(space, sender);
       // Touch before processing, not after: the idle clock should track time
       // since the human's last message, not Mercury's response latency.
       sessionUsers.set(sessionKey, sender);
       idleScanner.touch(sessionKey, Date.now());
-      return runTurn(getOrCreateHistory(sessionKey), input, {
+      // Lazy, on-demand: resolves (and caches in the vault) the sender's
+      // display name the first time this id is seen, since Chat's own API
+      // never exposes one on message.sender. Never blocks/fails the turn —
+      // a resolution failure just means no name marker gets prepended.
+      const senderName = await resolveSenderName(sender, {
+        vaultPath: wikiVaultPath,
+        getUserFn: getUser,
+        runCliFn: runCli,
+        writeResolvedNoteFn: writeResolvedNote,
+      });
+      const markedInput = senderName ? `[Da: ${senderName}]\n${input}` : input;
+      return runTurn(getOrCreateHistory(sessionKey), markedInput, {
         model,
-        tools,
+        // encodeURIComponent: matches how writeResolvedNote already encodes
+        // the sender id (which contains "/", e.g. "users/42") into a safe
+        // single path segment — using the raw sender here would scope wiki
+        // tool access to a directory that never actually gets written to.
+        tools: buildTools(sessionKey, encodeURIComponent(sender)),
         system: chatSystem,
         onStepFinish: (step) => logStep(`[chat:${space}:${sender}] `, step),
         onUsage: (inputTokens) =>
@@ -254,6 +327,7 @@ if (googleChatTopic) {
       sendMessageFn: sendMessage,
       ensureSpaceSubscriptionFn: ensureSpaceSubscription,
       runCliFn: runCli,
+      store: confirmationStore,
     },
     {
       topic: googleChatTopic,
@@ -263,7 +337,7 @@ if (googleChatTopic) {
         .filter(Boolean),
     },
   );
-  Object.assign(tools, createJoinSpaceTool(manager.ensureChannel));
+  Object.assign(staticTools, createJoinSpaceTool(manager.ensureChannel));
 }
 
 let lastSteps: StepInfo[] = [];
@@ -285,10 +359,17 @@ await startTerminalRepl(
       return `wrote ${lastSteps.length} tool step(s) from the last turn to ${path}`;
     }
 
+    // Same deterministic interception as Google Chat's processLine — never
+    // let running a previously-approved mutation depend on the model.
+    const confirmReply = await tryConfirm(input, "terminal", { store: confirmationStore, runCliFn: runCli });
+    if (confirmReply !== null) {
+      return confirmReply;
+    }
+
     lastSteps = [];
     const result = await runTurn(getOrCreateHistory("terminal"), input, {
       model,
-      tools,
+      tools: buildTools("terminal", "terminal"),
       system,
       // Streams the answer to the terminal as it's generated instead of
       // going silent for however long the full response takes — the local

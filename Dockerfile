@@ -28,8 +28,12 @@ FROM oven/bun:1
 #   roots and works fine without this) — without it every HTTPS call from
 #   jira/google-chat-cli fails with a generic "error sending request",
 #   confirmed live: DNS resolved fine, Bun's fetch succeeded, jira-cli didn't
+# git: the wiki vault (Layer 2, `src/wiki/vault-init.ts`) is its own git repo,
+#   git-init'd by Mercury itself at startup — without this binary present,
+#   that call fails outright ("git: not found"), confirmed live against this
+#   image before this line was added
 RUN apt-get update && apt-get upgrade -y \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates git \
   && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r mercury && useradd -r -g mercury mercury
@@ -43,6 +47,14 @@ RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules
 COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
 
 COPY --chown=mercury:mercury src ./src
+
+# Pre-creates the wiki-vault mount point with the right ownership before the
+# named volume is ever attached: a fresh named volume inherits its initial
+# content/permissions from whatever already exists at the mount path in the
+# image at container-creation time — without this, a brand-new volume comes
+# up root:root and the non-root mercury user below gets EACCES on its first
+# write, confirmed live against a real fresh volume before this line existed
+RUN mkdir -p /app/wiki-vault && chown mercury:mercury /app/wiki-vault
 
 USER mercury
 
