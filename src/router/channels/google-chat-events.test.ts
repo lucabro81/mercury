@@ -7,6 +7,7 @@ import {
   startGoogleChatChannelManager,
   NO_REPLY,
 } from "./google-chat-events.ts";
+import { createConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
 import type { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 
@@ -166,7 +167,7 @@ describe("startGoogleChatSpaceChannel", () => {
     await startGoogleChatSpaceChannel(
       "spaces/X",
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -206,7 +207,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -257,7 +258,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -299,7 +300,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -342,7 +343,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -375,6 +376,141 @@ describe("startGoogleChatSpaceChannel", () => {
 
     expect(handleInputCalls).toBe(1);
   });
+
+  // The "confirm" half of the confirm-required flow (cli-tool.ts stages,
+  // this intercepts) must never reach the model — same fail-open
+  // philosophy as NO_REPLY, but here a MATCH is what short-circuits
+  // handleInput, not a miss.
+  it("intercepts a matching conferma <token> reply, sending the confirm-flow result without calling handleInput", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    let sentText: string | undefined;
+    const sendMessageFn: typeof sendMessage = async (_space, text) => {
+      sentText = text;
+      return { name: "spaces/X/messages/reply-1" };
+    };
+    let handleInputCalls = 0;
+    const handleInput = async () => {
+      handleInputCalls++;
+      return "should not be used";
+    };
+
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+    store.stage(deriveSessionKey("spaces/X", "users/42"), "jira", ["issue", "delete", "KAN-1", "--confirm"]);
+    const confirmedRunCliFn: typeof runCli = async () => ({ ok: true, data: { deleted: true } });
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn: confirmedRunCliFn, store },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "conferma TOK1",
+        sender: "users/42",
+      }),
+    );
+    resolveExited?.();
+    await channelPromise;
+
+    expect(handleInputCalls).toBe(0);
+    expect(sentText).toContain("Confermato");
+  });
+
+  it("does not intercept a conferma reply for an unknown token, sending a canned message without calling handleInput", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    let sentText: string | undefined;
+    const sendMessageFn: typeof sendMessage = async (_space, text) => {
+      sentText = text;
+      return { name: "spaces/X/messages/reply-1" };
+    };
+    let handleInputCalls = 0;
+    const handleInput = async () => {
+      handleInputCalls++;
+      return "should not be used";
+    };
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "conferma NOPE",
+        sender: "users/42",
+      }),
+    );
+    resolveExited?.();
+    await channelPromise;
+
+    expect(handleInputCalls).toBe(0);
+    expect(sentText?.toLowerCase()).toContain("nessuna conferma");
+  });
+
+  it("still calls handleInput normally for ordinary text, even with a store present", async () => {
+    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
+      name: "subscriptions/abc",
+    });
+    let capturedOnLine: ((line: string) => void) | undefined;
+    let resolveExited: (() => void) | undefined;
+    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
+      capturedOnLine = onLine;
+      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
+    };
+    const sendMessageFn: typeof sendMessage = async () => ({ name: "spaces/X/messages/reply-1" });
+    let handleInputCalls = 0;
+    const handleInput = async () => {
+      handleInputCalls++;
+      return "a normal reply";
+    };
+
+    const channelPromise = startGoogleChatSpaceChannel(
+      "spaces/X",
+      handleInput,
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    capturedOnLine?.(
+      fakeMessageCreatedEventLine({
+        space: "spaces/X",
+        name: "spaces/X/messages/incoming-1",
+        text: "crea un bug su KAN",
+        sender: "users/42",
+      }),
+    );
+    resolveExited?.();
+    await channelPromise;
+
+    expect(handleInputCalls).toBe(1);
+  });
 });
 
 describe("startGoogleChatChannelManager", () => {
@@ -400,7 +536,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", spaces: ["spaces/A", "spaces/B"] },
     );
 
@@ -420,7 +556,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", spaces: [] },
     );
 
@@ -440,7 +576,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", spaces: [] },
     );
 
@@ -476,7 +612,7 @@ describe("startGoogleChatChannelManager", () => {
     try {
       const manager = startGoogleChatChannelManager(
         async () => "ok",
-        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
         { topic: "projects/p/topics/t", spaces: [] },
       );
 
@@ -509,7 +645,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
       { topic: "projects/p/topics/t", spaces: ["spaces/A"] },
     );
 

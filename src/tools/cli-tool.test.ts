@@ -6,6 +6,7 @@ import {
   createCliTool,
   type CliConfig,
 } from "./cli-tool.ts";
+import { createConfirmationStore } from "./confirmation-store.ts";
 import type { CliResult } from "./cli-executor.ts";
 
 describe("stripGlobalFlags", () => {
@@ -44,22 +45,39 @@ describe("stripGlobalFlags", () => {
 describe("matchCommand", () => {
   const config: CliConfig = {
     allowedPrefixes: [
-      { prefix: ["issue", "search"], confirm: false },
-      { prefix: ["issue", "get"], confirm: false },
-      { prefix: ["doctor"], confirm: false },
-      { prefix: ["issue", "delete"], confirm: true },
+      { prefix: ["issue", "search"], confirm: false, mutating: false },
+      { prefix: ["issue", "get"], confirm: false, mutating: false },
+      { prefix: ["doctor"], confirm: false, mutating: false },
+      { prefix: ["issue", "delete"], confirm: true, mutating: true },
     ],
   };
 
   it("returns allowed for args matching a confirm:false prefix", () => {
-    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], config)).toEqual({ kind: "allowed" });
-    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], config)).toEqual({
+      kind: "allowed",
+      mutating: false,
+    });
+    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed", mutating: false });
+  });
+
+  it("returns allowed with mutating:true for a confirm:false, mutating:true prefix (e.g. create)", () => {
+    const withCreate: CliConfig = {
+      allowedPrefixes: [
+        ...config.allowedPrefixes,
+        { prefix: ["issue", "create"], confirm: false, mutating: true },
+      ],
+    };
+    expect(matchCommand(["issue", "create", "--project", "KAN"], withCreate)).toEqual({
+      kind: "allowed",
+      mutating: true,
+    });
   });
 
   it("returns confirm-required for args matching a confirm:true prefix", () => {
     expect(matchCommand(["issue", "delete", "KAN-1"], config)).toEqual({
       kind: "confirm-required",
       prefix: ["issue", "delete"],
+      mutating: true,
     });
   });
 
@@ -68,16 +86,19 @@ describe("matchCommand", () => {
   });
 
   it("always allows --help, even for an otherwise-disallowed shape", () => {
-    expect(matchCommand(["issue", "create", "--help"], config)).toEqual({ kind: "allowed" });
-    expect(matchCommand(["--help"], config)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["issue", "create", "--help"], config)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["--help"], config)).toEqual({ kind: "allowed", mutating: false });
   });
 
   it("applies a config's globalFlags before matching prefixes", () => {
     const withFlags: CliConfig = {
-      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false }],
+      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false }],
       globalFlags: [{ flag: "--select", takesValue: true }],
     };
-    expect(matchCommand(["--select", "id", "issue", "search"], withFlags)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["--select", "id", "issue", "search"], withFlags)).toEqual({
+      kind: "allowed",
+      mutating: false,
+    });
     expect(matchCommand(["--select", "id", "issue", "delete"], withFlags)).toEqual({ kind: "not-allowed" });
   });
 
@@ -89,13 +110,17 @@ describe("matchCommand", () => {
   // "jira with extra steps" — two configs with unrelated prefix sets must
   // each only allow their own shapes.
   it("evaluates independently per config, proving the logic generalizes across CLIs", () => {
-    const jiraLike: CliConfig = { allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false }] };
-    const chatLike: CliConfig = { allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false }] };
+    const jiraLike: CliConfig = {
+      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false }],
+    };
+    const chatLike: CliConfig = {
+      allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false, mutating: false }],
+    };
 
-    expect(matchCommand(["issue", "search"], jiraLike)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["issue", "search"], jiraLike)).toEqual({ kind: "allowed", mutating: false });
     expect(matchCommand(["spaces", "list"], jiraLike)).toEqual({ kind: "not-allowed" });
 
-    expect(matchCommand(["spaces", "list"], chatLike)).toEqual({ kind: "allowed" });
+    expect(matchCommand(["spaces", "list"], chatLike)).toEqual({ kind: "allowed", mutating: false });
     expect(matchCommand(["issue", "search"], chatLike)).toEqual({ kind: "not-allowed" });
   });
 });
@@ -119,12 +144,20 @@ describe("formatPrefixes", () => {
 describe("createCliTool", () => {
   const jiraConfig: CliConfig = {
     allowedPrefixes: [
-      { prefix: ["issue", "search"], confirm: false },
-      { prefix: ["issue", "get"], confirm: false },
-      { prefix: ["doctor"], confirm: false },
-      { prefix: ["issue", "delete"], confirm: true },
+      { prefix: ["issue", "search"], confirm: false, mutating: false },
+      { prefix: ["issue", "get"], confirm: false, mutating: false },
+      { prefix: ["doctor"], confirm: false, mutating: false },
+      { prefix: ["issue", "delete"], confirm: true, mutating: true },
     ],
   };
+
+  // Fresh store + sessionKey per test that doesn't care about confirmation
+  // staging specifically — a real ConfirmationStore is required by
+  // createCliTool's signature now, but only the confirm-required tests
+  // below actually exercise it.
+  function defaultOpts() {
+    return { sessionKey: "test-session", store: createConfirmationStore() };
+  }
 
   it("execute parses the command and calls runCliFn with the exact binary and args for an allowed command", async () => {
     let receivedBinary: string | undefined;
@@ -136,7 +169,7 @@ describe("createCliTool", () => {
       return fakeResult;
     };
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = await runCommand.execute(
       { command: 'jira issue search --jql "project = KAN"' },
@@ -158,7 +191,7 @@ describe("createCliTool", () => {
       return { ok: true, data: {} };
     };
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue create --project KAN" },
@@ -175,29 +208,51 @@ describe("createCliTool", () => {
     }
   });
 
-  // The confirm-required rejection is distinct from "not permitted": the
-  // shape IS recognized, it's just gated on a confirmation mechanism that
-  // doesn't exist yet on this Mercury instance (M2).
-  it("execute does not call runCliFn for a confirm-required command, and returns a distinct message", async () => {
+  // The confirm-required branch is distinct from "not permitted": the
+  // shape IS recognized, but instead of running it, it's staged in the
+  // ConfirmationStore under the tool's own sessionKey and a token is
+  // handed back for the model to relay verbatim — runCliFn only runs
+  // later, once the user replies with that token (see confirm-flow.ts).
+  it("execute stages a confirm-required command instead of running it, and returns its token", async () => {
     let called = false;
     const runCliFn = async (): Promise<CliResult> => {
       called = true;
       return { ok: true, data: {} };
     };
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
-      { command: "jira issue delete KAN-1" },
+      { command: "jira issue delete KAN-1 --confirm" },
       {} as never,
-    )) as CliResult;
+    )) as CliResult & { pendingConfirmation?: true; token?: string };
 
     expect(called).toBe(false);
     expect(result.ok).toBe(false);
+    expect(result.pendingConfirmation).toBe(true);
+    expect(result.token).toBe("TOK1");
     if (!result.ok) {
-      expect(result.error).toContain("requires confirmation");
+      expect(result.error).toContain("TOK1");
       expect(result.error).not.toContain("not permitted");
     }
+
+    // the FULL argv was staged, not just the matched prefix
+    expect(store.take("terminal", "TOK1")).toEqual({
+      binary: "jira",
+      args: ["issue", "delete", "KAN-1", "--confirm"],
+    });
+  });
+
+  it("stages a confirm-required command under the tool's own sessionKey, not a different one", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
+
+    expect(store.take("some-other-session", "TOK1")).toBeNull();
   });
 
   // The "not permitted" message must only advertise prefixes that will
@@ -205,7 +260,7 @@ describe("createCliTool", () => {
   // recognized but always rejected for a different reason.
   it("excludes confirm-gated prefixes from the 'not permitted' message's valid-commands list", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue create --project KAN" },
@@ -225,7 +280,7 @@ describe("createCliTool", () => {
       return { ok: true, data: {} };
     };
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "bitbucket pr list" },
@@ -247,7 +302,7 @@ describe("createCliTool", () => {
       return { ok: true, data: {} };
     };
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: 'jira issue search --jql "project = KAN' },
@@ -267,7 +322,7 @@ describe("createCliTool", () => {
       error: "jira exited with code 1: boom",
     });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = await runCommand.execute({ command: "jira issue get KAN-1" }, {} as never);
 
@@ -276,7 +331,7 @@ describe("createCliTool", () => {
 
   it("rejects an empty command at the schema level", () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
     const schema = runCommand.inputSchema as unknown as {
       safeParse: (v: unknown) => { success: boolean };
     };
@@ -292,9 +347,11 @@ describe("createCliTool", () => {
       calls.push({ binary, args });
       return { ok: true, data: {} };
     };
-    const chatConfig: CliConfig = { allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false }] };
+    const chatConfig: CliConfig = {
+      allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false, mutating: false }],
+    };
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig, "google-chat": chatConfig });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig, "google-chat": chatConfig }, defaultOpts());
     // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira doctor" }, {} as never);
     // @ts-expect-error - execute is guaranteed present for this tool definition

@@ -25,8 +25,9 @@ import { tool } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli } from "./cli-executor.ts";
+import type { ConfirmationStore } from "./confirmation-store.ts";
 
-export type AllowedCommand = { prefix: string[]; confirm: boolean };
+export type AllowedCommand = { prefix: string[]; confirm: boolean; mutating: boolean };
 export type GlobalFlag = { flag: string; takesValue: boolean };
 
 export type CliConfig = {
@@ -58,8 +59,8 @@ export function stripGlobalFlags(args: string[], globalFlags: GlobalFlag[]): str
 }
 
 export type CommandMatch =
-  | { kind: "allowed" }
-  | { kind: "confirm-required"; prefix: string[] }
+  | { kind: "allowed"; mutating: boolean }
+  | { kind: "confirm-required"; prefix: string[]; mutating: boolean }
   | { kind: "not-allowed" };
 
 /**
@@ -69,17 +70,22 @@ export type CommandMatch =
  * — no match is `not-allowed`, a match with `confirm: false` is `allowed`,
  * a match with `confirm: true` is `confirm-required` (the shape is
  * recognized, but there's no confirmation mechanism to gate it on yet).
+ * `mutating` is carried through independently of `confirm` — a command can
+ * change external state (Jira, etc.) without requiring confirmation (e.g.
+ * create), so the two flags are never derived from one another.
  */
 export function matchCommand(args: string[], config: CliConfig): CommandMatch {
   if (args[args.length - 1] === "--help") {
-    return { kind: "allowed" };
+    return { kind: "allowed", mutating: false };
   }
   const stripped = config.globalFlags ? stripGlobalFlags(args, config.globalFlags) : args;
   const match = config.allowedPrefixes.find((c) => c.prefix.every((part, i) => stripped[i] === part));
   if (!match) {
     return { kind: "not-allowed" };
   }
-  return match.confirm ? { kind: "confirm-required", prefix: match.prefix } : { kind: "allowed" };
+  return match.confirm
+    ? { kind: "confirm-required", prefix: match.prefix, mutating: match.mutating }
+    : { kind: "allowed", mutating: match.mutating };
 }
 
 /** Renders a list of prefixes as a comma-separated string for a
@@ -97,8 +103,20 @@ export function formatPrefixes(prefixes: string[][]): string {
  * ever calling `runCliFn`. `runCliFn` is injected (defaulting to the real
  * `runCli` in production) so tests can supply a fake without spawning a
  * real subprocess.
+ *
+ * `opts.sessionKey`/`opts.store` scope the confirm-required branch: a
+ * confirm-gated command is staged in `store` under `sessionKey` instead of
+ * running, and the model is handed a token to relay verbatim to the user
+ * (see `confirm-flow.ts` for the other half — actually running it once
+ * that token comes back). Staging is inherently per-session, so callers
+ * must build a fresh tool per turn, scoped to that turn's own session —
+ * not a tool meant to be built once and reused across sessions.
  */
-export function createCliTool(runCliFn: typeof runCli, configs: Record<string, CliConfig>) {
+export function createCliTool(
+  runCliFn: typeof runCli,
+  configs: Record<string, CliConfig>,
+  opts: { sessionKey: string; store: ConfirmationStore },
+) {
   const runCommand = tool({
     description:
       "Run a CLI command. Write the whole invocation as one string, exactly as you would type it in a terminal, " +
@@ -130,9 +148,12 @@ export function createCliTool(runCliFn: typeof runCli, configs: Record<string, C
         };
       }
       if (match.kind === "confirm-required") {
+        const token = opts.store.stage(opts.sessionKey, parsed.binary, parsed.args);
         return {
           ok: false,
-          error: `"${match.prefix.join(" ")}" requires confirmation, which is not yet supported on this Mercury instance — this command cannot run here.`,
+          pendingConfirmation: true,
+          token,
+          error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation. Relay this exact token to the user and ask them to reply \`conferma ${token}\` to proceed — never invent a different token, never claim this already succeeded.`,
         };
       }
 

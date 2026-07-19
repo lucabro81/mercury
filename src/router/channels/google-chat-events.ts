@@ -18,7 +18,9 @@
  * passes `manager.ensureChannel` into `createJoinSpaceTool`.
  */
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
+import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
+import { tryConfirm } from "../confirm-flow.ts";
 
 /** A parsed incoming message event, ready to hand to `handleInput`. */
 export type ChatMessageEvent = { text: string; messageName: string; space: string; sender: string };
@@ -157,6 +159,7 @@ export async function startGoogleChatSpaceChannel(
     sendMessageFn: typeof sendMessage;
     ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription;
     runCliFn: typeof runCli;
+    store: ConfirmationStore;
   },
   opts: { topic: string; pubsubSubscription: string; signal?: AbortSignal },
 ): Promise<void> {
@@ -179,6 +182,22 @@ export async function startGoogleChatSpaceChannel(
     if (!event || sentMessageNames.has(event.messageName)) {
       return;
     }
+
+    // Deterministic, model-free interception for `conferma <token>` — same
+    // fail-open shape as NO_REPLY below, but here a MATCH short-circuits
+    // handleInput instead of a miss. Running a previously-approved
+    // mutation must never depend on the model relaying the message back
+    // faithfully.
+    const confirmReply = await tryConfirm(event.text, deriveSessionKey(space, event.sender), {
+      store: deps.store,
+      runCliFn: deps.runCliFn,
+    });
+    if (confirmReply !== null) {
+      const sent = await deps.sendMessageFn(space, confirmReply, deps.runCliFn);
+      sentMessageNames.add(sent.name);
+      return;
+    }
+
     const reply = await handleInput(event.text, space, event.sender);
     // NO_REPLY: the model judged this message isn't
     // addressed to it in a shared space — post nothing, not even a blank
@@ -243,6 +262,7 @@ export function startGoogleChatChannelManager(
     sendMessageFn: typeof sendMessage;
     ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription;
     runCliFn: typeof runCli;
+    store: ConfirmationStore;
   },
   opts: {
     topic: string;
@@ -270,6 +290,7 @@ export function startGoogleChatChannelManager(
         sendMessageFn: deps.sendMessageFn,
         ensureSpaceSubscriptionFn: deps.ensureSpaceSubscriptionFn,
         runCliFn: deps.runCliFn,
+        store: deps.store,
       },
       { topic: opts.topic, pubsubSubscription, signal: controller.signal },
     )
