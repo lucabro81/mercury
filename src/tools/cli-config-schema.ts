@@ -18,6 +18,10 @@ export const CliCommandSchema = z
   .object({
     prefix: z.array(z.string().min(1)).min(1),
     confirm: z.boolean(),
+    /** Whether this command changes state on the external service (Jira,
+     * etc.) rather than just reading it — distinct from `confirm`: a
+     * command can mutate without requiring confirmation (e.g. create). */
+    mutating: z.boolean(),
   })
   .strict();
 

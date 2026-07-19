@@ -5,7 +5,7 @@ describe("CliConfigFileSchema", () => {
   it("accepts a minimal valid file (no minVersion, no globalFlags)", () => {
     const result = CliConfigFileSchema.safeParse({
       binary: "jira",
-      commands: [{ prefix: ["doctor"], confirm: false }],
+      commands: [{ prefix: ["doctor"], confirm: false, mutating: false }],
     });
     expect(result.success).toBe(true);
   });
@@ -15,8 +15,8 @@ describe("CliConfigFileSchema", () => {
       binary: "jira",
       minVersion: "1.4.0",
       commands: [
-        { prefix: ["issue", "search"], confirm: false },
-        { prefix: ["issue", "delete"], confirm: true },
+        { prefix: ["issue", "search"], confirm: false, mutating: false },
+        { prefix: ["issue", "delete"], confirm: true, mutating: true },
       ],
       globalFlags: [{ flag: "--select", takesValue: true }],
     });
@@ -60,6 +60,26 @@ describe("CliConfigFileSchema", () => {
     const result = CliConfigFileSchema.safeParse({
       binary: "jira",
       commands: [{ prefix: ["doctor"], confirm: "false" }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  // mutating tracks a different property than confirm: create/transition/comment
+  // are confirm:false (no confirmation needed) but still mutating:true (they
+  // change Jira state) — the two fields must both be present and independently
+  // validated, one can't stand in for the other.
+  it("rejects a command missing mutating", () => {
+    const result = CliConfigFileSchema.safeParse({
+      binary: "jira",
+      commands: [{ prefix: ["doctor"], confirm: false }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a command with a non-boolean mutating", () => {
+    const result = CliConfigFileSchema.safeParse({
+      binary: "jira",
+      commands: [{ prefix: ["doctor"], confirm: false, mutating: "false" }],
     });
     expect(result.success).toBe(false);
   });

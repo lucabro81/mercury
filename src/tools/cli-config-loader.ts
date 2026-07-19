@@ -50,7 +50,7 @@ export async function loadCliConfigFile(path: string): Promise<CliConfigFileResu
  * shape `src/tools/cli-tool.ts` consumes. */
 export function toCliConfig(raw: CliConfigFile): CliConfig {
   return {
-    allowedPrefixes: raw.commands.map((c) => ({ prefix: c.prefix, confirm: c.confirm })),
+    allowedPrefixes: raw.commands.map((c) => ({ prefix: c.prefix, confirm: c.confirm, mutating: c.mutating })),
     globalFlags: raw.globalFlags,
   };
 }

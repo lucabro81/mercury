@@ -39,15 +39,15 @@ describe("toCliConfig", () => {
     const config = toCliConfig({
       binary: "fakecli",
       commands: [
-        { prefix: ["doctor"], confirm: false },
-        { prefix: ["issue", "delete"], confirm: true },
+        { prefix: ["doctor"], confirm: false, mutating: false },
+        { prefix: ["issue", "delete"], confirm: true, mutating: true },
       ],
       globalFlags: [{ flag: "--select", takesValue: true }],
     });
     expect(config).toEqual({
       allowedPrefixes: [
-        { prefix: ["doctor"], confirm: false },
-        { prefix: ["issue", "delete"], confirm: true },
+        { prefix: ["doctor"], confirm: false, mutating: false },
+        { prefix: ["issue", "delete"], confirm: true, mutating: true },
       ],
       globalFlags: [{ flag: "--select", takesValue: true }],
     });
@@ -56,9 +56,17 @@ describe("toCliConfig", () => {
   it("maps a file with no globalFlags to an undefined globalFlags", () => {
     const config = toCliConfig({
       binary: "fakecli",
-      commands: [{ prefix: ["doctor"], confirm: false }],
+      commands: [{ prefix: ["doctor"], confirm: false, mutating: false }],
     });
     expect(config.globalFlags).toBeUndefined();
+  });
+
+  it("passes mutating through independently of confirm", () => {
+    const config = toCliConfig({
+      binary: "fakecli",
+      commands: [{ prefix: ["issue", "create"], confirm: false, mutating: true }],
+    });
+    expect(config.allowedPrefixes).toEqual([{ prefix: ["issue", "create"], confirm: false, mutating: true }]);
   });
 });
 
@@ -74,8 +82,8 @@ describe("loadCliConfig", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.config.allowedPrefixes).toEqual([
-        { prefix: ["doctor"], confirm: false },
-        { prefix: ["issue", "delete"], confirm: true },
+        { prefix: ["doctor"], confirm: false, mutating: false },
+        { prefix: ["issue", "delete"], confirm: true, mutating: true },
       ]);
     }
   });
