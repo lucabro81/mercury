@@ -24,12 +24,12 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 3. **Memory layers have boundaries.** In-context history is a prerequisite for basic functionality. Any external memory/knowledge store is an enrichment — the system must work correctly even when it's empty or unreachable.
 4. **Stateless container.** Anything that must survive a restart lives on an explicit external volume, never only in-process.
 5. **No infrastructure before measured need.** Don't add code, caches, classifiers, or abstractions for a hypothetical problem. If something seems to be missing, say so — don't build around it silently.
-6. **Irreversible actions require explicit confirmation.** A button or an explicitly typed token — never a "probably fine" inferred by the model.
+6. **Irreversible actions require explicit confirmation.** An explicitly typed token the user has to send back — never a "probably fine" inferred by the model. No interactive buttons on Google Chat: Mercury impersonates a plain Workspace user there, not a registered Chat app, so the card/button machinery real apps get isn't available to it — see ARCHITECTURE.md.
 
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is recognized but always rejected today, since the actual confirmation mechanism (principle 6) doesn't exist yet
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in as `conferma <token>` (see ARCHITECTURE.md § Integration layer)
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
@@ -51,9 +51,9 @@ mercury/
 │   │   ├── terminal.ts         # REPL channel
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers
 │   │   └── channels/           # Google Chat channel (discovery + per-space listen)
-│   ├── memory/                # Layer 3 — empty until M2
-│   ├── wiki/                  # Layer 2 — empty until M2
-│   └── cron/                  # empty until M2
+│   ├── memory/                # Layer 3 — episodic store (Qdrant)
+│   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
+│   └── cron/                  # idle-session scanner
 ├── Dockerfile
 ├── docker-compose.yml
 ├── docker-compose.override.yml
@@ -82,6 +82,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
+- **Wiki vault maintenance**: `bun run vault -- <command>` (wrapper: `scripts/vault.sh`). The vault is a Docker named volume (`WIKI_VAULT_PATH`), not a host path — there's nothing to `cd` into or open in an editor directly, every command runs through a one-off `docker compose run --rm -T mercury bun run src/wiki/vault-cli.ts` against the same volume the real service uses. Commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]` (body read from stdin, e.g. `cat note.md | bun run vault -- write-curated curated/standards/x.md`). Thin routing only, no new write/read logic — reuses `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee
 
 ## Hard-won conventions (from M1, apply going forward)
 
