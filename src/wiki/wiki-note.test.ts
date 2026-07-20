@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, mkdir, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -30,6 +30,16 @@ async function gitStatusPorcelain(vaultPath: string): Promise<string> {
   const text = await new Response(proc.stdout).text();
   await proc.exited;
   return text.trim();
+}
+
+// A pre-commit hook that always fails deterministically breaks `git commit`
+// specifically (hooks don't run on `git add`) — lets a test reproduce "file
+// written, commit failed" without touching production code for injectability.
+async function breakCommits(vaultPath: string): Promise<void> {
+  const hookPath = join(vaultPath, ".git", "hooks", "pre-commit");
+  await mkdir(join(vaultPath, ".git", "hooks"), { recursive: true });
+  await writeFile(hookPath, "#!/bin/sh\nexit 1\n", "utf-8");
+  await chmod(hookPath, 0o755);
 }
 
 afterEach(async () => {
@@ -289,5 +299,37 @@ describe("concurrent writes", () => {
     const log = await gitLog(vaultPath);
     expect(log.length).toBe(3);
     expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  // Regression: a commit failing after the file already landed on disk
+  // (disk full, corrupt repo) used to leave the vault silently drifted from
+  // git HEAD — the thrown error reached the caller, but nothing distinguished
+  // this "written but uncommitted" state from a generic failure. See
+  // DECISIONS.md D-35 for the eventual escalation path; this only covers the
+  // dedicated log line, decided as the immediate step (sessione 8).
+  it("logs a dedicated message when the file lands on disk but the commit fails, instead of staying silent", async () => {
+    const vaultPath = await makeTempVault();
+    await breakCommits(vaultPath);
+
+    const originalConsoleError = console.error;
+    const loggedMessages: string[] = [];
+    console.error = (msg: unknown) => {
+      loggedMessages.push(String(msg));
+    };
+
+    try {
+      await expect(
+        writeCuratedNote(vaultPath, "standards/x.md", { author: "luca" }, "body"),
+      ).rejects.toThrow();
+
+      const text = await readFile(join(vaultPath, "curated/standards/x.md"), "utf-8");
+      expect(text).toContain("body");
+      expect(await gitStatusPorcelain(vaultPath)).toContain("curated/standards/x.md");
+
+      expect(loggedMessages.some((m) => m.includes("curated/standards/x.md"))).toBe(true);
+      expect(loggedMessages.some((m) => m.includes("not committed"))).toBe(true);
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 });

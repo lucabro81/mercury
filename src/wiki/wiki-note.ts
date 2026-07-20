@@ -94,10 +94,12 @@ async function hasStagedChanges(cwd: string): Promise<boolean> {
 // runs the next write regardless of whether the previous one succeeded or
 // failed, so one bad commit doesn't wedge every write after it; the
 // rejection itself still propagates to that specific caller via `result`.
-// Known gap (tracked in M4.md's inherited debt): the file write above
-// already landed on disk before this runs, so a commit failure here
-// leaves it uncommitted with no dedicated alert — only whatever the
-// caller does with the thrown error.
+// If the file write already landed on disk before a later git step throws
+// (disk full, corrupt repo), `writeNoteFile` logs a dedicated
+// `[wiki-vault] ... written to disk but not committed` line before
+// rethrowing — distinguishable from a generic failure by whatever reads
+// stderr (`docker compose logs` today; routed to DECISIONS.md D-35's admin
+// space once M4's monitoring exists).
 let commitChain: Promise<void> = Promise.resolve();
 
 function serializeCommit<T>(fn: () => Promise<T>): Promise<T> {
@@ -134,23 +136,28 @@ async function writeNoteFile(
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
     const relPath = relative(vaultPath, fullPath);
-    await runGit(vaultPath, ["add", relPath]);
-    // Byte-identical content to what's already committed stages no diff —
-    // asking the vault to contain X when it already contains exactly X is
-    // a no-op, not a failure, so skip the commit instead of letting `git
-    // commit` fail with "nothing to commit".
-    if (!(await hasStagedChanges(vaultPath))) {
-      return;
+    try {
+      await runGit(vaultPath, ["add", relPath]);
+      // Byte-identical content to what's already committed stages no diff —
+      // asking the vault to contain X when it already contains exactly X is
+      // a no-op, not a failure, so skip the commit instead of letting `git
+      // commit` fail with "nothing to commit".
+      if (!(await hasStagedChanges(vaultPath))) {
+        return;
+      }
+      await runGit(vaultPath, [
+        "-c",
+        `user.email=${MERCURY_GIT_AUTHOR.email}`,
+        "-c",
+        `user.name=${MERCURY_GIT_AUTHOR.name}`,
+        "commit",
+        "-m",
+        commitMessage,
+      ]);
+    } catch (err) {
+      console.error(`[wiki-vault] ${relPath} written to disk but not committed: ${String(err)}`);
+      throw err;
     }
-    await runGit(vaultPath, [
-      "-c",
-      `user.email=${MERCURY_GIT_AUTHOR.email}`,
-      "-c",
-      `user.name=${MERCURY_GIT_AUTHOR.name}`,
-      "commit",
-      "-m",
-      commitMessage,
-    ]);
   });
 }
 
