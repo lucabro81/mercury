@@ -3,7 +3,15 @@ import { mkdtemp, rm, readFile, mkdir, writeFile, chmod } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { writeCuratedNote, writeInferredNote, writeResolvedNote, writeJiraUserResolvedNote } from "./wiki-note.ts";
+import {
+  writeCuratedNote,
+  writeInferredNote,
+  writeResolvedNote,
+  writeRawEntry,
+  writeIndexFile,
+  deleteRawEntry,
+  deleteCuratedEntry,
+} from "./wiki-note.ts";
 import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
@@ -340,6 +348,121 @@ describe("writeJiraUserResolvedNote", () => {
   });
 });
 
+describe("writeRawEntry", () => {
+  it("writes verbatim content under raw/<relativePath>, with no frontmatter", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "# Some README\n\nBody text.");
+
+    const text = await readFile(join(vaultPath, "raw/notes/pasted-readme.md"), "utf-8");
+    expect(text).toBe("# Some README\n\nBody text.\n");
+    expect(text.startsWith("---\n")).toBe(false);
+  });
+
+  it("refuses to write outside raw/ via a path-traversing relativePath", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(writeRawEntry(vaultPath, "../curated/evil.md", "pwned")).rejects.toThrow();
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "body");
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("notes/pasted-readme.md");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("succeeds as a no-op, without a new commit, when the content is byte-identical to what's already there", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "body");
+    const logAfterFirst = await gitLog(vaultPath);
+
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "body");
+
+    const logAfterSecond = await gitLog(vaultPath);
+    expect(logAfterSecond.length).toBe(logAfterFirst.length);
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+});
+
+describe("writeIndexFile", () => {
+  it("writes verbatim content at the vault root as index.md, with no frontmatter", async () => {
+    const vaultPath = await makeTempVault();
+    await writeIndexFile(vaultPath, "- [[standards/jira-fields]] — custom field conventions");
+
+    const text = await readFile(join(vaultPath, "index.md"), "utf-8");
+    expect(text).toBe("- [[standards/jira-fields]] — custom field conventions\n");
+    expect(text.startsWith("---\n")).toBe(false);
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeIndexFile(vaultPath, "index content");
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("index");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+});
+
+describe("deleteRawEntry", () => {
+  it("removes an existing raw/ entry and commits the deletion", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "body");
+
+    await deleteRawEntry(vaultPath, "notes/pasted-readme.md");
+
+    await expect(readFile(join(vaultPath, "raw/notes/pasted-readme.md"), "utf-8")).rejects.toThrow();
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("notes/pasted-readme.md");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("refuses to delete outside raw/ via a path-traversing relativePath", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "standards/x.md", {}, "body");
+    await expect(deleteRawEntry(vaultPath, "../curated/standards/x.md")).rejects.toThrow();
+
+    const text = await readFile(join(vaultPath, "curated/standards/x.md"), "utf-8");
+    expect(text).toContain("body");
+  });
+
+  it("succeeds as a no-op when the target doesn't exist", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(deleteRawEntry(vaultPath, "never-existed.md")).resolves.toBeUndefined();
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+});
+
+describe("deleteCuratedEntry", () => {
+  it("removes an existing curated/ entry and commits the deletion", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "standards/superseded.md", {}, "body");
+
+    await deleteCuratedEntry(vaultPath, "standards/superseded.md");
+
+    await expect(readFile(join(vaultPath, "curated/standards/superseded.md"), "utf-8")).rejects.toThrow();
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("standards/superseded.md");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("refuses to delete outside curated/ via a path-traversing relativePath", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/x.md", "body");
+    await expect(deleteCuratedEntry(vaultPath, "../raw/notes/x.md")).rejects.toThrow();
+
+    const text = await readFile(join(vaultPath, "raw/notes/x.md"), "utf-8");
+    expect(text).toContain("body");
+  });
+
+  it("succeeds as a no-op when the target doesn't exist", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(deleteCuratedEntry(vaultPath, "never-existed.md")).resolves.toBeUndefined();
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+});
+
 // M3.md flagged this exact risk: "scritture serializzate via coda... zero
 // infrastruttura nuova" — git add/commit against the same repo aren't safe
 // to run concurrently (index lock races). Every writer shares one vault,
@@ -422,5 +545,21 @@ describe("concurrent writes", () => {
     } finally {
       console.error = originalConsoleError;
     }
+  });
+
+  it("serializes concurrent raw writes/deletes alongside a curated write", async () => {
+    const vaultPath = await makeTempVault();
+    await writeRawEntry(vaultPath, "notes/to-delete.md", "stale");
+
+    await Promise.all([
+      writeRawEntry(vaultPath, "notes/new.md", "fresh"),
+      deleteRawEntry(vaultPath, "notes/to-delete.md"),
+      writeCuratedNote(vaultPath, "standards/b.md", {}, "b"),
+    ]);
+
+    const log = await gitLog(vaultPath);
+    // 1 (seed write) + 3 (the three concurrent ops)
+    expect(log.length).toBe(4);
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
   });
 });
