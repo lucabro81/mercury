@@ -223,3 +223,32 @@ export async function writeResolvedNote(
   const fullPath = resolveWithinRoot(inferredUserRoot, "resolved-name.md");
   await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: ${userId}`);
 }
+
+/**
+ * Writes the Jira-side half of M4's identity bridge: an assignee's
+ * accountId -> {displayName, email} lookup, at
+ * `inferred/jira-users/<encoded accountId>/resolved-info.md`. Deliberately
+ * a separate namespace from `writeResolvedNote`'s `inferred/users/` (Chat
+ * ids), not merged into one — the two caches are joined by email at read
+ * time, not by sharing a directory. No separate CLI call needed to
+ * populate this: unlike Chat's `getUser`, Jira exposes assignee
+ * displayName/email as fields on the issue query Mercury is already
+ * running, so the caller just has the data in hand already.
+ */
+export async function writeJiraUserResolvedNote(
+  vaultPath: string,
+  accountId: string,
+  fields: { resolvedAt: string; email: string | null },
+  displayName: string,
+): Promise<void> {
+  const frontmatter = ResolvedFrontmatterSchema.parse({
+    type: "resolved",
+    source: "api",
+    resolved_at: fields.resolvedAt,
+    display_name: displayName,
+    email: fields.email,
+  });
+  const jiraUserRoot = resolve(vaultPath, "inferred", "jira-users", encodeURIComponent(accountId));
+  const fullPath = resolveWithinRoot(jiraUserRoot, "resolved-info.md");
+  await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: jira-users/${accountId}`);
+}

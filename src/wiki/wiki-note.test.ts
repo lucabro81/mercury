@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile, mkdir, writeFile, chmod } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { writeCuratedNote, writeInferredNote, writeResolvedNote } from "./wiki-note.ts";
+import { writeCuratedNote, writeInferredNote, writeResolvedNote, writeJiraUserResolvedNote } from "./wiki-note.ts";
 import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
@@ -263,6 +263,80 @@ describe("writeResolvedNote", () => {
     const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
     const { frontmatter } = splitFrontmatter(text);
     expect(frontmatter).toMatchObject({ email: "luca@comperio.local" });
+  });
+});
+
+// M4's Jira<->Chat identity bridge: same "resolved" shape as Chat's
+// resolved-name.md, different namespace (jira-users, not users) and
+// filename (resolved-info.md) — the two caches are matched by email,
+// not merged into one, so they stay in their own directory.
+describe("writeJiraUserResolvedNote", () => {
+  it("writes a fixed resolved-info.md file under inferred/jira-users/<accountId>/ with full frontmatter", async () => {
+    const vaultPath = await makeTempVault();
+    await writeJiraUserResolvedNote(
+      vaultPath,
+      "5b10a2844c20165700ede21g",
+      { resolvedAt: "2026-07-19T12:00:00Z", email: "mario@comperio.local" },
+      "Mario Rossi",
+    );
+
+    const text = await readFile(
+      join(vaultPath, "inferred/jira-users/5b10a2844c20165700ede21g/resolved-info.md"),
+      "utf-8",
+    );
+    const { frontmatter, body } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-19T12:00:00Z",
+      display_name: "Mario Rossi",
+      email: "mario@comperio.local",
+    });
+    expect(body).toBe("Mario Rossi\n");
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeJiraUserResolvedNote(
+      vaultPath,
+      "5b10a2844c20165700ede21g",
+      { resolvedAt: "2026-07-19T12:00:00Z", email: "mario@comperio.local" },
+      "Mario Rossi",
+    );
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("5b10a2844c20165700ede21g");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("stores a null email when Jira has none for this assignee", async () => {
+    const vaultPath = await makeTempVault();
+    await writeJiraUserResolvedNote(
+      vaultPath,
+      "5b10a2844c20165700ede21g",
+      { resolvedAt: "2026-07-19T12:00:00Z", email: null },
+      "Mario Rossi",
+    );
+
+    const text = await readFile(
+      join(vaultPath, "inferred/jira-users/5b10a2844c20165700ede21g/resolved-info.md"),
+      "utf-8",
+    );
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toMatchObject({ email: null });
+  });
+
+  // Same defensive shape as writeResolvedNote's userId — accountId comes
+  // from Jira's own data, not Mercury's own free-form text, so it's
+  // encoded rather than rejected outright even though real Jira account
+  // ids don't contain "/".
+  it("stays within the vault for an accountId containing path-traversal-shaped characters", async () => {
+    const vaultPath = await makeTempVault();
+    await writeJiraUserResolvedNote(vaultPath, "../../evil", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "pwned");
+
+    const text = await readFile(join(vaultPath, "inferred/jira-users/..%2F..%2Fevil/resolved-info.md"), "utf-8");
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toMatchObject({ display_name: "pwned" });
   });
 });
 
