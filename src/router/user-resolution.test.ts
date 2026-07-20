@@ -17,7 +17,7 @@ describe("resolveSenderName", () => {
     let receivedPath: string | undefined;
     const getUserFn: typeof getUser = async () => {
       getUserCalls++;
-      return { displayName: "should not be used" };
+      return { displayName: "should not be used", email: null };
     };
     const writeResolvedNoteFn: typeof writeResolvedNote = async () => {
       writeCalls++;
@@ -48,7 +48,7 @@ describe("resolveSenderName", () => {
     const calls: string[] = [];
     const getUserFn: typeof getUser = async (userId) => {
       calls.push(`getUser:${userId}`);
-      return { displayName: "Luca Brognara" };
+      return { displayName: "Luca Brognara", email: "luca@comperio.local" };
     };
     let writtenArgs: unknown[] | undefined;
     const writeResolvedNoteFn: typeof writeResolvedNote = async (...args) => {
@@ -68,6 +68,7 @@ describe("resolveSenderName", () => {
     expect(calls).toEqual(["getUser:users/42", "write"]);
     expect(writtenArgs?.[0]).toBe("/vault");
     expect(writtenArgs?.[1]).toBe("users/42");
+    expect(writtenArgs?.[2]).toMatchObject({ email: "luca@comperio.local" });
     expect(writtenArgs?.[3]).toBe("Luca Brognara");
   });
 
@@ -97,7 +98,7 @@ describe("resolveSenderName", () => {
 
   it("treats malformed cached content as a miss and re-resolves instead of throwing", async () => {
     const readFileFn = async (): Promise<string> => "not frontmatter at all";
-    const getUserFn: typeof getUser = async () => ({ displayName: "Luca Brognara" });
+    const getUserFn: typeof getUser = async () => ({ displayName: "Luca Brognara", email: null });
     let writeCalls = 0;
     const writeResolvedNoteFn: typeof writeResolvedNote = async () => {
       writeCalls++;

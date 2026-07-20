@@ -30,13 +30,17 @@ export const InferredFrontmatterSchema = z.object({
  * engine only): a deterministic fact fetched directly from an external
  * API — e.g. resolving a Google Chat user id to a display name. No
  * meaningful `confidence` or `derived_from` (it isn't an inference), but
- * needs `resolved_at` to know when it was looked up.
+ * needs `resolved_at` to know when it was looked up. `email` is nullable,
+ * not optional — not every People API profile exposes one (scopes,
+ * privacy), but the key is always present so a reader can tell "no email"
+ * from "written before this field existed".
  */
 export const ResolvedFrontmatterSchema = z.object({
   type: z.literal("resolved"),
   source: z.literal("api"),
   resolved_at: z.string(),
   display_name: z.string(),
+  email: z.string().nullable(),
 });
 
 export const WikiFrontmatterSchema = z.discriminatedUnion("type", [

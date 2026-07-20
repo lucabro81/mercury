@@ -81,23 +81,34 @@ export async function ensureSpaceSubscription(
  * one marked `metadata.primary: true`, falling back to the first entry if
  * none is marked (better a plausible name than none). Throws if `names`
  * is missing/empty or the underlying CLI call fails — there's no
- * fallback identity to show instead.
+ * fallback identity to show instead. `email` (added to the CLI's output
+ * at 0.8.0, same `{value, metadata: {primary}}` shape as `names`) is
+ * best-effort: `null` when absent, never thrown over — not every People
+ * API profile exposes one, and email isn't the primary purpose of this
+ * lookup.
  */
 export async function getUser(
   userId: string,
   runCliFn: typeof runCli,
-): Promise<{ displayName: string }> {
+): Promise<{ displayName: string; email: string | null }> {
   const result = await runCliFn("google-chat", ["users", "get", "--user", userId]);
-  const data = unwrap(result) as { names?: { displayName?: string; metadata?: { primary?: boolean } }[] };
+  const data = unwrap(result) as {
+    names?: { displayName?: string; metadata?: { primary?: boolean } }[];
+    emailAddresses?: { value?: string; metadata?: { primary?: boolean } }[];
+  };
 
   if (!data.names || data.names.length === 0) {
     throw new Error(`google-chat users get --user ${userId} returned no names`);
   }
-  const primary = data.names.find((n) => n.metadata?.primary) ?? data.names[0];
-  if (!primary?.displayName) {
+  const primaryName = data.names.find((n) => n.metadata?.primary) ?? data.names[0];
+  if (!primaryName?.displayName) {
     throw new Error(`google-chat users get --user ${userId} returned a name entry with no displayName`);
   }
-  return { displayName: primary.displayName };
+
+  const emails = data.emailAddresses ?? [];
+  const primaryEmail = emails.find((e) => e.metadata?.primary) ?? emails[0];
+
+  return { displayName: primaryName.displayName, email: primaryEmail?.value ?? null };
 }
 
 /**

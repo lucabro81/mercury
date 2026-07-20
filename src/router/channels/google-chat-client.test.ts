@@ -83,7 +83,7 @@ describe("getUser", () => {
 
     expect(receivedBinary).toBe("google-chat");
     expect(receivedArgs).toEqual(["users", "get", "--user", "users/100203105076128909015"]);
-    expect(result).toEqual({ displayName: "Luca Brognara" });
+    expect(result).toEqual({ displayName: "Luca Brognara", email: null });
   });
 
   // Real `people.get` output confirmed live: `names` is an array (a person
@@ -101,7 +101,7 @@ describe("getUser", () => {
     });
 
     const result = await getUser("users/1", runCliFn);
-    expect(result).toEqual({ displayName: "Luca Brognara" });
+    expect(result).toEqual({ displayName: "Luca Brognara", email: null });
   });
 
   // Falls back to the first entry if, for whatever reason, none is marked
@@ -113,7 +113,49 @@ describe("getUser", () => {
     });
 
     const result = await getUser("users/1", runCliFn);
-    expect(result).toEqual({ displayName: "Fallback Name" });
+    expect(result).toEqual({ displayName: "Fallback Name", email: null });
+  });
+
+  // emailAddresses added to `google-chat users get`'s output at 0.8.0 —
+  // same {value, metadata: {primary}} shape as `names`, same
+  // primary-first-fallback resolution logic.
+  it("picks the email marked metadata.primary when there's more than one", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({
+      ok: true,
+      data: {
+        names: [{ displayName: "Luca Brognara", metadata: { primary: true } }],
+        emailAddresses: [
+          { value: "not-this-one@comperio.local", metadata: { primary: false } },
+          { value: "luca@comperio.local", metadata: { primary: true } },
+        ],
+      },
+    });
+
+    const result = await getUser("users/1", runCliFn);
+    expect(result).toEqual({ displayName: "Luca Brognara", email: "luca@comperio.local" });
+  });
+
+  it("falls back to the first emailAddresses entry when none is marked primary", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({
+      ok: true,
+      data: {
+        names: [{ displayName: "Luca Brognara", metadata: { primary: true } }],
+        emailAddresses: [{ value: "luca@comperio.local" }],
+      },
+    });
+
+    const result = await getUser("users/1", runCliFn);
+    expect(result).toEqual({ displayName: "Luca Brognara", email: "luca@comperio.local" });
+  });
+
+  it("returns a null email when emailAddresses is missing or empty", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({
+      ok: true,
+      data: { names: [{ displayName: "Luca Brognara", metadata: { primary: true } }], emailAddresses: [] },
+    });
+
+    const result = await getUser("users/1", runCliFn);
+    expect(result).toEqual({ displayName: "Luca Brognara", email: null });
   });
 
   it("throws explicitly when names is missing or empty", async () => {

@@ -80,14 +80,38 @@ describe("WikiFrontmatterSchema", () => {
   // a probabilistic conversation-derived inference (inferred) — it has no
   // meaningful confidence/derived_from, but does need to know when/how it
   // was resolved.
-  it("accepts a valid resolved frontmatter", () => {
+  it("accepts a valid resolved frontmatter with an email", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-19T12:00:00Z",
+      display_name: "Luca Brognara",
+      email: "luca@comperio.local",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  // Not every People API profile exposes an email (scopes, privacy) —
+  // null is a legitimate outcome, distinct from the key being absent.
+  it("accepts a valid resolved frontmatter with a null email", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "resolved",
+      source: "api",
+      resolved_at: "2026-07-19T12:00:00Z",
+      display_name: "Luca Brognara",
+      email: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects resolved frontmatter missing email entirely", () => {
     const result = WikiFrontmatterSchema.safeParse({
       type: "resolved",
       source: "api",
       resolved_at: "2026-07-19T12:00:00Z",
       display_name: "Luca Brognara",
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it("rejects resolved frontmatter missing resolved_at", () => {
@@ -95,6 +119,7 @@ describe("WikiFrontmatterSchema", () => {
       type: "resolved",
       source: "api",
       display_name: "Luca Brognara",
+      email: null,
     });
     expect(result.success).toBe(false);
   });
@@ -104,6 +129,7 @@ describe("WikiFrontmatterSchema", () => {
       type: "resolved",
       source: "api",
       resolved_at: "2026-07-19T12:00:00Z",
+      email: null,
     });
     expect(result.success).toBe(false);
   });
@@ -114,6 +140,7 @@ describe("WikiFrontmatterSchema", () => {
       source: "agent",
       resolved_at: "2026-07-19T12:00:00Z",
       display_name: "Luca Brognara",
+      email: null,
     });
     expect(result.success).toBe(false);
   });

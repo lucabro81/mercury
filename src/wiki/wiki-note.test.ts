@@ -186,7 +186,7 @@ describe("writeInferredNote", () => {
 describe("writeResolvedNote", () => {
   it("writes a fixed resolved-name.md file under inferred/users/<userId>/ with full frontmatter", async () => {
     const vaultPath = await makeTempVault();
-    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "Luca Brognara");
 
     const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
     const { frontmatter, body } = splitFrontmatter(text);
@@ -195,13 +195,14 @@ describe("writeResolvedNote", () => {
       source: "api",
       resolved_at: "2026-07-19T12:00:00Z",
       display_name: "Luca Brognara",
+      email: null,
     });
     expect(body).toBe("Luca Brognara\n");
   });
 
   it("commits the write, leaving a clean working tree", async () => {
     const vaultPath = await makeTempVault();
-    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "Luca Brognara");
 
     const log = await gitLog(vaultPath);
     expect(log[0]).toContain("users/42");
@@ -210,8 +211,8 @@ describe("writeResolvedNote", () => {
 
   it("overwrites an existing resolved note idempotently on re-resolution, with one commit each time", async () => {
     const vaultPath = await makeTempVault();
-    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z" }, "Luca Brognara");
-    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-20T09:00:00Z" }, "Luca B.");
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "Luca Brognara");
+    await writeResolvedNote(vaultPath, "users/42", { resolvedAt: "2026-07-20T09:00:00Z", email: null }, "Luca B.");
 
     const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
     const { frontmatter, body } = splitFrontmatter(text);
@@ -220,6 +221,7 @@ describe("writeResolvedNote", () => {
       source: "api",
       resolved_at: "2026-07-20T09:00:00Z",
       display_name: "Luca B.",
+      email: null,
     });
     expect(body).toBe("Luca B.\n");
 
@@ -236,7 +238,7 @@ describe("writeResolvedNote", () => {
   // directory inside inferred/users/, never a real traversal.
   it("stays within the vault for a userId containing path-traversal-shaped characters", async () => {
     const vaultPath = await makeTempVault();
-    await writeResolvedNote(vaultPath, "../../evil", { resolvedAt: "2026-07-19T12:00:00Z" }, "pwned");
+    await writeResolvedNote(vaultPath, "../../evil", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "pwned");
 
     const text = await readFile(join(vaultPath, "inferred/users/..%2F..%2Fevil/resolved-name.md"), "utf-8");
     const { frontmatter } = splitFrontmatter(text);
@@ -245,7 +247,22 @@ describe("writeResolvedNote", () => {
       source: "api",
       resolved_at: "2026-07-19T12:00:00Z",
       display_name: "pwned",
+      email: null,
     });
+  });
+
+  it("stores a real email when one is provided", async () => {
+    const vaultPath = await makeTempVault();
+    await writeResolvedNote(
+      vaultPath,
+      "users/42",
+      { resolvedAt: "2026-07-19T12:00:00Z", email: "luca@comperio.local" },
+      "Luca Brognara",
+    );
+
+    const text = await readFile(join(vaultPath, "inferred/users/users%2F42/resolved-name.md"), "utf-8");
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toMatchObject({ email: "luca@comperio.local" });
   });
 });
 
@@ -286,7 +303,7 @@ describe("concurrent writes", () => {
 
     await Promise.all([
       writeCuratedNote(vaultPath, "standards/a.md", {}, "a"),
-      writeResolvedNote(vaultPath, "users/1", { resolvedAt: "2026-07-19T12:00:00Z" }, "User One"),
+      writeResolvedNote(vaultPath, "users/1", { resolvedAt: "2026-07-19T12:00:00Z", email: null }, "User One"),
       writeInferredNote(
         vaultPath,
         "user-2",

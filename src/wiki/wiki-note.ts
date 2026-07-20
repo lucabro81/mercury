@@ -209,7 +209,7 @@ export async function writeInferredNote(
 export async function writeResolvedNote(
   vaultPath: string,
   userId: string,
-  fields: { resolvedAt: string },
+  fields: { resolvedAt: string; email: string | null },
   displayName: string,
 ): Promise<void> {
   const frontmatter = ResolvedFrontmatterSchema.parse({
@@ -217,6 +217,7 @@ export async function writeResolvedNote(
     source: "api",
     resolved_at: fields.resolvedAt,
     display_name: displayName,
+    email: fields.email,
   });
   const inferredUserRoot = resolve(vaultPath, "inferred", "users", encodeURIComponent(userId));
   const fullPath = resolveWithinRoot(inferredUserRoot, "resolved-name.md");

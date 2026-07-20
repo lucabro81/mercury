@@ -70,9 +70,9 @@ export async function resolveSenderName(
   }
 
   try {
-    const { displayName } = await deps.getUserFn(userId, deps.runCliFn);
+    const { displayName, email } = await deps.getUserFn(userId, deps.runCliFn);
     const resolvedAt = (deps.now?.() ?? new Date()).toISOString();
-    await deps.writeResolvedNoteFn(deps.vaultPath, userId, { resolvedAt }, displayName);
+    await deps.writeResolvedNoteFn(deps.vaultPath, userId, { resolvedAt, email }, displayName);
     return displayName;
   } catch (err) {
     console.error(`[user-resolution] failed to resolve ${userId}: ${String(err)}`);
