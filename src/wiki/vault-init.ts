@@ -10,7 +10,7 @@
 import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-const SUBDIRS = ["curated/design", "curated/standards", "curated/decisions", "inferred/users"];
+const SUBDIRS = ["curated/design", "curated/standards", "curated/decisions", "inferred/users", "raw"];
 
 async function pathExists(path: string): Promise<boolean> {
   try {
