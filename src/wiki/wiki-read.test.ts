@@ -2,8 +2,16 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeCuratedNote, writeInferredNote } from "./wiki-note.ts";
-import { listWikiFiles, readWikiFile, grepWiki } from "./wiki-read.ts";
+import { writeCuratedNote, writeInferredNote, writeRawEntry } from "./wiki-note.ts";
+import {
+  listWikiFiles,
+  readWikiFile,
+  grepWiki,
+  selfReviewRoots,
+  listWikiFilesInRoots,
+  readWikiFileInRoots,
+  grepWikiInRoots,
+} from "./wiki-read.ts";
 import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
@@ -118,5 +126,52 @@ describe("grepWiki", () => {
 
     const matches = await grepWiki(vaultPath, "user-a", "risponde alle review");
     expect(matches).toEqual([]);
+  });
+});
+
+// The self-review job (nightly batch, not a per-user conversation) needs a
+// third scoping boundary distinct from allowedRoots(vaultPath, userId):
+// curated/ + raw/, but NEVER inferred/ — that's off-limits to any
+// LLM-judgment writer per D-22/D-34, not just to regular conversations.
+describe("selfReviewRoots-scoped reads", () => {
+  async function seedWithRaw(vaultPath: string) {
+    await seedVault(vaultPath);
+    await writeRawEntry(vaultPath, "notes/pasted-readme.md", "Raw pasted content, not yet triaged.");
+  }
+
+  it("listWikiFilesInRoots includes curated/ and raw/, and excludes inferred/ entirely", async () => {
+    const vaultPath = await makeTempVault();
+    await seedWithRaw(vaultPath);
+
+    const files = await listWikiFilesInRoots(vaultPath, selfReviewRoots(vaultPath));
+    expect(files.sort()).toEqual(
+      ["curated/glossary.md", "curated/standards/jira-fields.md", "raw/notes/pasted-readme.md"].sort(),
+    );
+    expect(files.some((f) => f.startsWith("inferred/"))).toBe(false);
+  });
+
+  it("readWikiFileInRoots reads curated/ and raw/ files but rejects an inferred/ path", async () => {
+    const vaultPath = await makeTempVault();
+    await seedWithRaw(vaultPath);
+    const roots = selfReviewRoots(vaultPath);
+
+    const rawContent = await readWikiFileInRoots(vaultPath, roots, "raw/notes/pasted-readme.md");
+    expect(rawContent).toContain("Raw pasted content");
+
+    await expect(
+      readWikiFileInRoots(vaultPath, roots, "inferred/users/user-a/ticket_closing_style.md"),
+    ).rejects.toThrow();
+  });
+
+  it("grepWikiInRoots finds matches in curated/ and raw/, never in inferred/", async () => {
+    const vaultPath = await makeTempVault();
+    await seedWithRaw(vaultPath);
+
+    const matches = await grepWikiInRoots(vaultPath, selfReviewRoots(vaultPath), "chiude i ticket");
+    expect(matches).toEqual([]); // that phrase only exists in user-a's inferred note
+
+    const rawMatches = await grepWikiInRoots(vaultPath, selfReviewRoots(vaultPath), "not yet triaged");
+    expect(rawMatches.length).toBe(1);
+    expect(rawMatches[0]!.path).toBe("raw/notes/pasted-readme.md");
   });
 });
