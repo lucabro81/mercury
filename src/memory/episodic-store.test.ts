@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { ensureEpisodicCollection, storeEpisodicSummary, type QdrantClientLike } from "./episodic-store.ts";
+import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory, type QdrantClientLike } from "./episodic-store.ts";
 
 describe("ensureEpisodicCollection", () => {
   it("creates the collection if it doesn't already exist", async () => {
@@ -11,6 +11,7 @@ describe("ensureEpisodicCollection", () => {
         return {};
       },
       upsert: async () => ({}),
+      search: async () => [],
     };
 
     await ensureEpisodicCollection(client, "episodic_memory", 768);
@@ -30,6 +31,7 @@ describe("ensureEpisodicCollection", () => {
         return {};
       },
       upsert: async () => ({}),
+      search: async () => [],
     };
 
     await ensureEpisodicCollection(client, "episodic_memory", 768);
@@ -48,6 +50,7 @@ describe("storeEpisodicSummary", () => {
         upserted = { collection, points: params.points };
         return {};
       },
+      search: async () => [],
     };
     const embed = async (text: string) => [text.length, 0, 0];
 
@@ -69,5 +72,120 @@ describe("storeEpisodicSummary", () => {
       timestamp: "2026-07-17T12:00:00.000Z",
     });
     expect(typeof point.id).toBe("string");
+  });
+});
+
+// D-25's narrow need: "how many times have I already notified this user
+// about this item" — not D-22/D-34's general-purpose semantic
+// consolidation (separate, unbuilt, tracked on its own). Filters by
+// userId so one user's history never leaks into another's notification
+// tone/frequency reasoning.
+describe("searchEpisodicMemory", () => {
+  it("embeds queryText, searches scoped to userId, and maps payloads back to EpisodicSummary", async () => {
+    let receivedArgs: { collection: string; params: unknown } | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async (collection, params) => {
+        receivedArgs = { collection, params };
+        return [
+          {
+            id: "p1",
+            score: 0.91,
+            payload: {
+              userId: "users/42",
+              sessionKey: "spaces/X:users/42",
+              summary: "Mercury ha notificato KAN-1 il 2026-07-15",
+              timestamp: "2026-07-15T09:00:00.000Z",
+            },
+          },
+        ];
+      },
+    };
+    const embed = async (text: string) => [text.length, 0, 0];
+
+    const results = await searchEpisodicMemory(client, "episodic_memory", embed, {
+      userId: "users/42",
+      queryText: "notifiche per KAN-1",
+    });
+
+    expect(receivedArgs?.collection).toBe("episodic_memory");
+    expect(receivedArgs?.params).toEqual({
+      vector: [19, 0, 0],
+      filter: { must: [{ key: "userId", match: { value: "users/42" } }] },
+      limit: 5,
+    });
+    expect(results).toEqual([
+      {
+        userId: "users/42",
+        sessionKey: "spaces/X:users/42",
+        summary: "Mercury ha notificato KAN-1 il 2026-07-15",
+        timestamp: "2026-07-15T09:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("respects a custom limit instead of the default", async () => {
+    let receivedLimit: number | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async (_collection, params) => {
+        receivedLimit = params.limit;
+        return [];
+      },
+    };
+    const embed = async () => [0, 0, 0];
+
+    await searchEpisodicMemory(client, "episodic_memory", embed, { userId: "users/42", queryText: "x", limit: 2 });
+
+    expect(receivedLimit).toBe(2);
+  });
+
+  // Qdrant allows a null payload on a point — skip it rather than crash
+  // or return a malformed EpisodicSummary.
+  it("skips results with a missing or malformed payload instead of throwing", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [
+        { id: "p1", score: 0.9, payload: null },
+        { id: "p2", score: 0.8, payload: { summary: 42 } }, // wrong type
+        {
+          id: "p3",
+          score: 0.7,
+          payload: {
+            userId: "users/42",
+            sessionKey: "terminal",
+            summary: "valid one",
+            timestamp: "2026-07-15T09:00:00.000Z",
+          },
+        },
+      ],
+    };
+    const embed = async () => [0, 0, 0];
+
+    const results = await searchEpisodicMemory(client, "episodic_memory", embed, { userId: "users/42", queryText: "x" });
+
+    expect(results).toEqual([
+      { userId: "users/42", sessionKey: "terminal", summary: "valid one", timestamp: "2026-07-15T09:00:00.000Z" },
+    ]);
+  });
+
+  it("returns an empty array when nothing matches", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+    };
+    const embed = async () => [0, 0, 0];
+
+    expect(await searchEpisodicMemory(client, "episodic_memory", embed, { userId: "users/42", queryText: "x" })).toEqual(
+      [],
+    );
   });
 });

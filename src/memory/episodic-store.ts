@@ -19,6 +19,10 @@ export type QdrantClientLike = {
     name: string,
     params: { points: Array<{ id: string; vector: number[]; payload: Record<string, unknown> }> },
   ): Promise<unknown>;
+  search(
+    name: string,
+    params: { vector: number[]; filter: Record<string, unknown>; limit: number },
+  ): Promise<Array<{ id: string | number; score: number; payload?: Record<string, unknown> | null }>>;
 };
 
 /** Creates `collectionName` (cosine distance, `vectorSize`-dim) if it doesn't already exist — safe to call on every startup. */
@@ -58,4 +62,39 @@ export async function storeEpisodicSummary(
       },
     ],
   });
+}
+
+const DEFAULT_SEARCH_LIMIT = 5;
+
+function isEpisodicSummary(payload: Record<string, unknown> | null): payload is EpisodicSummary {
+  return (
+    payload !== null &&
+    typeof payload.userId === "string" &&
+    typeof payload.sessionKey === "string" &&
+    typeof payload.summary === "string" &&
+    typeof payload.timestamp === "string"
+  );
+}
+
+/**
+ * D-25's narrow need: past episodic events for this specific user, most
+ * relevant to `queryText` (e.g. "notifications about KAN-123") — lets
+ * Mercury see how many times it already notified this user about this
+ * item before composing a message. Not D-22/D-34's general-purpose
+ * semantic consolidation (a separate, unbuilt engine, tracked on its
+ * own) — this only ever reads, never writes or promotes anything.
+ */
+export async function searchEpisodicMemory(
+  client: QdrantClientLike,
+  collectionName: string,
+  embed: (text: string) => Promise<number[]>,
+  query: { userId: string; queryText: string; limit?: number },
+): Promise<EpisodicSummary[]> {
+  const vector = await embed(query.queryText);
+  const results = await client.search(collectionName, {
+    vector,
+    filter: { must: [{ key: "userId", match: { value: query.userId } }] },
+    limit: query.limit ?? DEFAULT_SEARCH_LIMIT,
+  });
+  return results.map((r) => r.payload ?? null).filter(isEpisodicSummary);
 }
