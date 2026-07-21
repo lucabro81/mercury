@@ -10,19 +10,27 @@ import { parse as parseYaml } from "yaml";
 
 const NotificationThresholdsSchema = z.object({
   stale_ticket_days: z.number().int().positive(),
+  // Base JQL scope for the stale-ticket check — --stale-days is appended by
+  // the cron, this only narrows *which* tickets are candidates (e.g. a
+  // specific project). Optional: DEFAULT_STALE_TICKET_JQL is a reasonable,
+  // project-agnostic default when the team hasn't set one.
+  stale_ticket_jql: z.string().optional(),
 });
 
 export type NotificationThresholds = z.infer<typeof NotificationThresholdsSchema>;
 
 export const NOTIFICATION_CONFIG_PATH = "config/notifications.md";
 
+export const DEFAULT_STALE_TICKET_JQL = "statusCategory != Done";
+
 export const DEFAULT_NOTIFICATION_THRESHOLDS_BODY = [
   "# Soglie di notifica",
   "",
-  "Configurazione letta dai check proattivi di Mercury (M4). Modificabile chiedendo a Mercury di aggiornarla in conversazione, es. \"alza la soglia ticket a 7 giorni\".",
+  "Configurazione letta dai check proattivi di Mercury. Modificabile chiedendo a Mercury di aggiornarla in conversazione, es. \"alza la soglia ticket a 7 giorni\" o \"limita il check ai ticket del progetto KAN\".",
   "",
   "```yaml",
   "stale_ticket_days: 5",
+  `stale_ticket_jql: "${DEFAULT_STALE_TICKET_JQL}"`,
   "```",
   "",
 ].join("\n");
