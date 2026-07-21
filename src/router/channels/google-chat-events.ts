@@ -21,6 +21,8 @@ import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
 import { tryConfirm } from "../confirm-flow.ts";
+import type { writeSuppressionNote } from "../../wiki/wiki-note.ts";
+import type { EpisodicSummary } from "../../memory/episodic-store.ts";
 
 /** A parsed incoming message event, ready to hand to `handleInput`. */
 export type ChatMessageEvent = { text: string; messageName: string; space: string; sender: string };
@@ -160,6 +162,9 @@ export async function startGoogleChatSpaceChannel(
     ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription;
     runCliFn: typeof runCli;
     store: ConfirmationStore;
+    vaultPath: string;
+    writeSuppressionNoteFn: typeof writeSuppressionNote;
+    recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
   },
   opts: { topic: string; pubsubSubscription: string; signal?: AbortSignal },
 ): Promise<void> {
@@ -191,6 +196,10 @@ export async function startGoogleChatSpaceChannel(
     const confirmReply = await tryConfirm(event.text, deriveSessionKey(space, event.sender), {
       store: deps.store,
       runCliFn: deps.runCliFn,
+      userId: event.sender,
+      vaultPath: deps.vaultPath,
+      writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
+      recordSuppressionEventFn: deps.recordSuppressionEventFn,
     });
     if (confirmReply !== null) {
       const sent = await deps.sendMessageFn(space, confirmReply, deps.runCliFn);
@@ -263,6 +272,9 @@ export function startGoogleChatChannelManager(
     ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription;
     runCliFn: typeof runCli;
     store: ConfirmationStore;
+    vaultPath: string;
+    writeSuppressionNoteFn: typeof writeSuppressionNote;
+    recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
   },
   opts: {
     topic: string;
@@ -291,6 +303,9 @@ export function startGoogleChatChannelManager(
         ensureSpaceSubscriptionFn: deps.ensureSpaceSubscriptionFn,
         runCliFn: deps.runCliFn,
         store: deps.store,
+        vaultPath: deps.vaultPath,
+        writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
+        recordSuppressionEventFn: deps.recordSuppressionEventFn,
       },
       { topic: opts.topic, pubsubSubscription, signal: controller.signal },
     )

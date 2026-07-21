@@ -38,7 +38,7 @@ import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
 import { ensureSpaceSubscription, sendMessage, getUser } from "./router/channels/google-chat-client.ts";
 import { resolveSenderName } from "./router/user-resolution.ts";
-import { writeResolvedNote } from "./wiki/wiki-note.ts";
+import { writeResolvedNote, writeSuppressionNote } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
@@ -345,6 +345,9 @@ if (googleChatTopic) {
       ensureSpaceSubscriptionFn: ensureSpaceSubscription,
       runCliFn: runCli,
       store: confirmationStore,
+      vaultPath: wikiVaultPath,
+      writeSuppressionNoteFn: writeSuppressionNote,
+      recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     },
     {
       topic: googleChatTopic,
@@ -378,7 +381,14 @@ await startTerminalRepl(
 
     // Same deterministic interception as Google Chat's processLine — never
     // let running a previously-approved mutation depend on the model.
-    const confirmReply = await tryConfirm(input, "terminal", { store: confirmationStore, runCliFn: runCli });
+    const confirmReply = await tryConfirm(input, "terminal", {
+      store: confirmationStore,
+      runCliFn: runCli,
+      userId: "terminal",
+      vaultPath: wikiVaultPath,
+      writeSuppressionNoteFn: writeSuppressionNote,
+      recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+    });
     if (confirmReply !== null) {
       return confirmReply;
     }

@@ -2,26 +2,42 @@ import { describe, it, expect } from "bun:test";
 import { createConfirmationStore, parseConfirmCommand } from "./confirmation-store.ts";
 
 describe("createConfirmationStore", () => {
-  it("stages a command and returns it on a matching take, one-shot", () => {
+  it("stages a cli action and returns it on a matching take, one-shot", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    const token = store.stage("terminal", "jira", ["issue", "delete", "KAN-1", "--confirm"]);
+    const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
     expect(token).toBe("TOK1");
 
     const first = store.take("terminal", "TOK1");
-    expect(first).toEqual({ binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
+    expect(first).toEqual({ kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
 
     // one-shot: the same token can't be taken twice
     const second = store.take("terminal", "TOK1");
     expect(second).toBeNull();
   });
 
-  it("does not return a staged command for the wrong sessionKey, and doesn't consume it", () => {
+  // D-26: same store, same token mechanism as an irreversible CLI action —
+  // just a different action kind, discriminated at take() time, not a
+  // second parallel store to look tokens up in.
+  it("stages a suppress-notification action and returns it on a matching take", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    store.stage("terminal", "jira", ["issue", "delete", "KAN-1", "--confirm"]);
+    const token = store.stage("terminal", { kind: "suppress-notification", checkType: "stale-ticket", itemKey: "KAN-123" });
+    expect(token).toBe("TOK1");
+
+    expect(store.take("terminal", "TOK1")).toEqual({
+      kind: "suppress-notification",
+      checkType: "stale-ticket",
+      itemKey: "KAN-123",
+    });
+  });
+
+  it("does not return a staged action for the wrong sessionKey, and doesn't consume it", () => {
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+    store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
 
     expect(store.take("spaces/X:users/42", "TOK1")).toBeNull();
     // proves the wrong-session attempt didn't consume the token
     expect(store.take("terminal", "TOK1")).toEqual({
+      kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "KAN-1", "--confirm"],
     });
@@ -35,7 +51,7 @@ describe("createConfirmationStore", () => {
   it("returns null for a token past its expiry, and cleans it up", () => {
     let now = 0;
     const store = createConfirmationStore({ now: () => now, ttlMs: 1000, tokenFn: () => "TOK1" });
-    store.stage("terminal", "jira", ["doctor"]);
+    store.stage("terminal", { kind: "cli", binary: "jira", args: ["doctor"] });
 
     now = 1001;
     expect(store.take("terminal", "TOK1")).toBeNull();
@@ -50,11 +66,12 @@ describe("createConfirmationStore", () => {
   it("stages independent tokens per session without collision", () => {
     let counter = 0;
     const store = createConfirmationStore({ tokenFn: () => `TOK${++counter}` });
-    store.stage("terminal", "jira", ["issue", "delete", "KAN-1", "--confirm"]);
-    store.stage("spaces/X:users/42", "jira", ["issue", "delete", "KAN-2", "--confirm"]);
+    store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
+    store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-2", "--confirm"] });
 
     expect(store.take("terminal", "TOK2")).toBeNull();
     expect(store.take("spaces/X:users/42", "TOK2")).toEqual({
+      kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "KAN-2", "--confirm"],
     });
@@ -62,9 +79,9 @@ describe("createConfirmationStore", () => {
 
   it("defaults to a real random token when tokenFn isn't injected", () => {
     const store = createConfirmationStore();
-    const token = store.stage("terminal", "jira", ["doctor"]);
+    const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["doctor"] });
     expect(token.length).toBeGreaterThan(0);
-    expect(store.take("terminal", token)).toEqual({ binary: "jira", args: ["doctor"] });
+    expect(store.take("terminal", token)).toEqual({ kind: "cli", binary: "jira", args: ["doctor"] });
   });
 });
 

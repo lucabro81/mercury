@@ -239,6 +239,7 @@ describe("createCliTool", () => {
 
     // the FULL argv was staged, not just the matched prefix
     expect(store.take("terminal", "TOK1")).toEqual({
+      kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "KAN-1", "--confirm"],
     });

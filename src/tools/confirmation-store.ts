@@ -1,21 +1,31 @@
 /**
- * In-memory staging area for a CLI command that matched a `confirm:true`
- * prefix (see `matchCommand` in `cli-tool.ts`): instead of running it
- * immediately, the model stages it here and relays the returned token to
- * the user, who must reply `conferma <token>` on the same channel/session
- * before it actually executes (see `confirm-flow.ts`). Scoped by
- * `sessionKey` so a token proposed to one session (terminal, or a given
- * Google Chat space+sender) can't be confirmed by another.
+ * In-memory staging area for an action that needs explicit confirmation
+ * before it executes: a CLI command that matched a `confirm:true` prefix
+ * (see `matchCommand` in `cli-tool.ts`), or — D-26 — a request to stop
+ * notifying about a specific item. Either way the model stages it here
+ * and relays the returned token to the user, who must reply
+ * `conferma <token>` on the same channel/session before anything actually
+ * happens (see `confirm-flow.ts`). Scoped by `sessionKey` so a token
+ * proposed to one session (terminal, or a given Google Chat space+sender)
+ * can't be confirmed by another.
+ *
+ * One store, one token namespace, one `conferma <token>` command surface
+ * for both kinds — `take()` returns the tagged union, the caller branches
+ * on `kind` only once it's time to actually execute. A second parallel
+ * store per action kind would mean `confirm-flow.ts` searching multiple
+ * stores for the same token, for no benefit.
  */
-export type StagedCommand = { binary: string; args: string[] };
+export type StagedAction =
+  | { kind: "cli"; binary: string; args: string[] }
+  | { kind: "suppress-notification"; checkType: string; itemKey: string };
 
 export type ConfirmationStore = {
-  /** Stages `binary`/`args` for `sessionKey` and returns a fresh token. */
-  stage(sessionKey: string, binary: string, args: string[]): string;
-  /** Consumes and returns the staged command for `sessionKey`/`token`, or
+  /** Stages `action` for `sessionKey` and returns a fresh token. */
+  stage(sessionKey: string, action: StagedAction): string;
+  /** Consumes and returns the staged action for `sessionKey`/`token`, or
    * `null` if it doesn't exist, belongs to a different session, or has
    * expired. Always one-shot: a successful take removes the entry. */
-  take(sessionKey: string, token: string): StagedCommand | null;
+  take(sessionKey: string, token: string): StagedAction | null;
 };
 
 const TOKEN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; // excludes 0/O, 1/l/I
@@ -32,7 +42,7 @@ function defaultTokenFn(): string {
   return token;
 }
 
-type Entry = StagedCommand & { sessionKey: string; expiresAt: number };
+type Entry = { action: StagedAction; sessionKey: string; expiresAt: number };
 
 export function createConfirmationStore(
   opts: { now?: () => number; ttlMs?: number; tokenFn?: () => string } = {},
@@ -43,9 +53,9 @@ export function createConfirmationStore(
   const entries = new Map<string, Entry>();
 
   return {
-    stage(sessionKey, binary, args) {
+    stage(sessionKey, action) {
       const token = tokenFn();
-      entries.set(token, { sessionKey, binary, args, expiresAt: now() + ttlMs });
+      entries.set(token, { sessionKey, action, expiresAt: now() + ttlMs });
       return token;
     },
     take(sessionKey, token) {
@@ -61,7 +71,7 @@ export function createConfirmationStore(
         return null;
       }
       entries.delete(token);
-      return { binary: entry.binary, args: entry.args };
+      return entry.action;
     },
   };
 }

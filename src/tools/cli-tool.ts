@@ -148,7 +148,7 @@ export function createCliTool(
         };
       }
       if (match.kind === "confirm-required") {
-        const token = opts.store.stage(opts.sessionKey, parsed.binary, parsed.args);
+        const token = opts.store.stage(opts.sessionKey, { kind: "cli", binary: parsed.binary, args: parsed.args });
         return {
           ok: false,
           pendingConfirmation: true,

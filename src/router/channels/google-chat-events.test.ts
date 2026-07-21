@@ -10,8 +10,17 @@ import {
 import { createConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
 import type { ensureSpaceSubscription, sendMessage } from "./google-chat-client.ts";
+import type { writeSuppressionNote } from "../../wiki/wiki-note.ts";
+import type { EpisodicSummary } from "../../memory/episodic-store.ts";
 
 const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
+
+// D-26 deps no test in this file exercises directly (that's
+// confirm-flow.test.ts's job) — every channel-level test here only needs
+// these present to satisfy the type, not to do anything.
+const vaultPath = "/vault";
+const writeSuppressionNoteFn: typeof writeSuppressionNote = async () => {};
+const recordSuppressionEventFn = async (_entry: EpisodicSummary): Promise<void> => {};
 
 const DEFAULT_SENDER = "users/123";
 
@@ -167,7 +176,7 @@ describe("startGoogleChatSpaceChannel", () => {
     await startGoogleChatSpaceChannel(
       "spaces/X",
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -207,7 +216,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -258,7 +267,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -300,7 +309,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -343,7 +352,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -403,13 +412,13 @@ describe("startGoogleChatSpaceChannel", () => {
     };
 
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    store.stage(deriveSessionKey("spaces/X", "users/42"), "jira", ["issue", "delete", "KAN-1", "--confirm"]);
+    store.stage(deriveSessionKey("spaces/X", "users/42"), { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
     const confirmedRunCliFn: typeof runCli = async () => ({ ok: true, data: { deleted: true } });
 
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn: confirmedRunCliFn, store },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn: confirmedRunCliFn, store, vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -453,7 +462,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -493,7 +502,7 @@ describe("startGoogleChatSpaceChannel", () => {
     const channelPromise = startGoogleChatSpaceChannel(
       "spaces/X",
       handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
 
@@ -536,7 +545,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: ["spaces/A", "spaces/B"] },
     );
 
@@ -556,7 +565,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: [] },
     );
 
@@ -576,7 +585,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: [] },
     );
 
@@ -612,7 +621,7 @@ describe("startGoogleChatChannelManager", () => {
     try {
       const manager = startGoogleChatChannelManager(
         async () => "ok",
-        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+        { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
         { topic: "projects/p/topics/t", spaces: [] },
       );
 
@@ -645,7 +654,7 @@ describe("startGoogleChatChannelManager", () => {
 
     const manager = startGoogleChatChannelManager(
       async () => "ok",
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore() },
+      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: ["spaces/A"] },
     );
 
