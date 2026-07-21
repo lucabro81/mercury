@@ -45,6 +45,11 @@ import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
 import { ensureEpisodicCollection, storeEpisodicSummary } from "./memory/episodic-store.ts";
 import { createEmbedder } from "./memory/embedder.ts";
 import { initVault } from "./wiki/vault-init.ts";
+import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
+import { listWikiFilesInRoots } from "./wiki/wiki-read.ts";
+import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
+import { startSelfReviewCron } from "./cron/self-review-cron.ts";
+import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
@@ -240,6 +245,18 @@ void idleCron; // kept alive for the process lifetime; no shutdown hook exists y
 // never needs a separate manual provisioning step.
 const wikiVaultPath = requireEnv("WIKI_VAULT_PATH");
 await initVault(wikiVaultPath);
+
+const selfReviewCron = startSelfReviewCron(
+  {
+    listRawEntries: () => listWikiFilesInRoots(wikiVaultPath, [resolvePath(wikiVaultPath, "raw")]),
+    findOrphans: () => findOrphanCuratedDocs(wikiVaultPath),
+    runRawTriage: (rawEntries) => runRawTriagePass({ vaultPath: wikiVaultPath, model, rawEntries }),
+    runIndexAndOrphan: (orphans) => runIndexAndOrphanPass({ vaultPath: wikiVaultPath, model, orphans }),
+    runContradictionCheck: () => runContradictionCheckPass({ vaultPath: wikiVaultPath, model }),
+    log: (msg) => console.error(`[cron] ${msg}`),
+  },
+);
+void selfReviewCron; // kept alive for the process lifetime, same as idleCron
 
 // runCommand's confirm-required branch stages a command per-session (see
 // createCliTool's opts) — the tool itself must therefore be rebuilt fresh
