@@ -11,6 +11,12 @@
  * (see its own docstring in `wiki-note.ts`); a manual CLI writing
  * "agent-sourced" notes by hand would defeat that guarantee.
  *
+ * `write-raw` has no `--author`/frontmatter options, unlike `write-curated`
+ * — raw/ content is verbatim, un-triaged material (a pasted README, notes),
+ * and its provenance is recovered from git history (D-16) rather than a
+ * schema field. The nightly self-review job (`self-review-tools.ts`) is
+ * the only thing that reads raw/ back to triage it into curated/.
+ *
  * `list`/`read`/`grep` intentionally bypass `wiki-read.ts`'s per-user
  * scoping (`allowedRoots`) — that scoping exists to isolate what the
  * MODEL can see per caller; a maintainer running this CLI is already a
@@ -18,7 +24,7 @@
  * whole vault directly.
  */
 import { initVault } from "./vault-init.ts";
-import { writeCuratedNote } from "./wiki-note.ts";
+import { writeCuratedNote, writeRawEntry } from "./wiki-note.ts";
 
 function usage(): never {
   console.error(
@@ -27,13 +33,14 @@ function usage(): never {
       "",
       "Commands:",
       "  write-curated <curated/...path.md> [--author NAME]   body read from stdin",
+      "  write-raw <raw/...path.md>                           body read from stdin",
       "  read <path>",
       "  list",
       "  grep <pattern>",
       "",
       "Every path is relative to the vault root (as printed by `list`), including",
-      "the leading `curated/` — write-curated requires it too, so paths are",
-      "consistent across every command instead of meaning different things.",
+      "the leading `curated/`/`raw/` — write-curated/write-raw require it too, so",
+      "paths are consistent across every command instead of meaning different things.",
     ].join("\n"),
   );
   process.exit(1);
@@ -70,6 +77,24 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       await writeCuratedNote(vaultPath, curatedRelativePath, { author }, body.trimEnd());
+      console.log(`wrote ${vaultRelativePath}`);
+      break;
+    }
+
+    case "write-raw": {
+      const vaultRelativePath = args[0];
+      if (!vaultRelativePath) usage();
+      if (!vaultRelativePath.startsWith("raw/")) {
+        console.error(`path must start with "raw/" (got "${vaultRelativePath}")`);
+        process.exit(1);
+      }
+      const rawRelativePath = vaultRelativePath.slice("raw/".length);
+      const body = await readStdin();
+      if (!body.trim()) {
+        console.error("empty body on stdin — nothing to write");
+        process.exit(1);
+      }
+      await writeRawEntry(vaultPath, rawRelativePath, body.trimEnd());
       console.log(`wrote ${vaultRelativePath}`);
       break;
     }

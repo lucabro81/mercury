@@ -25,16 +25,25 @@ function allowedRoots(vaultPath: string, userId: string): string[] {
   return [resolve(vaultRoot, "curated"), resolve(vaultRoot, "inferred", "users", userId)];
 }
 
+/** curated/ + raw/ only — never inferred/, for the nightly self-review job.
+ * A distinct trust boundary from a per-user conversation's `allowedRoots`
+ * (which trades curated/ for one user's own inferred/ instead of raw/):
+ * inferred/ is off-limits to any LLM-judgment writer per D-22/D-34, not
+ * just to regular conversations. */
+export function selfReviewRoots(vaultPath: string): string[] {
+  const vaultRoot = resolve(vaultPath);
+  return [resolve(vaultRoot, "curated"), resolve(vaultRoot, "raw")];
+}
+
 /**
  * Resolves `relativePath` against the vault and checks it falls under
- * one of the caller's allowed roots (curated/, or their own
- * inferred/users/<userId>/) — rejects both vault escape (`..`) and
- * cross-user access to someone else's inferred notes.
+ * one of `roots` — rejects both vault escape (`..`) and access outside
+ * the caller's declared scope (cross-user inferred/ access, or anything
+ * outside curated/+raw/ for the self-review job).
  */
-function resolveAllowedWikiPath(vaultPath: string, userId: string, relativePath: string): string {
+function resolveAllowedWikiPath(vaultPath: string, roots: string[], relativePath: string): string {
   const vaultRoot = resolve(vaultPath);
   const target = resolve(vaultRoot, relativePath);
-  const roots = allowedRoots(vaultPath, userId);
   const allowed = roots.some((root) => target === root || target.startsWith(root + sep));
   if (!allowed) {
     throw new Error(`path not accessible: ${relativePath}`);
@@ -52,30 +61,39 @@ async function listFilesUnder(root: string, vaultRoot: string): Promise<string[]
   return results;
 }
 
-/** Lists every `.md` file visible to `userId`: all of curated/, plus only their own inferred/users/<userId>/. */
-export async function listWikiFiles(vaultPath: string, userId: string): Promise<string[]> {
+/** Lists every `.md` file under `roots`. */
+export async function listWikiFilesInRoots(vaultPath: string, roots: string[]): Promise<string[]> {
   const vaultRoot = resolve(vaultPath);
-  const roots = allowedRoots(vaultPath, userId);
   const lists = await Promise.all(roots.map((root) => listFilesUnder(root, vaultRoot)));
   return lists.flat().sort();
 }
 
+/** Lists every `.md` file visible to `userId`: all of curated/, plus only their own inferred/users/<userId>/. */
+export async function listWikiFiles(vaultPath: string, userId: string): Promise<string[]> {
+  return listWikiFilesInRoots(vaultPath, allowedRoots(vaultPath, userId));
+}
+
+/** Reads a single wiki file. Throws if `relativePath` falls outside `roots`. */
+export async function readWikiFileInRoots(vaultPath: string, roots: string[], relativePath: string): Promise<string> {
+  const fullPath = resolveAllowedWikiPath(vaultPath, roots, relativePath);
+  return readFile(fullPath, "utf-8");
+}
+
 /** Reads a single wiki file. Throws if `relativePath` falls outside the caller's allowed scope. */
 export async function readWikiFile(vaultPath: string, userId: string, relativePath: string): Promise<string> {
-  const fullPath = resolveAllowedWikiPath(vaultPath, userId, relativePath);
-  return readFile(fullPath, "utf-8");
+  return readWikiFileInRoots(vaultPath, allowedRoots(vaultPath, userId), relativePath);
 }
 
 export type WikiGrepMatch = { path: string; line: number; text: string };
 
-/** Searches every file visible to `userId` for `pattern` (a regular expression), line by line. */
-export async function grepWiki(vaultPath: string, userId: string, pattern: string): Promise<WikiGrepMatch[]> {
+/** Searches every file under `roots` for `pattern` (a regular expression), line by line. */
+export async function grepWikiInRoots(vaultPath: string, roots: string[], pattern: string): Promise<WikiGrepMatch[]> {
   const regex = new RegExp(pattern);
-  const files = await listWikiFiles(vaultPath, userId);
+  const files = await listWikiFilesInRoots(vaultPath, roots);
   const matches: WikiGrepMatch[] = [];
 
   for (const file of files) {
-    const content = await readWikiFile(vaultPath, userId, file);
+    const content = await readWikiFileInRoots(vaultPath, roots, file);
     const lines = content.split("\n");
     lines.forEach((text, index) => {
       if (regex.test(text)) {
@@ -85,4 +103,9 @@ export async function grepWiki(vaultPath: string, userId: string, pattern: strin
   }
 
   return matches;
+}
+
+/** Searches every file visible to `userId` for `pattern` (a regular expression), line by line. */
+export async function grepWiki(vaultPath: string, userId: string, pattern: string): Promise<WikiGrepMatch[]> {
+  return grepWikiInRoots(vaultPath, allowedRoots(vaultPath, userId), pattern);
 }

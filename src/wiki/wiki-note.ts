@@ -21,7 +21,7 @@
  * topic string is LLM-produced free text, nothing upstream guarantees
  * it can't contain `..` or `/`.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, stat } from "node:fs/promises";
 import { resolve, sep, dirname, relative } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import {
@@ -53,6 +53,15 @@ function resolveWithinRoot(root: string, ...segments: string[]): string {
 function assertNoPathSeparator(label: string, value: string): void {
   if (value === "" || value.includes("/") || value.includes("\\") || value === "." || value === "..") {
     throw new Error(`invalid ${label}: ${JSON.stringify(value)}`);
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -123,15 +132,12 @@ function serializeCommit<T>(fn: () => Promise<T>): Promise<T> {
  * here promises the vault is edited "live" merge-safely, only that each
  * write, once it runs, is a clean, whole-file, versioned commit.
  */
-async function writeNoteFile(
+async function writeVerbatimFile(
   vaultPath: string,
   fullPath: string,
-  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter,
-  body: string,
+  content: string,
   commitMessage: string,
 ): Promise<void> {
-  const content = `---\n${stringifyYaml(frontmatter)}---\n\n${body}\n`;
-
   await serializeCommit(async () => {
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
@@ -158,6 +164,38 @@ async function writeNoteFile(
       console.error(`[wiki-vault] ${relPath} written to disk but not committed: ${String(err)}`);
       throw err;
     }
+  });
+}
+
+async function writeNoteFile(
+  vaultPath: string,
+  fullPath: string,
+  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter,
+  body: string,
+  commitMessage: string,
+): Promise<void> {
+  const content = `---\n${stringifyYaml(frontmatter)}---\n\n${body}\n`;
+  await writeVerbatimFile(vaultPath, fullPath, content, commitMessage);
+}
+
+/** `git rm` + commit through the same queue as every writer above, so
+ * D-16's revert safety net covers deletions too. A target already gone
+ * is a no-op success, not an error — same philosophy as the byte-identical
+ * write no-op above. */
+async function deleteVaultFile(vaultPath: string, fullPath: string, commitMessage: string): Promise<void> {
+  await serializeCommit(async () => {
+    if (!(await pathExists(fullPath))) return;
+    const relPath = relative(vaultPath, fullPath);
+    await runGit(vaultPath, ["rm", "--quiet", relPath]);
+    await runGit(vaultPath, [
+      "-c",
+      `user.email=${MERCURY_GIT_AUTHOR.email}`,
+      "-c",
+      `user.name=${MERCURY_GIT_AUTHOR.name}`,
+      "commit",
+      "-m",
+      commitMessage,
+    ]);
   });
 }
 
@@ -251,4 +289,44 @@ export async function writeJiraUserResolvedNote(
   const jiraUserRoot = resolve(vaultPath, "inferred", "jira-users", encodeURIComponent(accountId));
   const fullPath = resolveWithinRoot(jiraUserRoot, "resolved-info.md");
   await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: jira-users/${accountId}`);
+}
+
+/** Writes a raw/ inbox entry verbatim at `raw/<relativePath>` — no
+ * frontmatter, content is whatever a human pasted as-is (see
+ * `vault-cli.ts`'s `write-raw`). Never called during a normal
+ * conversation; only the self-review job (`self-review-tools.ts`) reads
+ * this back to triage it into `curated/`. */
+export async function writeRawEntry(vaultPath: string, relativePath: string, body: string): Promise<void> {
+  const rawRoot = resolve(vaultPath, "raw");
+  const fullPath = resolveWithinRoot(rawRoot, relativePath);
+  const content = body.endsWith("\n") ? body : `${body}\n`;
+  await writeVerbatimFile(vaultPath, fullPath, content, `raw: ${relativePath}`);
+}
+
+/** Overwrites `index.md` at the vault root with `content` verbatim — no
+ * frontmatter, it's a generated Karpathy-pattern index, not a note.
+ * Whole-file replace: the caller (self-review) computes the full new
+ * text and passes the complete replacement, same as every writer here. */
+export async function writeIndexFile(vaultPath: string, content: string): Promise<void> {
+  const fullPath = resolve(vaultPath, "index.md");
+  const normalized = content.endsWith("\n") ? content : `${content}\n`;
+  await writeVerbatimFile(vaultPath, fullPath, normalized, "index: update");
+}
+
+/** Deletes a raw/ entry once self-review has resolved it (merged,
+ * promoted, or discarded). */
+export async function deleteRawEntry(vaultPath: string, relativePath: string): Promise<void> {
+  const rawRoot = resolve(vaultPath, "raw");
+  const fullPath = resolveWithinRoot(rawRoot, relativePath);
+  await deleteVaultFile(vaultPath, fullPath, `raw: delete ${relativePath}`);
+}
+
+/** Deletes a curated/ doc — used only by the self-review job to retire a
+ * redundant/superseded doc (never during a normal conversation). Callers
+ * should also remove the doc's `index.md` line in the same pass, so a
+ * deletion doesn't leave a dangling index reference. */
+export async function deleteCuratedEntry(vaultPath: string, relativePath: string): Promise<void> {
+  const curatedRoot = resolve(vaultPath, "curated");
+  const fullPath = resolveWithinRoot(curatedRoot, relativePath);
+  await deleteVaultFile(vaultPath, fullPath, `curated: delete ${relativePath}`);
 }

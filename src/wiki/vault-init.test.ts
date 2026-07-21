@@ -38,6 +38,14 @@ describe("initVault", () => {
     expect(s.isDirectory()).toBe(true);
   });
 
+  it("creates the raw/ directory (human-only inbox for un-triaged material)", async () => {
+    const vaultPath = await makeTempVaultPath();
+    await initVault(vaultPath);
+
+    const s = await stat(join(vaultPath, "raw"));
+    expect(s.isDirectory()).toBe(true);
+  });
+
   it("git-inits the vault if it isn't already a git repo", async () => {
     const vaultPath = await makeTempVaultPath();
     await initVault(vaultPath);
