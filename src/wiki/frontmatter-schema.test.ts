@@ -144,4 +144,47 @@ describe("WikiFrontmatterSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // "confirmed" (D-26) is a fourth category, distinct from the other
+  // three: not human-authored (curated), not a probabilistic extraction
+  // (inferred), not a fact fetched from an external API (resolved) — it's
+  // a deterministic instruction the user explicitly approved via the same
+  // conferma <token> mechanism as an irreversible CLI action (M3), never
+  // an autonomous LLM judgment call.
+  it("accepts a valid confirmed frontmatter", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "confirmed",
+      confirmed_at: "2026-07-19T12:00:00Z",
+      check_type: "stale-ticket",
+      item_key: "KAN-123",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects confirmed frontmatter missing confirmed_at", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "confirmed",
+      check_type: "stale-ticket",
+      item_key: "KAN-123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects confirmed frontmatter missing check_type", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "confirmed",
+      confirmed_at: "2026-07-19T12:00:00Z",
+      item_key: "KAN-123",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects confirmed frontmatter missing item_key", () => {
+    const result = WikiFrontmatterSchema.safeParse({
+      type: "confirmed",
+      confirmed_at: "2026-07-19T12:00:00Z",
+      check_type: "stale-ticket",
+    });
+    expect(result.success).toBe(false);
+  });
 });

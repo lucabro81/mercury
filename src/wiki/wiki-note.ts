@@ -28,9 +28,11 @@ import {
   CuratedFrontmatterSchema,
   InferredFrontmatterSchema,
   ResolvedFrontmatterSchema,
+  ConfirmedFrontmatterSchema,
   type CuratedFrontmatter,
   type InferredFrontmatter,
   type ResolvedFrontmatter,
+  type ConfirmedFrontmatter,
 } from "./frontmatter-schema.ts";
 
 /**
@@ -170,7 +172,7 @@ async function writeVerbatimFile(
 async function writeNoteFile(
   vaultPath: string,
   fullPath: string,
-  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter,
+  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter | ConfirmedFrontmatter,
   body: string,
   commitMessage: string,
 ): Promise<void> {
@@ -289,6 +291,33 @@ export async function writeJiraUserResolvedNote(
   const jiraUserRoot = resolve(vaultPath, "inferred", "jira-users", encodeURIComponent(accountId));
   const fullPath = resolveWithinRoot(jiraUserRoot, "resolved-info.md");
   await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: jira-users/${accountId}`);
+}
+
+/**
+ * D-26: writes the hard, deterministic suppression gate at
+ * `inferred/suppressed/<checkType>/<encoded itemKey>.md` — a cron check
+ * must read this (see `notification-suppression.ts`) before re-notifying
+ * about an item, never an LLM judgment call. `checkType` is Mercury's own
+ * code (e.g. "stale-ticket"), rejected on a path separator like
+ * `writeInferredNote`'s topic; `itemKey` comes from Jira/Bitbucket, so
+ * it's encoded like `writeJiraUserResolvedNote`'s accountId instead.
+ */
+export async function writeSuppressionNote(
+  vaultPath: string,
+  checkType: string,
+  itemKey: string,
+  fields: { confirmedAt: string },
+): Promise<void> {
+  assertNoPathSeparator("checkType", checkType);
+  const frontmatter = ConfirmedFrontmatterSchema.parse({
+    type: "confirmed",
+    confirmed_at: fields.confirmedAt,
+    check_type: checkType,
+    item_key: itemKey,
+  });
+  const checkRoot = resolve(vaultPath, "inferred", "suppressed", checkType);
+  const fullPath = resolveWithinRoot(checkRoot, `${encodeURIComponent(itemKey)}.md`);
+  await writeNoteFile(vaultPath, fullPath, frontmatter, "", `suppress: ${checkType}/${itemKey}`);
 }
 
 /** Writes a raw/ inbox entry verbatim at `raw/<relativePath>` — no

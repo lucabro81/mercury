@@ -43,13 +43,29 @@ export const ResolvedFrontmatterSchema = z.object({
   email: z.string().nullable(),
 });
 
+/**
+ * A fourth category (D-26): a deterministic instruction the user
+ * explicitly approved via the same `conferma <token>` mechanism as an
+ * irreversible CLI action (M3) — never an autonomous LLM judgment call.
+ * `check_type`/`item_key` scope the suppression to a specific check
+ * ("stale-ticket") and item ("KAN-123"), not a blanket opt-out.
+ */
+export const ConfirmedFrontmatterSchema = z.object({
+  type: z.literal("confirmed"),
+  confirmed_at: z.string(),
+  check_type: z.string(),
+  item_key: z.string(),
+});
+
 export const WikiFrontmatterSchema = z.discriminatedUnion("type", [
   CuratedFrontmatterSchema,
   InferredFrontmatterSchema,
   ResolvedFrontmatterSchema,
+  ConfirmedFrontmatterSchema,
 ]);
 
 export type CuratedFrontmatter = z.infer<typeof CuratedFrontmatterSchema>;
 export type InferredFrontmatter = z.infer<typeof InferredFrontmatterSchema>;
 export type ResolvedFrontmatter = z.infer<typeof ResolvedFrontmatterSchema>;
+export type ConfirmedFrontmatter = z.infer<typeof ConfirmedFrontmatterSchema>;
 export type WikiFrontmatter = z.infer<typeof WikiFrontmatterSchema>;

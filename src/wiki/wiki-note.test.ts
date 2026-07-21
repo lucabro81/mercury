@@ -12,6 +12,7 @@ import {
   writeIndexFile,
   deleteRawEntry,
   deleteCuratedEntry,
+  writeSuppressionNote,
 } from "./wiki-note.ts";
 import { initVault } from "./vault-init.ts";
 
@@ -461,6 +462,55 @@ describe("deleteCuratedEntry", () => {
     const vaultPath = await makeTempVault();
     await expect(deleteCuratedEntry(vaultPath, "never-existed.md")).resolves.toBeUndefined();
     expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+});
+
+// D-26: the hard, deterministic gate a cron check must read before
+// re-notifying about an item — never an LLM judgment call. Distinct from
+// writeResolvedNote/writeJiraUserResolvedNote (facts fetched from an
+// external API): this is an explicit instruction the user confirmed via
+// the same conferma <token> mechanism as an irreversible CLI action.
+describe("writeSuppressionNote", () => {
+  it("writes a fixed note under inferred/suppressed/<checkType>/<encoded itemKey>.md", async () => {
+    const vaultPath = await makeTempVault();
+    await writeSuppressionNote(vaultPath, "stale-ticket", "KAN-123", { confirmedAt: "2026-07-19T12:00:00Z" });
+
+    const text = await readFile(join(vaultPath, "inferred/suppressed/stale-ticket/KAN-123.md"), "utf-8");
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "confirmed",
+      confirmed_at: "2026-07-19T12:00:00Z",
+      check_type: "stale-ticket",
+      item_key: "KAN-123",
+    });
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeSuppressionNote(vaultPath, "stale-ticket", "KAN-123", { confirmedAt: "2026-07-19T12:00:00Z" });
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("KAN-123");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("rejects a checkType containing a path separator", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(
+      writeSuppressionNote(vaultPath, "../../evil", "KAN-123", { confirmedAt: "2026-07-19T12:00:00Z" }),
+    ).rejects.toThrow();
+  });
+
+  // itemKey comes from Jira/Bitbucket, not Mercury's own code — encoded
+  // rather than rejected outright, same defensive shape as accountId in
+  // writeJiraUserResolvedNote, even though real ticket/PR keys are safe.
+  it("stays within the vault for an itemKey containing path-traversal-shaped characters", async () => {
+    const vaultPath = await makeTempVault();
+    await writeSuppressionNote(vaultPath, "stale-ticket", "../../evil", { confirmedAt: "2026-07-19T12:00:00Z" });
+
+    const text = await readFile(join(vaultPath, "inferred/suppressed/stale-ticket/..%2F..%2Fevil.md"), "utf-8");
+    const { frontmatter } = splitFrontmatter(text);
+    expect(frontmatter).toMatchObject({ item_key: "../../evil" });
   });
 });
 
