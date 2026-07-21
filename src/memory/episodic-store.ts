@@ -77,12 +77,12 @@ function isEpisodicSummary(payload: Record<string, unknown> | null): payload is 
 }
 
 /**
- * D-25's narrow need: past episodic events for this specific user, most
- * relevant to `queryText` (e.g. "notifications about KAN-123") — lets
- * Mercury see how many times it already notified this user about this
- * item before composing a message. Not D-22/D-34's general-purpose
- * semantic consolidation (a separate, unbuilt engine, tracked on its
- * own) — this only ever reads, never writes or promotes anything.
+ * Past episodic events for a specific user, most relevant to `queryText`
+ * (e.g. "notifications about KAN-123") — lets Mercury see how many times
+ * it already notified this user about a given item before composing a
+ * message. Not a general-purpose semantic consolidation/pattern-extraction
+ * engine (that doesn't exist here) — this only ever reads, never writes
+ * or promotes anything.
  */
 export async function searchEpisodicMemory(
   client: QdrantClientLike,

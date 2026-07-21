@@ -1,5 +1,5 @@
 /**
- * D-27: notification thresholds live as a doc in the Wiki
+ * Notification thresholds live as a doc in the Wiki
  * (`curated/config/notifications.md`), not hardcoded — Mercury updates it
  * via `write_file` on conversational request, cron code reads it here.
  * Parsing is deterministic (zod-validated YAML), no LLM involved in

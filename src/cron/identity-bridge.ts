@@ -1,8 +1,8 @@
 /**
- * M4's Jira<->Chat identity bridge: given a Jira assignee, finds the Chat
+ * Jira<->Chat identity bridge: given a Jira assignee, finds the Chat
  * user cached (by `sweepChatDirectory` or `resolveSenderName`) under a
  * matching email, or falls back to a deterministic notice in the admin
- * space (D-35) — never an LLM-composed message, this is a system notice
+ * space — never an LLM-composed message, this is a system notice
  * about missing data, not a finding about the user's own work.
  *
  * Scans `inferred/users/*\/resolved-name.md` directly on disk, same
@@ -12,8 +12,9 @@
  * needs to search across every cached Chat user.
  *
  * Repeat-call deduplication (e.g. not re-notifying admin every single
- * cron tick for the same still-unmapped user) is NOT handled here — left
- * to whichever cron eventually calls this, once that exists.
+ * cron tick for the same still-unmapped user) is NOT handled here —
+ * `stale-ticket-cron.ts` calls this fresh on every tick with no
+ * memory of prior calls.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";

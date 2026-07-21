@@ -28,8 +28,10 @@ function allowedRoots(vaultPath: string, userId: string): string[] {
 /** curated/ + raw/ only — never inferred/, for the nightly self-review job.
  * A distinct trust boundary from a per-user conversation's `allowedRoots`
  * (which trades curated/ for one user's own inferred/ instead of raw/):
- * inferred/ is off-limits to any LLM-judgment writer per D-22/D-34, not
- * just to regular conversations. */
+ * inferred/ is meant to hold only deterministic, mechanically-written
+ * notes (never an LLM's own judgment call about what to remember) —
+ * off-limits here for the same reason it's off-limits to regular
+ * conversations, not a special exception for self-review. */
 export function selfReviewRoots(vaultPath: string): string[] {
   const vaultRoot = resolve(vaultPath);
   return [resolve(vaultRoot, "curated"), resolve(vaultRoot, "raw")];

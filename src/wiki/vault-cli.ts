@@ -7,13 +7,13 @@
  * `vault-init.ts`) — no new write/read logic here, only routing.
  *
  * Deliberately does NOT expose `writeInferredNote` — that writer is
- * reserved exclusively for the deterministic D-22 consolidation engine
- * (see its own docstring in `wiki-note.ts`); a manual CLI writing
+ * reserved exclusively for a deterministic, mechanical consolidation
+ * process (see its own docstring in `wiki-note.ts`); a manual CLI writing
  * "agent-sourced" notes by hand would defeat that guarantee.
  *
  * `write-raw` has no `--author`/frontmatter options, unlike `write-curated`
  * — raw/ content is verbatim, un-triaged material (a pasted README, notes),
- * and its provenance is recovered from git history (D-16) rather than a
+ * and its provenance is recovered from git history rather than a
  * schema field. The nightly self-review job (`self-review-tools.ts`) is
  * the only thing that reads raw/ back to triage it into curated/.
  *

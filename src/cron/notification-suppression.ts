@@ -1,5 +1,5 @@
 /**
- * D-26: deterministic read-side of the suppression gate written by
+ * Deterministic read-side of the suppression gate written by
  * `writeSuppressionNote` — a cron check must call this before
  * re-notifying about an item. Existence-only check, no frontmatter
  * parsing needed: `writeSuppressionNote` never writes a note it doesn't

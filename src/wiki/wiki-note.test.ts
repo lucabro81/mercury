@@ -18,7 +18,7 @@ import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
 
-// Every writer now commits after writing (D-16: every vault write is a
+// Every writer now commits after writing (every vault write is a
 // commit) — git add/commit fail outright against a non-repo, so every test
 // needs a real git-inited vault, not just a bare temp dir.
 async function makeTempVault(): Promise<string> {
@@ -83,7 +83,7 @@ describe("writeCuratedNote", () => {
     ).rejects.toThrow();
   });
 
-  // D-16: every vault write is a commit — audit trail + `git revert` as a
+  // Every vault write is a commit — audit trail + `git revert` as a
   // safety net. Regression: a write that lands on disk but is never
   // committed silently breaks that guarantee.
   it("commits the write, leaving a clean working tree", async () => {
@@ -276,7 +276,7 @@ describe("writeResolvedNote", () => {
   });
 });
 
-// M4's Jira<->Chat identity bridge: same "resolved" shape as Chat's
+// The Jira<->Chat identity bridge: same "resolved" shape as Chat's
 // resolved-name.md, different namespace (jira-users, not users) and
 // filename (resolved-info.md) — the two caches are matched by email,
 // not merged into one, so they stay in their own directory.
@@ -465,7 +465,7 @@ describe("deleteCuratedEntry", () => {
   });
 });
 
-// D-26: the hard, deterministic gate a cron check must read before
+// The hard, deterministic gate a cron check must read before
 // re-notifying about an item — never an LLM judgment call. Distinct from
 // writeResolvedNote/writeJiraUserResolvedNote (facts fetched from an
 // external API): this is an explicit instruction the user confirmed via
@@ -514,8 +514,7 @@ describe("writeSuppressionNote", () => {
   });
 });
 
-// M3.md flagged this exact risk: "scritture serializzate via coda... zero
-// infrastruttura nuova" — git add/commit against the same repo aren't safe
+// git add/commit against the same repo aren't safe
 // to run concurrently (index lock races). Every writer shares one vault,
 // so this must hold across different writer functions, not just repeated
 // calls to the same one.
@@ -569,9 +568,9 @@ describe("concurrent writes", () => {
   // Regression: a commit failing after the file already landed on disk
   // (disk full, corrupt repo) used to leave the vault silently drifted from
   // git HEAD — the thrown error reached the caller, but nothing distinguished
-  // this "written but uncommitted" state from a generic failure. See
-  // DECISIONS.md D-35 for the eventual escalation path; this only covers the
-  // dedicated log line, decided as the immediate step (sessione 8).
+  // this "written but uncommitted" state from a generic failure. This
+  // covers the dedicated log line; routing it to a human is a separate,
+  // not-yet-built escalation path.
   it("logs a dedicated message when the file lands on disk but the commit fails, instead of staying silent", async () => {
     const vaultPath = await makeTempVault();
     await breakCommits(vaultPath);

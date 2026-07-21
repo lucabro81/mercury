@@ -73,7 +73,8 @@ async function pathExists(path: string): Promise<boolean> {
 // any deployment, with nothing to set up out-of-band. Distinct from any
 // human's own git identity, so `git log --author`/`git blame` cleanly
 // separate Mercury's automated writes from a maintainer's — the actual
-// provenance mechanism D-16 already relies on, not a schema-level flag.
+// provenance mechanism the vault's audit trail already relies on, not
+// a schema-level flag.
 const MERCURY_GIT_AUTHOR = { email: "mercury@comperio.local", name: "Mercury" };
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
@@ -109,8 +110,9 @@ async function hasStagedChanges(cwd: string): Promise<boolean> {
 // (disk full, corrupt repo), `writeNoteFile` logs a dedicated
 // `[wiki-vault] ... written to disk but not committed` line before
 // rethrowing — distinguishable from a generic failure by whatever reads
-// stderr (`docker compose logs` today; routed to DECISIONS.md D-35's admin
-// space once M4's monitoring exists).
+// stderr (`docker compose logs` today; the admin-notification path this
+// could eventually route through isn't wired up for this specific
+// signal yet).
 let commitChain: Promise<void> = Promise.resolve();
 
 function serializeCommit<T>(fn: () => Promise<T>): Promise<T> {
@@ -123,11 +125,11 @@ function serializeCommit<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * D-16: every vault write is a commit — audit trail + `git revert` as a
+ * Every vault write is a commit — audit trail + `git revert` as a
  * safety net. The file write itself goes through the same queue as the
  * commit (not just git add/commit) — two writers targeting the same path
  * must never race directly on disk content; queuing only the git half
- * left that race open (found and fixed during M3). This makes "two
+ * left that race open (found and fixed later). This makes "two
  * writers, one path" deterministic (whichever is processed second wins,
  * cleanly) rather than a data-loss race with confusing spurious errors —
  * it does not attempt any merge of old vs new content, by design: nothing
@@ -181,7 +183,7 @@ async function writeNoteFile(
 }
 
 /** `git rm` + commit through the same queue as every writer above, so
- * D-16's revert safety net covers deletions too. A target already gone
+ * the same `git revert` safety net covers deletions too. A target already gone
  * is a no-op success, not an error — same philosophy as the byte-identical
  * write no-op above. */
 async function deleteVaultFile(vaultPath: string, fullPath: string, commitMessage: string): Promise<void> {
@@ -265,8 +267,8 @@ export async function writeResolvedNote(
 }
 
 /**
- * Writes the Jira-side half of M4's identity bridge: an assignee's
- * accountId -> {displayName, email} lookup, at
+ * Writes the Jira-side half of the Jira<->Chat identity bridge: an
+ * assignee's accountId -> {displayName, email} lookup, at
  * `inferred/jira-users/<encoded accountId>/resolved-info.md`. Deliberately
  * a separate namespace from `writeResolvedNote`'s `inferred/users/` (Chat
  * ids), not merged into one — the two caches are joined by email at read
@@ -294,7 +296,7 @@ export async function writeJiraUserResolvedNote(
 }
 
 /**
- * D-26: writes the hard, deterministic suppression gate at
+ * Writes the hard, deterministic suppression gate at
  * `inferred/suppressed/<checkType>/<encoded itemKey>.md` — a cron check
  * must read this (see `notification-suppression.ts`) before re-notifying
  * about an item, never an LLM judgment call. `checkType` is Mercury's own

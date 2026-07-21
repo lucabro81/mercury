@@ -207,10 +207,9 @@ describe("sendMessage", () => {
   });
 });
 
-// D-25's delivery target: `spaces create --user <id>` (google-chat 0.10.0)
-// is idempotent — returns the existing DM if the impersonated identity
-// already has one with that user, creates it otherwise. Confirmed live,
-// session 8.
+// `spaces create --user <id>` (google-chat 0.10.0) is idempotent —
+// returns the existing DM if the impersonated identity already has one
+// with that user, creates it otherwise. Confirmed against the real CLI.
 describe("getOrCreateDmSpace", () => {
   it("calls google-chat spaces create with the exact args", async () => {
     let receivedBinary: string | undefined;

@@ -80,9 +80,9 @@ describe("tryConfirm", () => {
     expect(retry?.toLowerCase()).toContain("nessuna conferma");
   });
 
-  // D-26: the suppress-notification branch — writes the hard Wiki gate
-  // AND records a soft episodic event (for D-25's future tone/frequency
-  // reasoning), never runs a CLI command.
+  // The suppress-notification branch — writes the hard Wiki gate
+  // AND records a soft episodic event (for future tone/frequency
+  // reasoning when composing notifications), never runs a CLI command.
   describe("suppress-notification", () => {
     it("writes the suppression note and reports success, without calling runCliFn", async () => {
       const store = createConfirmationStore({ tokenFn: () => "TOK1" });

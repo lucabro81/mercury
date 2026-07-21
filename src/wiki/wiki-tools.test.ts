@@ -8,7 +8,7 @@ import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
 
-// writeCuratedNote/writeInferredNote now commit after writing (D-16) —
+// writeCuratedNote/writeInferredNote now commit after writing —
 // git add/commit fail outright against a non-repo, so the vault needs to
 // be a real git repo before any write, not just a bare temp dir.
 async function makeTempVault(): Promise<string> {

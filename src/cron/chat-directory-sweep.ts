@@ -1,12 +1,12 @@
 /**
- * M4 Fase 1: proactively resolves every human member of each configured
- * Chat space (GOOGLE_CHAT_SPACES, D-33) to {displayName, email} and caches
- * them via writeResolvedNote — same cache resolveSenderName
- * (user-resolution.ts) reads lazily, just pre-populated up front instead
- * of waiting for each person to send a message or falling back to the
- * admin space (D-35, identity bridge). One bad space's CLI call is logged
- * and skipped, not fatal to the rest — same "log and continue" convention
- * as every other cron loop in this repo.
+ * Proactively resolves every human member of each configured Chat space
+ * (GOOGLE_CHAT_SPACES) to {displayName, email} and caches them via
+ * writeResolvedNote — same cache resolveSenderName (user-resolution.ts)
+ * reads lazily, just pre-populated up front instead of waiting for each
+ * person to send a message or falling back to the identity bridge's
+ * admin-space notice. One bad space's CLI call is logged and skipped,
+ * not fatal to the rest — same "log and continue" convention as every
+ * other cron loop in this repo.
  */
 import type { runCli } from "../tools/cli-executor.ts";
 import type { writeResolvedNote } from "../wiki/wiki-note.ts";

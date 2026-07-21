@@ -15,9 +15,9 @@ import type { EpisodicSummary } from "../../memory/episodic-store.ts";
 
 const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
 
-// D-26 deps no test in this file exercises directly (that's
-// confirm-flow.test.ts's job) — every channel-level test here only needs
-// these present to satisfy the type, not to do anything.
+// Suppress-notification deps no test in this file exercises directly
+// (that's confirm-flow.test.ts's job) — every channel-level test here
+// only needs these present to satisfy the type, not to do anything.
 const vaultPath = "/vault";
 const writeSuppressionNoteFn: typeof writeSuppressionNote = async () => {};
 const recordSuppressionEventFn = async (_entry: EpisodicSummary): Promise<void> => {};

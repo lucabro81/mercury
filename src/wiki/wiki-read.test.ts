@@ -16,7 +16,7 @@ import { initVault } from "./vault-init.ts";
 
 const tempDirs: string[] = [];
 
-// writeCuratedNote/writeInferredNote now commit after writing (D-16) —
+// writeCuratedNote/writeInferredNote now commit after writing —
 // git add/commit fail outright against a non-repo, so the vault needs to
 // be a real git repo before any write, not just a bare temp dir.
 async function makeTempVault(): Promise<string> {
@@ -131,8 +131,9 @@ describe("grepWiki", () => {
 
 // The self-review job (nightly batch, not a per-user conversation) needs a
 // third scoping boundary distinct from allowedRoots(vaultPath, userId):
-// curated/ + raw/, but NEVER inferred/ — that's off-limits to any
-// LLM-judgment writer per D-22/D-34, not just to regular conversations.
+// curated/ + raw/, but NEVER inferred/ — that's reserved for
+// deterministic, mechanically-written notes, off-limits here for the
+// same reason it's off-limits to regular conversations.
 describe("selfReviewRoots-scoped reads", () => {
   async function seedWithRaw(vaultPath: string) {
     await seedVault(vaultPath);

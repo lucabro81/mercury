@@ -145,11 +145,11 @@ describe("WikiFrontmatterSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  // "confirmed" (D-26) is a fourth category, distinct from the other
+  // "confirmed" is a fourth category, distinct from the other
   // three: not human-authored (curated), not a probabilistic extraction
   // (inferred), not a fact fetched from an external API (resolved) — it's
   // a deterministic instruction the user explicitly approved via the same
-  // conferma <token> mechanism as an irreversible CLI action (M3), never
+  // conferma <token> mechanism as an irreversible CLI action, never
   // an autonomous LLM judgment call.
   it("accepts a valid confirmed frontmatter", () => {
     const result = WikiFrontmatterSchema.safeParse({

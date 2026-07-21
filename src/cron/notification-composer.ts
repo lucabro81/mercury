@@ -1,5 +1,5 @@
 /**
- * D-25: composes the message for a stale-ticket finding — never a fixed
+ * Composes the message for a stale-ticket finding — never a fixed
  * template. Reads the same episodic history `searchEpisodicMemory`
  * returns (past "Mercury notified X about Y" events for this user) so
  * the model can personalize tone/frequency itself: first time, direct;

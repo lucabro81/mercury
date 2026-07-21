@@ -15,7 +15,7 @@ describe("createConfirmationStore", () => {
     expect(second).toBeNull();
   });
 
-  // D-26: same store, same token mechanism as an irreversible CLI action —
+  // Same store, same token mechanism as an irreversible CLI action —
   // just a different action kind, discriminated at take() time, not a
   // second parallel store to look tokens up in.
   it("stages a suppress-notification action and returns it on a matching take", () => {

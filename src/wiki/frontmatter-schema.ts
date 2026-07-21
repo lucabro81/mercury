@@ -26,9 +26,9 @@ export const InferredFrontmatterSchema = z.object({
 
 /**
  * A third category, distinct from both curated (human-authored) and
- * inferred (probabilistic, conversation-derived, D-22's consolidation
- * engine only): a deterministic fact fetched directly from an external
- * API — e.g. resolving a Google Chat user id to a display name. No
+ * inferred (probabilistic, conversation-derived): a deterministic fact
+ * fetched directly from an external API — e.g. resolving a Google Chat
+ * user id to a display name. No
  * meaningful `confidence` or `derived_from` (it isn't an inference), but
  * needs `resolved_at` to know when it was looked up. `email` is nullable,
  * not optional — not every People API profile exposes one (scopes,
@@ -44,10 +44,10 @@ export const ResolvedFrontmatterSchema = z.object({
 });
 
 /**
- * A fourth category (D-26): a deterministic instruction the user
- * explicitly approved via the same `conferma <token>` mechanism as an
- * irreversible CLI action (M3) — never an autonomous LLM judgment call.
- * `check_type`/`item_key` scope the suppression to a specific check
+ * A fourth category: a deterministic instruction the user explicitly
+ * approved via the same `conferma <token>` mechanism as an irreversible
+ * CLI action — never an autonomous LLM judgment call. `check_type`/
+ * `item_key` scope the suppression to a specific check
  * ("stale-ticket") and item ("KAN-123"), not a blanket opt-out.
  */
 export const ConfirmedFrontmatterSchema = z.object({

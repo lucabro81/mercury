@@ -62,7 +62,7 @@ describe("composeStaleTicketMessage", () => {
     expect(received?.prompt.toLowerCase()).toMatch(/nessuna notifica|prima volta|mai notificat/);
   });
 
-  // D-25: never a fixed template — the system prompt must actually instruct
+  // Never a fixed template — the system prompt must actually instruct
   // personalization based on history, not just describe the task.
   it("instructs the model to personalize tone/frequency based on history, in the system prompt", async () => {
     let received: ReceivedParams | undefined;

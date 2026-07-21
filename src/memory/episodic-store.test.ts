@@ -75,9 +75,10 @@ describe("storeEpisodicSummary", () => {
   });
 });
 
-// D-25's narrow need: "how many times have I already notified this user
-// about this item" — not D-22/D-34's general-purpose semantic
-// consolidation (separate, unbuilt, tracked on its own). Filters by
+// The narrow need this serves: "how many times have I already notified
+// this user about this item" — not a general-purpose semantic
+// consolidation/pattern-extraction engine (that doesn't exist here).
+// Filters by
 // userId so one user's history never leaks into another's notification
 // tone/frequency reasoning.
 describe("searchEpisodicMemory", () => {

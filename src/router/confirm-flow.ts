@@ -19,13 +19,13 @@ import type { EpisodicSummary } from "../memory/episodic-store.ts";
  * model: an unknown/expired/wrong-session token gets a canned message, a
  * valid one actually executes the staged action and reports the outcome.
  *
- * D-26's suppress-notification branch writes two things on confirm, not
+ * The suppress-notification branch writes two things on confirm, not
  * one: `writeSuppressionNoteFn` is the hard, deterministic gate a cron
  * check reads before re-notifying (never an LLM judgment call);
- * `recordSuppressionEventFn` is a soft episodic signal (same
- * `storeEpisodicSummary` D-25 already reads for that user's history) that
- * lets Mercury later notice a pattern and *propose* something broader —
- * never decide it alone.
+ * `recordSuppressionEventFn` is a soft episodic signal (the same
+ * `storeEpisodicSummary` history a notification-composing LLM call can
+ * read back later) that lets Mercury notice a pattern and *propose*
+ * something broader — never decide it alone.
  */
 export async function tryConfirm(
   input: string,

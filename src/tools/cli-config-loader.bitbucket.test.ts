@@ -6,8 +6,8 @@ import type { CliResult } from "./cli-executor.ts";
 /**
  * Integration-shaped safety net for the real, checked-in
  * `cli-configs/bitbucket.json` reference config — same pattern as
- * `cli-config-loader.jira.test.ts`. M4 only needs read-only PR queries
- * (stale-PR check, client-side filtering on `participants[].approved`),
+ * `cli-config-loader.jira.test.ts`. The stale-PR check only needs
+ * read-only PR queries (client-side filtering on `participants[].approved`),
  * so the allowlist stays narrower than what bitbucket-cli exposes overall
  * (no pr create/approve/unapprove/decline/merge/comment — not requested).
  */
@@ -43,8 +43,8 @@ describe("cli-configs/bitbucket.json", () => {
     expect(matchCommand(["auth", "whoami"], bitbucketConfig)).toEqual({ kind: "allowed", mutating: false });
   });
 
-  // M4 only reads PRs (list + get) to find stale ones — nothing mutating
-  // is in scope, unlike jira.json's write commands from M3.
+  // This config only reads PRs (list + get) to find stale ones — nothing
+  // mutating is in scope, unlike jira.json's write commands.
   it("has no allowed commands beyond read-only PR queries and health checks", () => {
     expect(matchCommand(["pr", "approve", "workspace/repo", "42"], bitbucketConfig)).toEqual({ kind: "not-allowed" });
     expect(matchCommand(["pr", "create", "workspace/repo"], bitbucketConfig)).toEqual({ kind: "not-allowed" });

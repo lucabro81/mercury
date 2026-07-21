@@ -1,8 +1,8 @@
 /**
  * In-memory staging area for an action that needs explicit confirmation
  * before it executes: a CLI command that matched a `confirm:true` prefix
- * (see `matchCommand` in `cli-tool.ts`), or — D-26 — a request to stop
- * notifying about a specific item. Either way the model stages it here
+ * (see `matchCommand` in `cli-tool.ts`), or a request to stop notifying
+ * about a specific item. Either way the model stages it here
  * and relays the returned token to the user, who must reply
  * `conferma <token>` on the same channel/session before anything actually
  * happens (see `confirm-flow.ts`). Scoped by `sessionKey` so a token

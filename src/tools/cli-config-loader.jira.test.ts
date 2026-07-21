@@ -40,7 +40,7 @@ describe("cli-configs/jira.json", () => {
     expect(matchCommand(["auth", "whoami"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
   });
 
-  // M3: create/transition (apply)/comment add/remove execute directly —
+  // create/transition (apply)/comment add/remove execute directly —
   // low-risk, correctable with another command — unlike delete, the only
   // irreversible action in the set. All four mutate Jira despite not
   // requiring confirmation.
@@ -64,8 +64,8 @@ describe("cli-configs/jira.json", () => {
   });
 
   // issue delete IS recognized (unlike an unconfigured shape) but gated on
-  // confirm: true — Mercury could run it once the confirmation mechanism
-  // exists (M3), it just can't yet. Distinct from "not-allowed": the model
+  // confirm: true — this only checks allowlist recognition, not whether
+  // the confirmation flow itself is wired up. Distinct from "not-allowed": the model
   // gets told why this specific shape doesn't work, not just that it
   // doesn't match anything known.
   it("requires confirmation for issue delete, which is not yet supported", () => {

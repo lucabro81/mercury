@@ -4,8 +4,9 @@
  * same reasoning already applied to `writeInferredNote` never being
  * wired into those: this is a separate trust context (a stateless admin
  * batch job, not a live conversation), scoped via `selfReviewRoots`
- * (curated/ + raw/, never inferred/ — off-limits to any LLM-judgment
- * writer per D-22/D-34) and with capabilities no conversational tool
+ * (curated/ + raw/, never inferred/ — reserved for deterministic,
+ * mechanically-written notes, not an LLM's own judgment call) and with
+ * capabilities no conversational tool
  * has (deleting an entry, rewriting the index).
  *
  * All three nightly sub-passes (`self-review-runner.ts`) share this

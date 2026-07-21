@@ -112,8 +112,8 @@ export async function getUser(
 }
 
 /**
- * D-25's delivery target: finds or creates a DIRECT_MESSAGE space with
- * `userId` via `google-chat spaces create --user` (0.10.0) — idempotent,
+ * Finds or creates a DIRECT_MESSAGE space with `userId` via
+ * `google-chat spaces create --user` (0.10.0) — idempotent,
  * wraps `spaces.setup`. Returns the existing DM if the impersonated
  * identity already has one with that user (checked live), creates it
  * otherwise. `--select-all` since this command always prints its full,

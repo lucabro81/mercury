@@ -17,7 +17,7 @@ describe("parseNotificationThresholds", () => {
     const body = [
       "# Soglie di notifica",
       "",
-      "Configurazione letta dai check di M4.",
+      "Configurazione letta dai check proattivi di Mercury.",
       "",
       "```yaml",
       "stale_ticket_days: 7",
