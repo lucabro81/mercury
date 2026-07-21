@@ -7,6 +7,7 @@ import {
   writeCuratedNote,
   writeInferredNote,
   writeResolvedNote,
+  writeJiraUserResolvedNote,
   writeRawEntry,
   writeIndexFile,
   deleteRawEntry,
