@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { ensureSpaceSubscription, sendMessage, getUser } from "./google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./google-chat-client.ts";
 import type { CliResult } from "../../tools/cli-executor.ts";
 
 describe("ensureSpaceSubscription", () => {
@@ -204,5 +204,36 @@ describe("sendMessage", () => {
     });
 
     await expect(sendMessage("spaces/X", "hi", runCliFn)).rejects.toThrow(/boom/);
+  });
+});
+
+// D-25's delivery target: `spaces create --user <id>` (google-chat 0.10.0)
+// is idempotent — returns the existing DM if the impersonated identity
+// already has one with that user, creates it otherwise. Confirmed live,
+// session 8.
+describe("getOrCreateDmSpace", () => {
+  it("calls google-chat spaces create with the exact args", async () => {
+    let receivedBinary: string | undefined;
+    let receivedArgs: string[] | undefined;
+    const runCliFn = async (binary: string, args: string[]): Promise<CliResult> => {
+      receivedBinary = binary;
+      receivedArgs = args;
+      return { ok: true, data: { name: "spaces/DM123", spaceType: "DIRECT_MESSAGE" } };
+    };
+
+    const result = await getOrCreateDmSpace("users/42", runCliFn);
+
+    expect(receivedBinary).toBe("google-chat");
+    expect(receivedArgs).toEqual(["spaces", "create", "--user", "users/42", "--select-all"]);
+    expect(result).toEqual({ name: "spaces/DM123" });
+  });
+
+  it("throws explicitly when runCliFn returns an error result", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({
+      ok: false,
+      error: "google-chat exited with code 1: boom",
+    });
+
+    await expect(getOrCreateDmSpace("users/42", runCliFn)).rejects.toThrow(/boom/);
   });
 });

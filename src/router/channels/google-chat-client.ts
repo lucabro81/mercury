@@ -112,6 +112,22 @@ export async function getUser(
 }
 
 /**
+ * D-25's delivery target: finds or creates a DIRECT_MESSAGE space with
+ * `userId` via `google-chat spaces create --user` (0.10.0) — idempotent,
+ * wraps `spaces.setup`. Returns the existing DM if the impersonated
+ * identity already has one with that user (checked live), creates it
+ * otherwise. `--select-all` since this command always prints its full,
+ * fixed-shape result regardless (same exemption as `messages send`).
+ * Throws if the underlying CLI call fails — there's no fallback space to
+ * deliver to instead.
+ */
+export async function getOrCreateDmSpace(userId: string, runCliFn: typeof runCli): Promise<{ name: string }> {
+  const result = await runCliFn("google-chat", ["spaces", "create", "--user", userId, "--select-all"]);
+  const data = unwrap(result) as { name: string };
+  return { name: data.name };
+}
+
+/**
  * Sends a plain-text message to `space` and returns the created
  * message's `name` — used by the caller to recognize and ignore this
  * same message if it shows up again as an incoming event (loop
