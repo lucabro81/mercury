@@ -156,3 +156,17 @@ export async function runStaleTicketSweep(now: number, deps: StaleTicketSweepDep
     }
   }
 }
+
+export type StaleTicketCron = { stop: () => void };
+
+/** Starts the periodic sweep on `opts.checkIntervalMs`. `stop()` halts it. */
+export function startStaleTicketCron(deps: StaleTicketSweepDeps, opts: { checkIntervalMs: number }): StaleTicketCron {
+  const log = deps.log ?? ((msg: string) => console.error(msg));
+  const interval = setInterval(() => {
+    runStaleTicketSweep(Date.now(), deps).catch((err) => {
+      log(`stale-ticket cron tick failed: ${String(err)}`);
+    });
+  }, opts.checkIntervalMs);
+
+  return { stop: () => clearInterval(interval) };
+}

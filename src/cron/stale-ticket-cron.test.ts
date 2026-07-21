@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runStaleTicketSweep, type StaleTicketSweepDeps } from "./stale-ticket-cron.ts";
+import { runStaleTicketSweep, startStaleTicketCron, type StaleTicketSweepDeps } from "./stale-ticket-cron.ts";
 import { DEFAULT_NOTIFICATION_THRESHOLDS_BODY, DEFAULT_STALE_TICKET_JQL } from "./notification-config.ts";
 import type { CliResult } from "../tools/cli-executor.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
@@ -285,5 +285,52 @@ describe("runStaleTicketSweep", () => {
 
     expect(logged.some((m) => m.includes("KAN-BAD") && m.includes("boom"))).toBe(true);
     expect(secondProcessed).toBe(true);
+  });
+});
+
+describe("startStaleTicketCron", () => {
+  it("runs a sweep on each tick and stop() halts further ticks", async () => {
+    let ticks = 0;
+    const deps = baseDeps({
+      runCliFn: async (binary) => {
+        if (binary === "jira") {
+          ticks++;
+          return { ok: true, data: { issues: [] } };
+        }
+        return { ok: true, data: {} };
+      },
+    });
+
+    const cron = startStaleTicketCron(deps, { checkIntervalMs: 10 });
+
+    await new Promise((r) => setTimeout(r, 45));
+    cron.stop();
+    const ticksAtStop = ticks;
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(ticksAtStop).toBeGreaterThan(1);
+    expect(ticks).toBe(ticksAtStop); // no further ticks after stop
+  });
+
+  it("logs and survives a tick that throws, instead of taking down the interval", async () => {
+    const logged: string[] = [];
+    let ticks = 0;
+    const deps = baseDeps({
+      runCliFn: async (binary) => {
+        if (binary === "jira") {
+          ticks++;
+          throw new Error("boom");
+        }
+        return { ok: true, data: {} };
+      },
+      log: (msg) => logged.push(msg),
+    });
+
+    const cron = startStaleTicketCron(deps, { checkIntervalMs: 10 });
+    await new Promise((r) => setTimeout(r, 45));
+    cron.stop();
+
+    expect(ticks).toBeGreaterThan(1);
+    expect(logged.some((m) => m.includes("boom"))).toBe(true);
   });
 });

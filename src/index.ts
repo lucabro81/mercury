@@ -36,19 +36,24 @@ import {
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
-import { ensureSpaceSubscription, sendMessage, getUser } from "./router/channels/google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./router/channels/google-chat-client.ts";
 import { resolveSenderName } from "./router/user-resolution.ts";
-import { writeResolvedNote, writeSuppressionNote } from "./wiki/wiki-note.ts";
+import { writeResolvedNote, writeSuppressionNote, writeCuratedNote, writeJiraUserResolvedNote } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
-import { ensureEpisodicCollection, storeEpisodicSummary } from "./memory/episodic-store.ts";
+import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory } from "./memory/episodic-store.ts";
 import { createEmbedder } from "./memory/embedder.ts";
 import { initVault } from "./wiki/vault-init.ts";
 import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
-import { listWikiFilesInRoots } from "./wiki/wiki-read.ts";
+import { listWikiFilesInRoots, readWikiFile } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
+import { isNotificationSuppressed } from "./cron/notification-suppression.ts";
+import { resolveChatTargetForJiraUser } from "./cron/identity-bridge.ts";
+import { composeStaleTicketMessage } from "./cron/notification-composer.ts";
+import { notifyAdmin } from "./cron/admin-notify.ts";
+import { startStaleTicketCron } from "./cron/stale-ticket-cron.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 
@@ -257,6 +262,39 @@ const selfReviewCron = startSelfReviewCron(
   },
 );
 void selfReviewCron; // kept alive for the process lifetime, same as idleCron
+
+// Needs both an active Jira CLI config (there's nothing to query
+// otherwise) and an admin space (the identity bridge and unassigned-ticket
+// path both need somewhere to send an ownerless finding) — skip cleanly
+// with a clear reason instead of starting a cron that will fail on its
+// first ownerless case.
+const mercuryAdminSpace = process.env.MERCURY_ADMIN_SPACE;
+if (jiraEnabled && mercuryAdminSpace) {
+  const staleTicketCron = startStaleTicketCron(
+    {
+      vaultPath: wikiVaultPath,
+      adminSpace: mercuryAdminSpace,
+      model,
+      runCliFn: runCli,
+      readWikiFileFn: readWikiFile,
+      writeCuratedNoteFn: writeCuratedNote,
+      writeJiraUserResolvedNoteFn: writeJiraUserResolvedNote,
+      isNotificationSuppressedFn: isNotificationSuppressed,
+      resolveChatTargetForJiraUserFn: resolveChatTargetForJiraUser,
+      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
+      composeStaleTicketMessageFn: composeStaleTicketMessage,
+      getOrCreateDmSpaceFn: getOrCreateDmSpace,
+      sendMessageFn: sendMessage,
+      notifyAdminFn: notifyAdmin,
+      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+      log: (msg) => console.error(`[cron] ${msg}`),
+    },
+    { checkIntervalMs: Number(process.env.STALE_TICKET_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
+  );
+  void staleTicketCron; // kept alive for the process lifetime, same as idleCron
+} else if (jiraEnabled) {
+  console.error("[cron] stale-ticket check not started: MERCURY_ADMIN_SPACE is not set");
+}
 
 // runCommand's confirm-required branch stages a command per-session (see
 // createCliTool's opts) — the tool itself must therefore be rebuilt fresh
