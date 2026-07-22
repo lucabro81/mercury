@@ -3,6 +3,7 @@ import { createIdleSessionScanner } from "./idle-session-scanner.ts";
 import { runIdleSessionSweep, startIdleSessionCron } from "./idle-session-cron.ts";
 import type { Message } from "../session/history.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
+import type { SemanticFactEntry } from "../memory/semantic-facts-store.ts";
 
 const NOW = 1_000_000_000;
 const TIMEOUT = 30 * 60_000;
@@ -113,6 +114,99 @@ describe("runIdleSessionSweep", () => {
     expect(closedKeys).toEqual(["good"]);
     expect(scanner.scanIdle(NOW, TIMEOUT)).toEqual(["bad"]); // still tracked, will retry
     expect(loggedMessages.some((m) => m.includes("bad") && m.includes("qdrant unreachable"))).toBe(true);
+  });
+
+  // Semantic fact extraction/consolidation is an enrichment layered on top
+  // of the episodic summary, not a required part of it — every existing
+  // test above omits these deps entirely and still passes, since the
+  // sweep must keep working when they're absent (same Layer-boundary
+  // principle as episodic memory itself: optional, not load-bearing).
+  it("extracts and consolidates semantic facts for the session after a successful summarize+store, when semantic deps are provided", async () => {
+    const scanner = createIdleSessionScanner();
+    scanner.touch("spaces/X:users/1", NOW - TIMEOUT);
+    const messages: Message[] = [{ role: "user", content: "preferisco l'italiano" }];
+
+    const storedFacts: SemanticFactEntry[] = [];
+    const consolidatedTopics: Array<[string, string]> = [];
+
+    await runIdleSessionSweep(scanner, NOW, TIMEOUT, {
+      getSession: (key) => ({ key, userId: "users/1", messages }),
+      summarize: async () => "ok",
+      store: async () => {},
+      closeSession: () => {},
+      extractFacts: async (msgs) => {
+        expect(msgs).toBe(messages);
+        return [{ topic: "preferred-language", value: "italiano" }];
+      },
+      storeFact: async (entry) => {
+        storedFacts.push(entry);
+      },
+      consolidateFact: async (userId, topic) => {
+        consolidatedTopics.push([userId, topic]);
+      },
+    });
+
+    expect(storedFacts).toEqual([
+      { userId: "users/1", topic: "preferred-language", value: "italiano", timestamp: new Date(NOW).toISOString() },
+    ]);
+    expect(consolidatedTopics).toEqual([["users/1", "preferred-language"]]);
+  });
+
+  it("a failure extracting semantic facts doesn't prevent the session from closing, just logs it", async () => {
+    const scanner = createIdleSessionScanner();
+    scanner.touch("spaces/X:users/1", NOW - TIMEOUT);
+
+    let closedKey: string | undefined;
+    const loggedMessages: string[] = [];
+
+    await runIdleSessionSweep(scanner, NOW, TIMEOUT, {
+      getSession: (key) => ({ key, userId: "users/1", messages: [] }),
+      summarize: async () => "ok",
+      store: async () => {},
+      closeSession: (key) => {
+        closedKey = key;
+      },
+      extractFacts: async () => {
+        throw new Error("model unreachable");
+      },
+      storeFact: async () => {},
+      consolidateFact: async () => {},
+      log: (msg) => loggedMessages.push(msg),
+    });
+
+    expect(closedKey).toBe("spaces/X:users/1");
+    expect(loggedMessages.some((m) => m.includes("model unreachable"))).toBe(true);
+  });
+
+  it("a failure storing/consolidating one fact doesn't stop the others from being processed", async () => {
+    const scanner = createIdleSessionScanner();
+    scanner.touch("spaces/X:users/1", NOW - TIMEOUT);
+
+    const consolidatedTopics: string[] = [];
+    const loggedMessages: string[] = [];
+
+    await runIdleSessionSweep(scanner, NOW, TIMEOUT, {
+      getSession: (key) => ({ key, userId: "users/1", messages: [] }),
+      summarize: async () => "ok",
+      store: async () => {},
+      closeSession: () => {},
+      extractFacts: async () => [
+        { topic: "bad-topic", value: "x" },
+        { topic: "good-topic", value: "y" },
+      ],
+      storeFact: async (entry) => {
+        if (entry.topic === "bad-topic") {
+          throw new Error("qdrant unreachable");
+        }
+      },
+      consolidateFact: async (_userId, topic) => {
+        consolidatedTopics.push(topic);
+      },
+      log: (msg) => loggedMessages.push(msg),
+    });
+
+    expect(consolidatedTopics).toEqual(["good-topic"]);
+    expect(loggedMessages.some((m) => m.includes("bad-topic") && m.includes("qdrant unreachable"))).toBe(true);
   });
 });
 

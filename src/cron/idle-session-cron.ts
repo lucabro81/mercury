@@ -9,6 +9,8 @@
 import type { IdleSessionScanner } from "./idle-session-scanner.ts";
 import type { Message } from "../session/history.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
+import type { SemanticFact } from "../session/semantic-fact-extractor.ts";
+import type { SemanticFactEntry } from "../memory/semantic-facts-store.ts";
 
 export type IdleSession = { key: string; userId: string; messages: Message[] };
 
@@ -19,16 +21,31 @@ export type IdleSessionSweepDeps = {
   store: (entry: EpisodicSummary) => Promise<void>;
   /** Discards the session's raw transcript — called only after a successful summarize+store. */
   closeSession: (key: string) => void;
+  /**
+   * Semantic fact extraction/consolidation (D-22/D-34) — an enrichment on
+   * top of the episodic summary above, not a required part of it: omit
+   * all three and the sweep behaves exactly as before. When present, a
+   * failure here is logged and never blocks `closeSession` — the
+   * episodic write already succeeded and is the source of truth being
+   * preserved, same "system must work when this enrichment is absent"
+   * boundary as every other Layer 2/3 store in Mercury.
+   */
+  extractFacts?: (messages: Message[]) => Promise<SemanticFact[]>;
+  storeFact?: (entry: SemanticFactEntry) => Promise<void>;
+  consolidateFact?: (userId: string, topic: string) => Promise<void>;
   log?: (msg: string) => void;
 };
 
 /**
  * Runs one sweep at `now`: every session `scanner` reports idle (past
  * `idleTimeoutMs`) gets summarized, stored, and closed, then cleared from
- * `scanner`. A failure for one session is logged and leaves that
- * session's tracking untouched (retried on the next sweep) — it must
- * never stop the sweep from processing the others (hard-won convention:
- * one bad tick can't take down the rest of Mercury).
+ * `scanner`. A failure summarizing or storing the episodic entry is
+ * logged and leaves that session's tracking untouched (retried on the
+ * next sweep) — it must never stop the sweep from processing the others
+ * (hard-won convention: one bad tick can't take down the rest of
+ * Mercury). Semantic fact extraction/consolidation, when wired, runs
+ * after a successful episodic store but never blocks `closeSession` on
+ * its own failure — see `IdleSessionSweepDeps`.
  */
 export async function runIdleSessionSweep(
   scanner: IdleSessionScanner,
@@ -53,6 +70,28 @@ export async function runIdleSessionSweep(
         summary,
         timestamp: new Date(now).toISOString(),
       });
+
+      if (deps.extractFacts && deps.storeFact && deps.consolidateFact) {
+        try {
+          const facts = await deps.extractFacts(session.messages);
+          for (const fact of facts) {
+            try {
+              await deps.storeFact({
+                userId: session.userId,
+                topic: fact.topic,
+                value: fact.value,
+                timestamp: new Date(now).toISOString(),
+              });
+              await deps.consolidateFact(session.userId, fact.topic);
+            } catch (err) {
+              log(`semantic fact consolidation failed for ${key}/${fact.topic}: ${String(err)}`);
+            }
+          }
+        } catch (err) {
+          log(`semantic fact extraction failed for ${key}: ${String(err)}`);
+        }
+      }
+
       deps.closeSession(key);
       scanner.clear(key);
     } catch (err) {
