@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   parseNotificationThresholds,
+  loadNotificationThresholds,
   DEFAULT_NOTIFICATION_THRESHOLDS_BODY,
   DEFAULT_STALE_TICKET_JQL,
   DEFAULT_PR_STALE_DAYS,
@@ -126,6 +127,46 @@ describe("notification config doc round-trip", () => {
 
     const fileText = await readWikiFile(vaultPath, "cron", `curated/${NOTIFICATION_CONFIG_PATH}`);
     expect(parseNotificationThresholds(fileText)).toEqual({
+      stale_ticket_days: 5,
+      stale_ticket_jql: DEFAULT_STALE_TICKET_JQL,
+      pr_stale_days: DEFAULT_PR_STALE_DAYS,
+      pr_repositories: [],
+    });
+  });
+});
+
+describe("loadNotificationThresholds", () => {
+  it("parses the existing doc when readWikiFileFn succeeds", async () => {
+    const customBody = ["```yaml", "stale_ticket_days: 10", "```"].join("\n");
+    let writeCalls = 0;
+
+    const result = await loadNotificationThresholds({
+      vaultPath: "/vault",
+      readWikiFileFn: async () => customBody,
+      writeCuratedNoteFn: async () => {
+        writeCalls++;
+      },
+    });
+
+    expect(result).toEqual({ stale_ticket_days: 10 });
+    expect(writeCalls).toBe(0);
+  });
+
+  it("seeds the default doc and returns the parsed default thresholds when the doc doesn't exist yet", async () => {
+    let seeded: { vaultPath: string; relativePath: string; body: string } | undefined;
+
+    const result = await loadNotificationThresholds({
+      vaultPath: "/vault",
+      readWikiFileFn: async () => {
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      },
+      writeCuratedNoteFn: async (vaultPath, relativePath, _fields, body) => {
+        seeded = { vaultPath, relativePath, body };
+      },
+    });
+
+    expect(seeded).toEqual({ vaultPath: "/vault", relativePath: NOTIFICATION_CONFIG_PATH, body: DEFAULT_NOTIFICATION_THRESHOLDS_BODY });
+    expect(result).toEqual({
       stale_ticket_days: 5,
       stale_ticket_jql: DEFAULT_STALE_TICKET_JQL,
       pr_stale_days: DEFAULT_PR_STALE_DAYS,

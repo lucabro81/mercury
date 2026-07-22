@@ -19,7 +19,7 @@ import type { readWikiFile } from "../wiki/wiki-read.ts";
 import type { writeCuratedNote, writeJiraUserResolvedNote } from "../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 import type { sendMessage, getOrCreateDmSpace } from "../router/channels/google-chat-client.ts";
-import { parseNotificationThresholds, DEFAULT_NOTIFICATION_THRESHOLDS_BODY, DEFAULT_STALE_TICKET_JQL, NOTIFICATION_CONFIG_PATH } from "./notification-config.ts";
+import { loadNotificationThresholds, DEFAULT_STALE_TICKET_JQL } from "./notification-config.ts";
 import { isNotificationSuppressed } from "./notification-suppression.ts";
 import { resolveChatTargetForJiraUser, type IdentityBridgeResult } from "./identity-bridge.ts";
 import { composeStaleTicketMessage, type StaleTicketFinding } from "./notification-composer.ts";
@@ -54,16 +54,6 @@ export type StaleTicketSweepDeps = {
   now?: () => Date;
   log?: (msg: string) => void;
 };
-
-async function loadThresholds(deps: StaleTicketSweepDeps) {
-  try {
-    const text = await deps.readWikiFileFn(deps.vaultPath, "cron", `curated/${NOTIFICATION_CONFIG_PATH}`);
-    return parseNotificationThresholds(text);
-  } catch {
-    await deps.writeCuratedNoteFn(deps.vaultPath, NOTIFICATION_CONFIG_PATH, {}, DEFAULT_NOTIFICATION_THRESHOLDS_BODY);
-    return parseNotificationThresholds(DEFAULT_NOTIFICATION_THRESHOLDS_BODY);
-  }
-}
 
 async function processOneTicket(
   issue: JiraIssue,
@@ -129,7 +119,7 @@ export async function runStaleTicketSweep(now: number, deps: StaleTicketSweepDep
   const log = deps.log ?? ((msg: string) => console.error(msg));
   const nowDate = deps.now?.() ?? new Date(now);
 
-  const thresholds = await loadThresholds(deps);
+  const thresholds = await loadNotificationThresholds(deps);
   const jql = thresholds.stale_ticket_jql ?? DEFAULT_STALE_TICKET_JQL;
 
   const result = await deps.runCliFn("jira", [

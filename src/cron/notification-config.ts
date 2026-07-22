@@ -7,6 +7,8 @@
  */
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
+import type { readWikiFile } from "../wiki/wiki-read.ts";
+import type { writeCuratedNote } from "../wiki/wiki-note.ts";
 
 const NotificationThresholdsSchema = z.object({
   stale_ticket_days: z.number().int().positive(),
@@ -61,4 +63,25 @@ export function parseNotificationThresholds(body: string): NotificationThreshold
     throw new Error(`invalid notification thresholds: ${issues}`);
   }
   return validated.data;
+}
+
+/**
+ * Reads and parses the notification-config doc, seeding it with
+ * `DEFAULT_NOTIFICATION_THRESHOLDS_BODY` on first use (the doc doesn't
+ * exist until some cron actually needs it). Shared by every proactive
+ * check that reads this doc — stale tickets and stale PRs both call this
+ * rather than each seeding it independently.
+ */
+export async function loadNotificationThresholds(deps: {
+  vaultPath: string;
+  readWikiFileFn: typeof readWikiFile;
+  writeCuratedNoteFn: typeof writeCuratedNote;
+}): Promise<NotificationThresholds> {
+  try {
+    const text = await deps.readWikiFileFn(deps.vaultPath, "cron", `curated/${NOTIFICATION_CONFIG_PATH}`);
+    return parseNotificationThresholds(text);
+  } catch {
+    await deps.writeCuratedNoteFn(deps.vaultPath, NOTIFICATION_CONFIG_PATH, {}, DEFAULT_NOTIFICATION_THRESHOLDS_BODY);
+    return parseNotificationThresholds(DEFAULT_NOTIFICATION_THRESHOLDS_BODY);
+  }
 }
