@@ -15,6 +15,14 @@ const NotificationThresholdsSchema = z.object({
   // specific project). Optional: DEFAULT_STALE_TICKET_JQL is a reasonable,
   // project-agnostic default when the team hasn't set one.
   stale_ticket_jql: z.string().optional(),
+  // How many days a PR can sit with an unapproved assigned reviewer before
+  // it counts as stale. Optional: DEFAULT_PR_STALE_DAYS applies when unset.
+  pr_stale_days: z.number().int().positive().optional(),
+  // Which repos to watch for stale PRs, "workspace/repo_slug" each —
+  // Bitbucket has no workspace-wide PR listing, so this has to be an
+  // explicit list. Optional, defaults to none (nothing to watch until
+  // the team configures it).
+  pr_repositories: z.array(z.string()).optional(),
 });
 
 export type NotificationThresholds = z.infer<typeof NotificationThresholdsSchema>;
@@ -23,14 +31,18 @@ export const NOTIFICATION_CONFIG_PATH = "config/notifications.md";
 
 export const DEFAULT_STALE_TICKET_JQL = "statusCategory != Done";
 
+export const DEFAULT_PR_STALE_DAYS = 3;
+
 export const DEFAULT_NOTIFICATION_THRESHOLDS_BODY = [
   "# Soglie di notifica",
   "",
-  "Configurazione letta dai check proattivi di Mercury. Modificabile chiedendo a Mercury di aggiornarla in conversazione, es. \"alza la soglia ticket a 7 giorni\" o \"limita il check ai ticket del progetto KAN\".",
+  "Configurazione letta dai check proattivi di Mercury. Modificabile chiedendo a Mercury di aggiornarla in conversazione, es. \"alza la soglia ticket a 7 giorni\", \"limita il check ai ticket del progetto KAN\", o \"sorveglia anche le PR di workspace/repo\".",
   "",
   "```yaml",
   "stale_ticket_days: 5",
   `stale_ticket_jql: "${DEFAULT_STALE_TICKET_JQL}"`,
+  `pr_stale_days: ${DEFAULT_PR_STALE_DAYS}`,
+  "pr_repositories: []",
   "```",
   "",
 ].join("\n");

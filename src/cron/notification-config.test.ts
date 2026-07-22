@@ -6,6 +6,7 @@ import {
   parseNotificationThresholds,
   DEFAULT_NOTIFICATION_THRESHOLDS_BODY,
   DEFAULT_STALE_TICKET_JQL,
+  DEFAULT_PR_STALE_DAYS,
   NOTIFICATION_CONFIG_PATH,
 } from "./notification-config.ts";
 import { writeCuratedNote } from "../wiki/wiki-note.ts";
@@ -32,7 +33,41 @@ describe("parseNotificationThresholds", () => {
     expect(parseNotificationThresholds(DEFAULT_NOTIFICATION_THRESHOLDS_BODY)).toEqual({
       stale_ticket_days: 5,
       stale_ticket_jql: DEFAULT_STALE_TICKET_JQL,
+      pr_stale_days: DEFAULT_PR_STALE_DAYS,
+      pr_repositories: [],
     });
+  });
+
+  it("parses pr_stale_days and pr_repositories when present", () => {
+    const body = [
+      "```yaml",
+      "stale_ticket_days: 5",
+      "pr_stale_days: 3",
+      "pr_repositories:",
+      "  - comperiosrl/comperio-frontends",
+      "  - comperiosrl/discoveryng",
+      "```",
+    ].join("\n");
+    expect(parseNotificationThresholds(body)).toEqual({
+      stale_ticket_days: 5,
+      pr_stale_days: 3,
+      pr_repositories: ["comperiosrl/comperio-frontends", "comperiosrl/discoveryng"],
+    });
+  });
+
+  it("omits pr_stale_days/pr_repositories from the result when absent — the cron falls back to its own defaults", () => {
+    const body = ["```yaml", "stale_ticket_days: 5", "```"].join("\n");
+    expect(parseNotificationThresholds(body)).toEqual({ stale_ticket_days: 5 });
+  });
+
+  it("throws when pr_stale_days is present but not a positive integer", () => {
+    const body = ["```yaml", "stale_ticket_days: 5", "pr_stale_days: 0", "```"].join("\n");
+    expect(() => parseNotificationThresholds(body)).toThrow();
+  });
+
+  it("throws when pr_repositories is present but not an array of strings", () => {
+    const body = ["```yaml", "stale_ticket_days: 5", "pr_repositories: comperiosrl/comperio-frontends", "```"].join("\n");
+    expect(() => parseNotificationThresholds(body)).toThrow();
   });
 
   it("parses stale_ticket_jql when present", () => {
@@ -93,6 +128,8 @@ describe("notification config doc round-trip", () => {
     expect(parseNotificationThresholds(fileText)).toEqual({
       stale_ticket_days: 5,
       stale_ticket_jql: DEFAULT_STALE_TICKET_JQL,
+      pr_stale_days: DEFAULT_PR_STALE_DAYS,
+      pr_repositories: [],
     });
   });
 });
