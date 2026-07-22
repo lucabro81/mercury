@@ -1,5 +1,10 @@
 import { describe, it, expect } from "bun:test";
-import { consolidateSemanticFact, type ConsolidationDeps } from "./semantic-consolidation.ts";
+import {
+  consolidateSemanticFact,
+  defaultConfidenceForCount,
+  DEFAULT_CONSOLIDATION_K,
+  type ConsolidationDeps,
+} from "./semantic-consolidation.ts";
 import type { SemanticFactEntry } from "../memory/semantic-facts-store.ts";
 
 const VAULT = "/vault";
@@ -208,5 +213,51 @@ describe("consolidateSemanticFact", () => {
     await consolidateSemanticFact("users/42", "preferred-language", deps);
 
     expect(receivedLimit).toBe(12);
+  });
+
+  it("falls back to DEFAULT_CONSOLIDATION_K when k isn't provided", async () => {
+    let receivedLimit: number | undefined;
+    const deps = baseDeps({
+      clusterFn: async (_userId, _topic, limit) => {
+        receivedLimit = limit;
+        return [];
+      },
+      k: undefined as unknown as number,
+    });
+
+    await consolidateSemanticFact("users/42", "preferred-language", deps);
+
+    expect(receivedLimit).toBe(DEFAULT_CONSOLIDATION_K);
+  });
+
+  it("falls back to defaultConfidenceForCount when confidenceForCount isn't provided", async () => {
+    let written: unknown;
+    const deps = baseDeps({
+      clusterFn: async () => [entry("italiano", "2026-07-20T09:00:00.000Z")],
+      writeInferredNoteFn: async (vaultPath, userId, topic, fields, body) => {
+        written = { fields, body };
+      },
+      confidenceForCount: undefined as unknown as ConsolidationDeps["confidenceForCount"],
+    });
+
+    await consolidateSemanticFact("users/42", "preferred-language", deps);
+
+    expect((written as { fields: { confidence: string } }).fields.confidence).toBe(
+      defaultConfidenceForCount(1, DEFAULT_CONSOLIDATION_K),
+    );
+  });
+});
+
+describe("defaultConfidenceForCount", () => {
+  it("is low on a single, unconfirmed occurrence", () => {
+    expect(defaultConfidenceForCount(1, 5)).toBe("low");
+  });
+
+  it("is medium once repeated but the window isn't unanimous", () => {
+    expect(defaultConfidenceForCount(3, 5)).toBe("medium");
+  });
+
+  it("is high once the dominant value fills the whole tracked window", () => {
+    expect(defaultConfidenceForCount(5, 5)).toBe("high");
   });
 });

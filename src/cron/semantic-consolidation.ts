@@ -22,10 +22,29 @@ export type ConsolidationDeps = {
   clusterFn: ClusterFn;
   readWikiFileFn: typeof readWikiFile;
   writeInferredNoteFn: typeof writeInferredNote;
-  k: number;
-  confidenceForCount: (dominantCount: number, k: number) => Confidence;
+  k?: number;
+  confidenceForCount?: (dominantCount: number, k: number) => Confidence;
   now?: () => string;
 };
+
+/** Window size for consolidation — how many recent occurrences of a topic to consider. Uncalibrated: chosen without real usage data, to revisit once there's actual traffic to tune against. */
+export const DEFAULT_CONSOLIDATION_K = 3;
+
+/**
+ * Uncalibrated confidence bands, count relative to `k`: a single
+ * occurrence is unconfirmed (low); repeated but not unanimous within the
+ * tracked window is medium; the dominant value filling the whole window
+ * is high. Same "revisit with real usage" caveat as `DEFAULT_CONSOLIDATION_K`.
+ */
+export function defaultConfidenceForCount(dominantCount: number, k: number): Confidence {
+  if (dominantCount >= k) {
+    return "high";
+  }
+  if (dominantCount > 1) {
+    return "medium";
+  }
+  return "low";
+}
 
 function dominantValue(entries: SemanticFactEntry[]): { value: string; supportingTimestamps: string[] } | null {
   const byValue = new Map<string, string[]>();
@@ -70,7 +89,9 @@ async function readIncumbentCount(deps: ConsolidationDeps, userId: string, topic
 
 /** Re-clusters `topic` for `userId`, and promotes the dominant value to a wiki note if it beats the current incumbent's count. No-op if the cluster is empty or has no single dominant value. */
 export async function consolidateSemanticFact(userId: string, topic: string, deps: ConsolidationDeps): Promise<void> {
-  const cluster = (await deps.clusterFn(userId, topic, deps.k)).filter((e) => e.topic === topic);
+  const k = deps.k ?? DEFAULT_CONSOLIDATION_K;
+  const confidenceForCount = deps.confidenceForCount ?? defaultConfidenceForCount;
+  const cluster = (await deps.clusterFn(userId, topic, k)).filter((e) => e.topic === topic);
 
   const dominant = dominantValue(cluster);
   if (!dominant) {
@@ -88,7 +109,7 @@ export async function consolidateSemanticFact(userId: string, topic: string, dep
     userId,
     topic,
     {
-      confidence: deps.confidenceForCount(dominant.supportingTimestamps.length, deps.k),
+      confidence: confidenceForCount(dominant.supportingTimestamps.length, k),
       derived_from: dominant.supportingTimestamps,
       last_reviewed: now(),
     },
