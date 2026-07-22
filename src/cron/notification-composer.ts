@@ -43,3 +43,27 @@ export async function composeStaleTicketMessage(
   const { text } = await generate({ model: deps.model, system: SYSTEM_PROMPT, prompt });
   return text;
 }
+
+export type StalePrFinding = { repository: string; prId: number; title: string; staleDays: number };
+
+const PR_SYSTEM_PROMPT =
+  "Sei Mercury, un agente che avvisa i reviewer di una pull request Bitbucket rimasta troppo a lungo senza la loro approvazione. " +
+  "Scrivi un messaggio breve, diretto e naturale, mai un template fisso. " +
+  "Personalizza tono e frequenza in base allo storico delle notifiche già inviate per questa stessa PR: " +
+  "se è la prima volta, sii diretto; se l'hai già segnalato più volte, evita di essere ripetitivo — " +
+  "valuta se cambiare approccio o chiedere esplicitamente cosa fare (es. se la review serve ancora, se va sospesa la notifica).";
+
+export async function composeStalePrMessage(
+  finding: StalePrFinding,
+  history: EpisodicSummary[],
+  deps: { model: LanguageModel; generateTextFn?: GenerateTextFn },
+): Promise<string> {
+  const generate = deps.generateTextFn ?? generateText;
+  const prompt =
+    `PR #${finding.prId} su ${finding.repository}: "${finding.title}", in attesa della tua review da ${finding.staleDays} giorni.\n\n` +
+    `Storia delle notifiche precedenti per questa PR:\n${formatHistory(history)}\n\n` +
+    "Componi il messaggio da mandare al reviewer.";
+
+  const { text } = await generate({ model: deps.model, system: PR_SYSTEM_PROMPT, prompt });
+  return text;
+}
