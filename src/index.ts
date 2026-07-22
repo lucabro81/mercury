@@ -59,10 +59,12 @@ import { listWikiFilesInRoots, readWikiFile } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { isNotificationSuppressed } from "./cron/notification-suppression.ts";
-import { resolveChatTargetForJiraUser } from "./cron/identity-bridge.ts";
-import { composeStaleTicketMessage } from "./cron/notification-composer.ts";
+import { resolveChatTargetForJiraUser, resolveChatTargetForBitbucketUser } from "./cron/identity-bridge.ts";
+import { composeStaleTicketMessage, composeStalePrMessage } from "./cron/notification-composer.ts";
 import { notifyAdmin } from "./cron/admin-notify.ts";
 import { startStaleTicketCron } from "./cron/stale-ticket-cron.ts";
+import { findStalePrs } from "./cron/stale-pr-finder.ts";
+import { startStalePrCron } from "./cron/stale-pr-cron.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 
@@ -185,6 +187,8 @@ const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
   runCliFn: runCli,
 });
 const jiraEnabled = Boolean(activeCliConfigs.jira);
+const bitbucketEnabled = Boolean(activeCliConfigs.bitbucket);
+const atlassianAdminEnabled = Boolean(activeCliConfigs["atlassian-admin"]);
 const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
 
 // Two separate system prompts, not one shared string: the multiUserChannel
@@ -320,6 +324,38 @@ if (jiraEnabled && mercuryAdminSpace) {
   void staleTicketCron; // kept alive for the process lifetime, same as idleCron
 } else if (jiraEnabled) {
   console.error("[cron] stale-ticket check not started: MERCURY_ADMIN_SPACE is not set");
+}
+
+// Same gating logic as the stale-ticket check above, plus atlassian-admin
+// (the Bitbucket identity bridge resolves account_id -> email through it,
+// no email is available on a PR participant directly).
+if (bitbucketEnabled && atlassianAdminEnabled && mercuryAdminSpace) {
+  const stalePrCron = startStalePrCron(
+    {
+      vaultPath: wikiVaultPath,
+      adminSpace: mercuryAdminSpace,
+      model,
+      runCliFn: runCli,
+      readWikiFileFn: readWikiFile,
+      writeCuratedNoteFn: writeCuratedNote,
+      findStalePrsFn: findStalePrs,
+      isNotificationSuppressedFn: isNotificationSuppressed,
+      resolveChatTargetForBitbucketUserFn: resolveChatTargetForBitbucketUser,
+      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
+      composeStalePrMessageFn: composeStalePrMessage,
+      getOrCreateDmSpaceFn: getOrCreateDmSpace,
+      sendMessageFn: sendMessage,
+      notifyAdminFn: notifyAdmin,
+      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+      log: (msg) => console.error(`[cron] ${msg}`),
+    },
+    { checkIntervalMs: Number(process.env.STALE_PR_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
+  );
+  void stalePrCron; // kept alive for the process lifetime, same as idleCron
+} else if (bitbucketEnabled) {
+  console.error(
+    "[cron] stale-PR check not started: needs atlassian-admin active and MERCURY_ADMIN_SPACE set",
+  );
 }
 
 // runCommand's confirm-required branch stages a command per-session (see
