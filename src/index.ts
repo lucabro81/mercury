@@ -24,6 +24,7 @@ import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createSessionHistory, type SessionHistory } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
+import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
 import {
@@ -38,11 +39,19 @@ import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
 import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./router/channels/google-chat-client.ts";
 import { resolveSenderName } from "./router/user-resolution.ts";
-import { writeResolvedNote, writeSuppressionNote, writeCuratedNote, writeJiraUserResolvedNote } from "./wiki/wiki-note.ts";
+import {
+  writeResolvedNote,
+  writeSuppressionNote,
+  writeCuratedNote,
+  writeJiraUserResolvedNote,
+  writeInferredNote,
+} from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
 import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory } from "./memory/episodic-store.ts";
+import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
+import { consolidateSemanticFact } from "./cron/semantic-consolidation.ts";
 import { createEmbedder } from "./memory/embedder.ts";
 import { initVault } from "./wiki/vault-init.ts";
 import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
@@ -218,6 +227,21 @@ const episodicCollection = process.env.QDRANT_EPISODIC_COLLECTION ?? "episodic_m
 const episodicVectorSize = Number(process.env.QDRANT_EPISODIC_VECTOR_SIZE ?? "768");
 await ensureEpisodicCollection(qdrant, episodicCollection, episodicVectorSize);
 
+// Semantic consolidation (D-22/D-34): a separate Qdrant collection from
+// episodic memory above — one point per extracted {topic, value} candidate,
+// vector embedded on the topic alone (see semantic-facts-store.ts for why).
+const semanticFactsCollection = process.env.QDRANT_SEMANTIC_FACTS_COLLECTION ?? "semantic_facts";
+const semanticFactsVectorSize = Number(process.env.QDRANT_SEMANTIC_FACTS_VECTOR_SIZE ?? "768");
+await ensureSemanticFactsCollection(qdrant, semanticFactsCollection, semanticFactsVectorSize);
+const extractFacts = createSemanticFactExtractor(model);
+
+// Idempotent self-heal: the vault lives on a named Docker volume, empty on
+// first boot and not pre-populatable at build time like the CLI binaries —
+// re-running this every startup is cheap and means a wiped/fresh volume
+// never needs a separate manual provisioning step.
+const wikiVaultPath = requireEnv("WIKI_VAULT_PATH");
+await initVault(wikiVaultPath);
+
 const idleCron = startIdleSessionCron(
   idleScanner,
   {
@@ -235,6 +259,15 @@ const idleCron = startIdleSessionCron(
       histories.delete(key);
       sessionUsers.delete(key);
     },
+    extractFacts,
+    storeFact: (entry) => storeSemanticFact(qdrant, semanticFactsCollection, embed, entry),
+    consolidateFact: (userId, topic) =>
+      consolidateSemanticFact(userId, topic, {
+        vaultPath: wikiVaultPath,
+        clusterFn: (u, t, limit) => searchSemanticFactsByTopic(qdrant, semanticFactsCollection, embed, { userId: u, topic: t, limit }),
+        readWikiFileFn: readWikiFile,
+        writeInferredNoteFn: writeInferredNote,
+      }),
     log: (msg) => console.error(`[cron] ${msg}`),
   },
   {
@@ -243,13 +276,6 @@ const idleCron = startIdleSessionCron(
   },
 );
 void idleCron; // kept alive for the process lifetime; no shutdown hook exists yet (same as the rest of Mercury today)
-
-// Idempotent self-heal: the vault lives on a named Docker volume, empty on
-// first boot and not pre-populatable at build time like the CLI binaries —
-// re-running this every startup is cheap and means a wiped/fresh volume
-// never needs a separate manual provisioning step.
-const wikiVaultPath = requireEnv("WIKI_VAULT_PATH");
-await initVault(wikiVaultPath);
 
 const selfReviewCron = startSelfReviewCron(
   {
