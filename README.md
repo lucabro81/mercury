@@ -42,7 +42,13 @@ Leave `GOOGLE_CHAT_PUBSUB_TOPIC` empty to run with the terminal channel only.
 docker compose up -d
 ```
 
-Starts Mercury and Qdrant in the background. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required.
+Starts Mercury and Qdrant in the background. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required — for source changes.
+
+CLI binaries are the exception: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them. A new release on CLI-monorepo doesn't reach the running container until you rebuild:
+
+```bash
+docker compose up -d --build
+```
 
 **Using the terminal REPL**
 
