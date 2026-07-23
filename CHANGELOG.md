@@ -1,5 +1,14 @@
 # mercury
 
+## 0.6.0
+
+### Minor Changes
+
+- Fixed the Google Chat channel failing to start after a restart — subscription handling now reuses an existing active subscription instead of erroring.
+- Fixed a crash when listening on a space with no subscription history yet.
+- Mercury can now run `google-chat` CLI commands directly, including a confirm-gated message delete.
+- Mercury can now recall its own past tool calls when asked what it actually did, instead of reconstructing them from memory.
+
 ## 0.5.0
 
 ### Minor Changes
