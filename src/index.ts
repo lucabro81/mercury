@@ -102,6 +102,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
         "DON'T:",
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
         "- DON'T alter, abbreviate, or make up a confirmation token — copy it exactly as returned.",
+        '- DON\'T treat a bare `{}` as "confirmed zero matching issues" — it usually means your `--select` path was wrong, not that the search found nothing. A genuine empty result looks like `{"issues": []}`. On `{}`, check curated/standards/jira-cli.md for the correct `--select` syntax, or retry with `--select-all`, before telling the user there\'s no data.',
       ].join("\n"),
     );
   }
