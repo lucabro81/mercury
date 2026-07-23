@@ -24,29 +24,46 @@ function unwrap(result: Awaited<ReturnType<typeof runCli>>): unknown {
   return result.data;
 }
 
+// `subscription create`'s own default when --event-type is omitted (which
+// ensureSpaceSubscription always does) — named so the `subscription list`
+// pre-check below stays in sync with what `create` actually registers,
+// instead of two separate string literals that could silently drift apart.
+const MESSAGE_CREATED_EVENT_TYPE = "google.workspace.chat.message.v1.created";
+
 /**
  * Registers a Workspace Events subscription for `space`, delivering
- * matching events to `pubsubSubscription` on `topic` (creating that
- * pull subscription if it doesn't already exist — `google-chat
- * subscription create` is idempotent about that part).
+ * matching events to `pubsubSubscription` on `topic`.
  *
- * Always passes `--message-filter`, scoping delivery on the (shared)
- * `topic` to this space's own events via the `ce-subject` CloudEvents
- * attribute — dot notation only, `attributes.ce-subject`, confirmed live
- * in the CLI-monorepo (google-chat-v0.4.0) to be where the space id
- * actually lives (not `ce-source`, which holds the Workspace Events
- * subscription's own name instead). `--topic`/`--message-filter` are
- * immutable once the pull subscription exists, so `pubsubSubscription`
- * must be dedicated to this space (see `deriveSubscriptionName` in
- * `google-chat-events.ts`), not shared across spaces.
+ * Checks via `subscription list --space <space>` first and reuses an
+ * existing ACTIVE one if found, instead of calling `subscription create`
+ * unconditionally: Workspace Events subscriptions live ~4h server-side
+ * and `create` is a real create, not an upsert — restarting Mercury
+ * while a previous run's subscription for the same space hasn't expired
+ * yet made every restart fail with a 409 SUBSCRIPTION_ALREADY_EXISTS,
+ * killing that space's channel outright (observed live 2026-07-23).
+ * `subscription create`'s own idempotency (mentioned in its own --help)
+ * only covers the underlying Pub/Sub pull subscription, not this.
  *
- * Returns the created subscription's `name`, which must be passed to
- * `google-chat listen --workspace-events-subscription` (see
- * `startGoogleChatSpaceChannel` in `google-chat-events.ts`) so the
+ * Always passes `--message-filter` when creating, scoping delivery on
+ * the (shared) `topic` to this space's own events via the `ce-subject`
+ * CloudEvents attribute — dot notation only, `attributes.ce-subject`,
+ * confirmed live in the CLI-monorepo (google-chat-v0.4.0) to be where
+ * the space id actually lives (not `ce-source`, which holds the
+ * Workspace Events subscription's own name instead). `--topic`/
+ * `--message-filter` are immutable once the pull subscription exists, so
+ * `pubsubSubscription` must be dedicated to this space (see
+ * `deriveSubscriptionName` in `google-chat-events.ts`), not shared
+ * across spaces.
+ *
+ * Returns the subscription's `name` (existing or freshly created), which
+ * must be passed to `google-chat listen --workspace-events-subscription`
+ * (see `startGoogleChatSpaceChannel` in `google-chat-events.ts`) so the
  * listening process can keep it renewed past its ~4h TTL.
  *
- * Throws if the underlying CLI call fails — there's no recovering from
- * a missing subscription, the caller needs to know.
+ * Throws if `subscription create` fails (a `subscription list` failure
+ * is treated as "nothing found", falling through to `create` instead —
+ * there's no recovering from a missing subscription either way, the
+ * caller needs to know).
  */
 export async function ensureSpaceSubscription(
   space: string,
@@ -54,6 +71,22 @@ export async function ensureSpaceSubscription(
   pubsubSubscription: string,
   runCliFn: typeof runCli,
 ): Promise<{ name: string }> {
+  const listResult = await runCliFn("google-chat", [
+    "subscription",
+    "list",
+    "--event-type",
+    MESSAGE_CREATED_EVENT_TYPE,
+    "--space",
+    space,
+  ]);
+  if (listResult.ok) {
+    const { subscriptions } = listResult.data as { subscriptions: Array<{ name: string; state: string }> };
+    const active = subscriptions.find((s) => s.state === "ACTIVE");
+    if (active) {
+      return { name: active.name };
+    }
+  }
+
   const bareSpaceId = space.replace(/^spaces\//, "");
   const messageFilter = `hasPrefix(attributes.ce-subject, "//chat.googleapis.com/spaces/${bareSpaceId}")`;
   const result = await runCliFn("google-chat", [
