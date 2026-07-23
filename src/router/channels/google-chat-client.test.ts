@@ -2,15 +2,61 @@ import { describe, it, expect } from "bun:test";
 import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./google-chat-client.ts";
 import type { CliResult } from "../../tools/cli-executor.ts";
 
+/**
+ * Fake `runCliFn` for `ensureSpaceSubscription`'s two-step flow (`list`
+ * then, only if nothing active was found, `create`) — records every call
+ * so tests can assert both the returned result and which subcommands
+ * actually ran, not just the last one.
+ */
+function fakeGoogleChatCli(opts: {
+  listResult?: CliResult;
+  createResult?: CliResult;
+}): { runCliFn: (binary: string, args: string[]) => Promise<CliResult>; calls: string[][] } {
+  const calls: string[][] = [];
+  const runCliFn = async (_binary: string, args: string[]): Promise<CliResult> => {
+    calls.push(args);
+    if (args[1] === "list") {
+      return opts.listResult ?? { ok: true, data: { subscriptions: [] } };
+    }
+    return opts.createResult ?? { ok: true, data: { name: "subscriptions/from-create" } };
+  };
+  return { runCliFn, calls };
+}
+
 describe("ensureSpaceSubscription", () => {
-  it("calls google-chat subscription create with the exact args", async () => {
-    let receivedBinary: string | undefined;
-    let receivedArgs: string[] | undefined;
-    const runCliFn = async (binary: string, args: string[]): Promise<CliResult> => {
-      receivedBinary = binary;
-      receivedArgs = args;
-      return { ok: true, data: { name: "subscriptions/abc123" } };
-    };
+  it("checks via subscription list first, with the exact args", async () => {
+    const { runCliFn, calls } = fakeGoogleChatCli({});
+
+    await ensureSpaceSubscription("spaces/AAQA-_d58OQ", "projects/p/topics/t", "projects/p/subscriptions/s", runCliFn);
+
+    expect(calls[0]).toEqual([
+      "subscription",
+      "list",
+      "--event-type",
+      "google.workspace.chat.message.v1.created",
+      "--space",
+      "spaces/AAQA-_d58OQ",
+      "--select-all",
+    ]);
+  });
+
+  it("reuses an existing ACTIVE subscription found via list, without ever calling create", async () => {
+    const { runCliFn, calls } = fakeGoogleChatCli({
+      listResult: { ok: true, data: { subscriptions: [{ name: "subscriptions/existing-1", state: "ACTIVE" }] } },
+    });
+
+    const result = await ensureSpaceSubscription("space-1", "topic-1", "sub-1", runCliFn);
+
+    expect(result).toEqual({ name: "subscriptions/existing-1" });
+    expect(calls).toHaveLength(1);
+    expect(calls.some((args) => args[1] === "create")).toBe(false);
+  });
+
+  it("falls through to subscription create when list finds no subscriptions", async () => {
+    const { runCliFn, calls } = fakeGoogleChatCli({
+      listResult: { ok: true, data: { subscriptions: [] } },
+      createResult: { ok: true, data: { name: "subscriptions/abc123" } },
+    });
 
     const result = await ensureSpaceSubscription(
       "spaces/AAQA-_d58OQ",
@@ -19,8 +65,7 @@ describe("ensureSpaceSubscription", () => {
       runCliFn,
     );
 
-    expect(receivedBinary).toBe("google-chat");
-    expect(receivedArgs).toEqual([
+    expect(calls[1]).toEqual([
       "subscription",
       "create",
       "--space",
@@ -35,17 +80,26 @@ describe("ensureSpaceSubscription", () => {
     expect(result).toEqual({ name: "subscriptions/abc123" });
   });
 
+  it("falls through to create when list finds only a non-ACTIVE subscription", async () => {
+    const { runCliFn, calls } = fakeGoogleChatCli({
+      listResult: { ok: true, data: { subscriptions: [{ name: "subscriptions/expired-1", state: "EXPIRED" }] } },
+      createResult: { ok: true, data: { name: "subscriptions/fresh-1" } },
+    });
+
+    const result = await ensureSpaceSubscription("space-1", "topic-1", "sub-1", runCliFn);
+
+    expect(calls.some((args) => args[1] === "create")).toBe(true);
+    expect(result).toEqual({ name: "subscriptions/fresh-1" });
+  });
+
   it("strips a leading spaces/ prefix when building --message-filter, but leaves a bare id as-is", async () => {
-    let receivedArgs: string[] | undefined;
-    const runCliFn = async (_binary: string, args: string[]): Promise<CliResult> => {
-      receivedArgs = args;
-      return { ok: true, data: { name: "subscriptions/abc123" } };
-    };
+    const { runCliFn, calls } = fakeGoogleChatCli({});
 
     await ensureSpaceSubscription("bareSpaceId", "topic-1", "sub-1", runCliFn);
 
-    expect(receivedArgs).toContain("--message-filter");
-    expect(receivedArgs?.at(-1)).toBe(
+    const createArgs = calls.find((args) => args[1] === "create");
+    expect(createArgs).toContain("--message-filter");
+    expect(createArgs?.at(-1)).toBe(
       'hasPrefix(attributes.ce-subject, "//chat.googleapis.com/spaces/bareSpaceId")',
     );
   });
