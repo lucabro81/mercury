@@ -47,6 +47,8 @@ import {
   writeInferredNote,
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
+import { recordStep } from "./session/tool-log-buffer.ts";
+import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
 import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory } from "./memory/episodic-store.ts";
@@ -124,6 +126,13 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
       "DON'T:",
       "- DON'T claim something is documented in the wiki without actually reading it via read_file/grep first.",
       "- DON'T write_file over an existing curated document without reading it first — write_file replaces the whole file, it doesn't merge, so an unread overwrite silently destroys whatever was already there.",
+    ].join("\n"),
+  );
+  lines.push(
+    [
+      "You have access to the recall_tool_calls tool.",
+      "DO:",
+      "- If asked what you actually ran/queried/did earlier in this same conversation, call recall_tool_calls and quote it verbatim — you have no memory of your own past tool calls otherwise, only your own prior reply text, so reconstructing from memory instead of calling this tool risks getting it wrong.",
     ].join("\n"),
   );
 
@@ -382,6 +391,7 @@ function buildTools(sessionKey: string, wikiUserId: string): Record<string, Tool
     );
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
+  Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
   return sessionTools;
 }
 
@@ -435,7 +445,10 @@ if (googleChatTopic) {
         // tool access to a directory that never actually gets written to.
         tools: buildTools(sessionKey, encodeURIComponent(sender)),
         system: chatSystem,
-        onStepFinish: (step) => logStep(`[chat:${space}:${sender}] `, step),
+        onStepFinish: (step) => {
+          logStep(`[chat:${space}:${sender}] `, step);
+          recordStep("google-chat", sessionKey, step);
+        },
         onUsage: (inputTokens) =>
           console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
       });
@@ -512,6 +525,7 @@ await startTerminalRepl(
       onStepFinish: (step) => {
         lastSteps.push(step);
         logStep("", step);
+        recordStep("terminal", "terminal", step);
       },
       onUsage: (inputTokens) => {
         lastInputTokens = inputTokens;
