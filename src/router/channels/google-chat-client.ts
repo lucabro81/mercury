@@ -85,8 +85,11 @@ export async function ensureSpaceSubscription(
     "--select-all",
   ]);
   if (listResult.ok) {
-    const { subscriptions } = listResult.data as { subscriptions: Array<{ name: string; state: string }> };
-    const active = subscriptions.find((s) => s.state === "ACTIVE");
+    // A space with zero subscription history ever returns a bare `{}` —
+    // no "subscriptions" key at all, not even an empty array (confirmed
+    // live) — so this can't assume the key is present.
+    const { subscriptions } = listResult.data as { subscriptions?: Array<{ name: string; state: string }> };
+    const active = subscriptions?.find((s) => s.state === "ACTIVE");
     if (active) {
       return { name: active.name };
     }

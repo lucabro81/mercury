@@ -52,6 +52,24 @@ describe("ensureSpaceSubscription", () => {
     expect(calls.some((args) => args[1] === "create")).toBe(false);
   });
 
+  // A space with zero subscription history ever (e.g. just added to
+  // GOOGLE_CHAT_SPACES) returns a bare {} from `subscription list
+  // --select-all` — no "subscriptions" key at all, not even an empty
+  // array. Confirmed live against a real never-subscribed space; this
+  // shape crashed the naive `subscriptions.find(...)` with "undefined is
+  // not an object" instead of falling through to create.
+  it("falls through to create when list returns {} with no subscriptions key at all", async () => {
+    const { runCliFn, calls } = fakeGoogleChatCli({
+      listResult: { ok: true, data: {} },
+      createResult: { ok: true, data: { name: "subscriptions/fresh-space-1" } },
+    });
+
+    const result = await ensureSpaceSubscription("space-1", "topic-1", "sub-1", runCliFn);
+
+    expect(result).toEqual({ name: "subscriptions/fresh-space-1" });
+    expect(calls.some((args) => args[1] === "create")).toBe(true);
+  });
+
   it("falls through to subscription create when list finds no subscriptions", async () => {
     const { runCliFn, calls } = fakeGoogleChatCli({
       listResult: { ok: true, data: { subscriptions: [] } },
