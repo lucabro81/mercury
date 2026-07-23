@@ -67,6 +67,8 @@ import { findStalePrs } from "./cron/stale-pr-finder.ts";
 import { startStalePrCron } from "./cron/stale-pr-cron.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
+import { startAdminServer } from "./admin/server.ts";
+import { recordStep } from "./admin/tool-log-buffer.ts";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
 function requireEnv(name: string): string {
@@ -434,7 +436,10 @@ if (googleChatTopic) {
         // tool access to a directory that never actually gets written to.
         tools: buildTools(sessionKey, encodeURIComponent(sender)),
         system: chatSystem,
-        onStepFinish: (step) => logStep(`[chat:${space}:${sender}] `, step),
+        onStepFinish: (step) => {
+          logStep(`[chat:${space}:${sender}] `, step);
+          recordStep("google-chat", step);
+        },
         onUsage: (inputTokens) =>
           console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
       });
@@ -458,6 +463,28 @@ if (googleChatTopic) {
     },
   );
   Object.assign(staticTools, createJoinSpaceTool(manager.ensureChannel));
+}
+
+// POC admin panel (see docs/plans, throwaway scaffolding) — opt-in only,
+// never started unless explicitly enabled, so it never touches the real
+// deployment path. Runs in-process, reusing the already-constructed
+// qdrant client, activeCliConfigs, model, and vault path directly.
+if (process.env.ADMIN_PANEL_ENABLED === "true") {
+  const adminPort = Number(process.env.ADMIN_PANEL_PORT ?? "4000");
+  startAdminServer({
+    port: adminPort,
+    vaultPath: wikiVaultPath,
+    model,
+    qdrant,
+    qdrantCollections: { episodic: episodicCollection, semanticFacts: semanticFactsCollection },
+    activeCliConfigs,
+    runCliFn: runCli,
+    ollamaHost,
+    ollamaModel,
+    systemPrompts: { terminal: system, googleChat: chatSystem },
+    envFilePath: ".env",
+  });
+  console.error(`[admin] panel listening on http://localhost:${adminPort}`);
 }
 
 let lastSteps: StepInfo[] = [];
@@ -511,6 +538,7 @@ await startTerminalRepl(
       onStepFinish: (step) => {
         lastSteps.push(step);
         logStep("", step);
+        recordStep("terminal", step);
       },
       onUsage: (inputTokens) => {
         lastInputTokens = inputTokens;

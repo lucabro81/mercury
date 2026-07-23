@@ -13,6 +13,16 @@ services:
       # Maintainer-authored per-CLI allowlist config, read at startup (see
       # src/tools/cli-config-loader.ts). :ro — Mercury only ever reads this.
       - ./cli-configs:/app/cli-config:ro
+      # `env_file` (docker-compose.yml) only injects .env's values as
+      # container env vars at creation time — it doesn't put the file itself
+      # on the container's filesystem. The admin panel's Env tab (POC, see
+      # src/admin/) reads/writes the real .env directly, so it needs the
+      # actual file mounted, not just its values. Not :ro — it writes back.
+      - ./.env:/app/.env
     command: ["bun", "run", "--watch", "src/index.ts"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    ports:
+      # POC admin panel (ADMIN_PANEL_ENABLED/ADMIN_PANEL_PORT, see .env.example)
+      # — dev-only, no auth, see src/admin/server.ts.
+      - "${ADMIN_PANEL_PORT:-4000}:${ADMIN_PANEL_PORT:-4000}"
