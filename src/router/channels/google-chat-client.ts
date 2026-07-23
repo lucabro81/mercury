@@ -78,6 +78,11 @@ export async function ensureSpaceSubscription(
     MESSAGE_CREATED_EVENT_TYPE,
     "--space",
     space,
+    // Unlike create/delete/get, `subscription list` isn't exempt from the
+    // CLI's --select/--select-all requirement — omitting this makes the
+    // call fail every time (confirmed live), silently falling through to
+    // `create` and reproducing the exact 409 this fix exists to avoid.
+    "--select-all",
   ]);
   if (listResult.ok) {
     const { subscriptions } = listResult.data as { subscriptions: Array<{ name: string; state: string }> };

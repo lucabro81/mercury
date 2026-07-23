@@ -36,6 +36,7 @@ describe("ensureSpaceSubscription", () => {
       "google.workspace.chat.message.v1.created",
       "--space",
       "spaces/AAQA-_d58OQ",
+      "--select-all",
     ]);
   });
 
