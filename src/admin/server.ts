@@ -13,7 +13,7 @@ import { getCliStatus } from "./cli-routes.ts";
 import { getModelStatus, getSelfHealth } from "./model-routes.ts";
 import { scrollCollection, type ScrollableQdrantClient } from "./qdrant-scroll.ts";
 import { setEnvValue } from "./env-file.ts";
-import { getToolLog } from "./tool-log-buffer.ts";
+import { getToolLog } from "../session/tool-log-buffer.ts";
 import {
   listWikiVault,
   readWikiVaultFile,

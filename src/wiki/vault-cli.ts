@@ -76,7 +76,12 @@ async function main(): Promise<void> {
         console.error("empty body on stdin — nothing to write");
         process.exit(1);
       }
-      await writeCuratedNote(vaultPath, curatedRelativePath, { author }, body.trimEnd());
+      await writeCuratedNote(
+        vaultPath,
+        curatedRelativePath,
+        { author, last_updated: new Date().toISOString().slice(0, 10) },
+        body.trimEnd(),
+      );
       console.log(`wrote ${vaultRelativePath}`);
       break;
     }
