@@ -44,10 +44,11 @@ docker compose up -d
 
 Starts Mercury and Qdrant in the background. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required — for source changes.
 
-CLI binaries are the exception: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them. A new release on CLI-monorepo doesn't reach the running container until you rebuild:
+CLI binaries are the exception: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them. A new release on CLI-monorepo doesn't reach the running container until you rebuild — and a plain `--build` isn't enough to guarantee that: Docker caches the `RUN ./scripts/install-clis.sh` layer by its inputs (the script's own content, unchanged), not by whether something changed on GitHub, so a normal rebuild can silently keep serving an old binary. Force it with `--no-cache`:
 
 ```bash
-docker compose up -d --build
+docker compose build --no-cache mercury
+docker compose up -d
 ```
 
 **Using the terminal REPL**
