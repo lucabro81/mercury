@@ -1,5 +1,11 @@
 # mercury
 
+## 0.7.0
+
+### Minor Changes
+
+- Google Chat replies now stream in as they're generated instead of arriving as one message at the end: the answer is split into several messages at sentence boundaries, a message shows which tool is currently running, and a one-time note appears if too much time passes with no activity. The terminal channel now shows which tool is running as soon as it starts, instead of only after it finishes. Also raises the model's tool-call budget so multi-step answers aren't cut short, with an explicit message if a turn still comes back empty.
+
 ## 0.6.0
 
 ### Minor Changes
