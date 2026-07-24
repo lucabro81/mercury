@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./google-chat-client.ts";
+import { ensureSpaceSubscription, sendMessage, updateMessage, getUser, getOrCreateDmSpace } from "./google-chat-client.ts";
 import type { CliResult } from "../../tools/cli-executor.ts";
 
 /**
@@ -276,6 +276,40 @@ describe("sendMessage", () => {
     });
 
     await expect(sendMessage("spaces/X", "hi", runCliFn)).rejects.toThrow(/boom/);
+  });
+});
+
+describe("updateMessage", () => {
+  it("calls google-chat messages update with the exact args", async () => {
+    let receivedBinary: string | undefined;
+    let receivedArgs: string[] | undefined;
+    const runCliFn = async (binary: string, args: string[]): Promise<CliResult> => {
+      receivedBinary = binary;
+      receivedArgs = args;
+      return { ok: true, data: { name: "spaces/X/messages/Y" } };
+    };
+
+    const result = await updateMessage("spaces/X/messages/Y", "corrected text", runCliFn);
+
+    expect(receivedBinary).toBe("google-chat");
+    expect(receivedArgs).toEqual([
+      "messages",
+      "update",
+      "--name",
+      "spaces/X/messages/Y",
+      "--text",
+      "corrected text",
+    ]);
+    expect(result).toEqual({ name: "spaces/X/messages/Y" });
+  });
+
+  it("throws explicitly when runCliFn returns an error result", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({
+      ok: false,
+      error: "google-chat exited with code 1: boom",
+    });
+
+    await expect(updateMessage("spaces/X/messages/Y", "hi", runCliFn)).rejects.toThrow(/boom/);
   });
 });
 

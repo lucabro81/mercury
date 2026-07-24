@@ -189,3 +189,28 @@ export async function sendMessage(
   ]);
   return unwrap(result) as { name: string };
 }
+
+/**
+ * Edits an already-sent message's text via `messages update --name <name>
+ * --text <text>` (PATCH-based; Chat marks it "(edited)" in the UI). Used
+ * only to rewrite the streaming coordinator's one-shot "might be stuck"
+ * note once real content actually arrives — never exposed to the model
+ * (see `cli-configs/google-chat.json`, which likewise has no entry for
+ * `messages send`: this is channel-internal transport, not a
+ * model-invocable tool).
+ */
+export async function updateMessage(
+  name: string,
+  text: string,
+  runCliFn: typeof runCli,
+): Promise<{ name: string }> {
+  const result = await runCliFn("google-chat", [
+    "messages",
+    "update",
+    "--name",
+    name,
+    "--text",
+    text,
+  ]);
+  return unwrap(result) as { name: string };
+}
