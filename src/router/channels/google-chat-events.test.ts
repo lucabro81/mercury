@@ -5,7 +5,7 @@ import {
   deriveSessionKey,
   startGoogleChatSpaceChannel,
   startGoogleChatChannelManager,
-  NO_REPLY,
+  type ChatHandleInput,
 } from "./google-chat-events.ts";
 import { createConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli, spawnLines } from "../../tools/cli-executor.ts";
@@ -175,7 +175,7 @@ describe("startGoogleChatSpaceChannel", () => {
 
     await startGoogleChatSpaceChannel(
       "spaces/X",
-      async () => "ok",
+      async () => {},
       { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
     );
@@ -183,7 +183,14 @@ describe("startGoogleChatSpaceChannel", () => {
     expect(callOrder).toEqual(["ensureSpaceSubscriptionFn", "spawnLinesFn"]);
   });
 
-  it("calls handleInput with the event's text and space, then sends the reply", async () => {
+  // Sending is now handleInput's own responsibility (it owns the whole
+  // streaming reply, see ChatHandleInput's doc comment) — processLine no
+  // longer calls sendMessageFn itself for the normal-reply path, it only
+  // forwards handleInput's reported names into loop prevention. The
+  // "reported name actually lands in loop prevention" half of this is
+  // covered by the very next test, which re-delivers that same name as a
+  // new incoming event.
+  it("calls handleInput with the event's text and space, and never calls sendMessageFn itself", async () => {
     const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
       name: "subscriptions/abc",
     });
@@ -195,22 +202,20 @@ describe("startGoogleChatSpaceChannel", () => {
       // exited only resolves once the test says the process is done.
       return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
     };
-    let sentSpace: string | undefined;
-    let sentText: string | undefined;
-    const sendMessageFn: typeof sendMessage = async (space, text) => {
-      sentSpace = space;
-      sentText = text;
+    let sendMessageFnCalls = 0;
+    const sendMessageFn: typeof sendMessage = async () => {
+      sendMessageFnCalls++;
       return { name: "spaces/X/messages/reply-1" };
     };
 
     let receivedInput: string | undefined;
     let receivedSpace: string | undefined;
     let receivedSender: string | undefined;
-    const handleInput = async (input: string, space: string, sender: string) => {
+    const handleInput: ChatHandleInput = async (input, space, sender, onMessageSent) => {
       receivedInput = input;
       receivedSpace = space;
       receivedSender = sender;
-      return "the reply";
+      onMessageSent("spaces/X/messages/reply-1");
     };
 
     const channelPromise = startGoogleChatSpaceChannel(
@@ -239,93 +244,6 @@ describe("startGoogleChatSpaceChannel", () => {
     expect(receivedInput).toBe("hi mercury");
     expect(receivedSpace).toBe("spaces/X");
     expect(receivedSender).toBe("users/42");
-    expect(sentSpace).toBe("spaces/X");
-    expect(sentText).toBe("the reply");
-  });
-
-  // NO_REPLY heuristic (interim mitigation for Mercury replying to every
-  // message in a shared space): a reply the model judges isn't addressed
-  // to it must never actually be posted — sendMessageFn must not even be
-  // called.
-  it("does not call sendMessageFn when handleInput returns the NO_REPLY sentinel", async () => {
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
-      name: "subscriptions/abc",
-    });
-    let capturedOnLine: ((line: string) => void) | undefined;
-    let resolveExited: (() => void) | undefined;
-    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
-      capturedOnLine = onLine;
-      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
-    };
-    let sendMessageFnCalls = 0;
-    const sendMessageFn: typeof sendMessage = async () => {
-      sendMessageFnCalls++;
-      return { name: "spaces/X/messages/reply-1" };
-    };
-    const handleInput = async () => NO_REPLY;
-
-    const channelPromise = startGoogleChatSpaceChannel(
-      "spaces/X",
-      handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
-      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
-    );
-
-    await new Promise((r) => setTimeout(r, 0));
-
-    capturedOnLine?.(
-      fakeMessageCreatedEventLine({
-        space: "spaces/X",
-        name: "spaces/X/messages/incoming-1",
-        text: "not for you, mercury",
-      }),
-    );
-    resolveExited?.();
-
-    await channelPromise;
-
-    expect(sendMessageFnCalls).toBe(0);
-  });
-
-  // Whitespace around the sentinel (a trailing newline the model added,
-  // say) must not accidentally cause a real reply to be sent instead.
-  it("treats NO_REPLY with surrounding whitespace the same as an exact match", async () => {
-    const ensureSpaceSubscriptionFn: typeof ensureSpaceSubscription = async () => ({
-      name: "subscriptions/abc",
-    });
-    let capturedOnLine: ((line: string) => void) | undefined;
-    let resolveExited: (() => void) | undefined;
-    const spawnLinesFn: typeof spawnLines = (_binary, _args, onLine) => {
-      capturedOnLine = onLine;
-      return { exited: new Promise<void>((resolve) => { resolveExited = resolve; }) };
-    };
-    let sendMessageFnCalls = 0;
-    const sendMessageFn: typeof sendMessage = async () => {
-      sendMessageFnCalls++;
-      return { name: "spaces/X/messages/reply-1" };
-    };
-    const handleInput = async () => `  ${NO_REPLY}\n`;
-
-    const channelPromise = startGoogleChatSpaceChannel(
-      "spaces/X",
-      handleInput,
-      { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
-      { topic: "projects/p/topics/t", pubsubSubscription: "projects/p/subscriptions/s" },
-    );
-
-    await new Promise((r) => setTimeout(r, 0));
-
-    capturedOnLine?.(
-      fakeMessageCreatedEventLine({
-        space: "spaces/X",
-        name: "spaces/X/messages/incoming-1",
-        text: "not for you, mercury",
-      }),
-    );
-    resolveExited?.();
-
-    await channelPromise;
-
     expect(sendMessageFnCalls).toBe(0);
   });
 
@@ -344,9 +262,9 @@ describe("startGoogleChatSpaceChannel", () => {
     });
 
     let handleInputCalls = 0;
-    const handleInput = async () => {
+    const handleInput: ChatHandleInput = async (_input, _space, _sender, onMessageSent) => {
       handleInputCalls++;
-      return "reply";
+      onMessageSent("spaces/X/messages/self-sent-1");
     };
 
     const channelPromise = startGoogleChatSpaceChannel(
@@ -406,9 +324,8 @@ describe("startGoogleChatSpaceChannel", () => {
       return { name: "spaces/X/messages/reply-1" };
     };
     let handleInputCalls = 0;
-    const handleInput = async () => {
+    const handleInput: ChatHandleInput = async () => {
       handleInputCalls++;
-      return "should not be used";
     };
 
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
@@ -454,9 +371,8 @@ describe("startGoogleChatSpaceChannel", () => {
       return { name: "spaces/X/messages/reply-1" };
     };
     let handleInputCalls = 0;
-    const handleInput = async () => {
+    const handleInput: ChatHandleInput = async () => {
       handleInputCalls++;
-      return "should not be used";
     };
 
     const channelPromise = startGoogleChatSpaceChannel(
@@ -494,9 +410,8 @@ describe("startGoogleChatSpaceChannel", () => {
     };
     const sendMessageFn: typeof sendMessage = async () => ({ name: "spaces/X/messages/reply-1" });
     let handleInputCalls = 0;
-    const handleInput = async () => {
+    const handleInput: ChatHandleInput = async () => {
       handleInputCalls++;
-      return "a normal reply";
     };
 
     const channelPromise = startGoogleChatSpaceChannel(
@@ -544,7 +459,7 @@ describe("startGoogleChatChannelManager", () => {
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const manager = startGoogleChatChannelManager(
-      async () => "ok",
+      async () => {},
       { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: ["spaces/A", "spaces/B"] },
     );
@@ -564,7 +479,7 @@ describe("startGoogleChatChannelManager", () => {
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const manager = startGoogleChatChannelManager(
-      async () => "ok",
+      async () => {},
       { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: [] },
     );
@@ -584,7 +499,7 @@ describe("startGoogleChatChannelManager", () => {
     const { spawnLinesFn, sendMessageFn } = noopChannelDeps();
 
     const manager = startGoogleChatChannelManager(
-      async () => "ok",
+      async () => {},
       { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: [] },
     );
@@ -620,7 +535,7 @@ describe("startGoogleChatChannelManager", () => {
 
     try {
       const manager = startGoogleChatChannelManager(
-        async () => "ok",
+        async () => {},
         { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
         { topic: "projects/p/topics/t", spaces: [] },
       );
@@ -653,7 +568,7 @@ describe("startGoogleChatChannelManager", () => {
     const sendMessageFn: typeof sendMessage = async () => ({ name: "n" });
 
     const manager = startGoogleChatChannelManager(
-      async () => "ok",
+      async () => {},
       { spawnLinesFn, sendMessageFn, ensureSpaceSubscriptionFn, runCliFn, store: createConfirmationStore(), vaultPath, writeSuppressionNoteFn, recordSuppressionEventFn },
       { topic: "projects/p/topics/t", spaces: ["spaces/A"] },
     );

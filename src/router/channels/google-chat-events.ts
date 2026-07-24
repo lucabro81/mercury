@@ -29,14 +29,36 @@ export type ChatMessageEvent = { text: string; messageName: string; space: strin
 
 /**
  * Sentinel a model can return to mean "this message isn't addressed to
- * me" in a shared, multi-person space — `processLine` checks for this
- * exact value (trimmed) and skips `sendMessageFn` entirely when it
- * matches, so nothing gets posted back into the space. An interim,
- * explicitly non-deterministic mitigation for Mercury replying to every
- * message in a shared space (a real fix needs Mercury's own identity +
- * real mention detection, not available yet) — not a replacement for it.
+ * me" in a shared, multi-person space. With streaming, "the reply" isn't
+ * known as one string until the turn ends — the exact-match check against
+ * this sentinel now lives inside `handleInput` itself (see
+ * `google-chat-streamer.ts`'s `finalize`, which suppresses sending
+ * anything when the never-flushed buffer trims to exactly this value),
+ * not here in `processLine`. An interim, explicitly non-deterministic
+ * mitigation for Mercury replying to every message in a shared space (a
+ * real fix needs Mercury's own identity + real mention detection, not
+ * available yet) — not a replacement for it.
  */
 export const NO_REPLY = "NO_REPLY";
+
+/**
+ * Contract for Google Chat's per-turn handler: unlike the terminal
+ * channel's `handleInput` (which just returns the finished reply text),
+ * this one owns sending the reply itself — one turn can become several
+ * Google Chat messages (split at sentence boundaries, plus one per tool
+ * call and an optional stuck-note, see `google-chat-streamer.ts`), sent
+ * as they become ready rather than all at once at the end.
+ * `onMessageSent` is called once per message actually sent, so the
+ * caller (`processLine`, below) can still track every one of them for
+ * loop prevention, exactly as it did with the single name a plain
+ * `sendMessageFn` call used to return.
+ */
+export type ChatHandleInput = (
+  input: string,
+  space: string,
+  sender: string,
+  onMessageSent: (name: string) => void,
+) => Promise<void>;
 
 /**
  * Raw shape of one `google-chat listen` NDJSON line — the envelope
@@ -155,7 +177,7 @@ export function deriveSubscriptionName(topic: string, space: string): string {
  */
 export async function startGoogleChatSpaceChannel(
   space: string,
-  handleInput: (input: string, space: string, sender: string) => Promise<string>,
+  handleInput: ChatHandleInput,
   deps: {
     spawnLinesFn: typeof spawnLines;
     sendMessageFn: typeof sendMessage;
@@ -189,10 +211,10 @@ export async function startGoogleChatSpaceChannel(
     }
 
     // Deterministic, model-free interception for `conferma <token>` — same
-    // fail-open shape as NO_REPLY below, but here a MATCH short-circuits
-    // handleInput instead of a miss. Running a previously-approved
-    // mutation must never depend on the model relaying the message back
-    // faithfully.
+    // fail-open philosophy as NO_REPLY (see its own comment, now handled
+    // inside handleInput), but here a MATCH short-circuits handleInput
+    // instead of a miss. Running a previously-approved mutation must
+    // never depend on the model relaying the message back faithfully.
     const confirmReply = await tryConfirm(event.text, deriveSessionKey(space, event.sender), {
       store: deps.store,
       runCliFn: deps.runCliFn,
@@ -207,17 +229,7 @@ export async function startGoogleChatSpaceChannel(
       return;
     }
 
-    const reply = await handleInput(event.text, space, event.sender);
-    // NO_REPLY: the model judged this message isn't
-    // addressed to it in a shared space — post nothing, not even a blank
-    // or apologetic message. Exact match on the trimmed reply, so a
-    // model that doesn't comply exactly just falls through to sending a
-    // normal reply (fails open, not silently swallowing a real answer).
-    if (reply.trim() === NO_REPLY) {
-      return;
-    }
-    const sent = await deps.sendMessageFn(space, reply, deps.runCliFn);
-    sentMessageNames.add(sent.name);
+    await handleInput(event.text, space, event.sender, (name) => sentMessageNames.add(name));
   }
 
   let chain: Promise<void> = Promise.resolve();
@@ -265,7 +277,7 @@ export type ChannelManager = {
  * Mercury is a member of would mean auto-replying in all of them too.
  */
 export function startGoogleChatChannelManager(
-  handleInput: (input: string, space: string, sender: string) => Promise<string>,
+  handleInput: ChatHandleInput,
   deps: {
     spawnLinesFn: typeof spawnLines;
     sendMessageFn: typeof sendMessage;
