@@ -30,12 +30,14 @@
  * channel a given conversation came from.
  *
  * Streaming (see `buildStreamTextParams`/`runTurn`'s `onTextChunk`) is
- * opt-in and terminal-only: providing `onTextChunk` switches this call to
- * `streamText`, so a human watching the terminal sees the answer arrive
- * incrementally instead of waiting in silence for a full response — which
- * can take several seconds on the local development model. Google Chat
- * never sets it, since `messages send` needs one complete message anyway
- * — it stays on the plain `generateText` path below unchanged.
+ * opt-in: providing `onTextChunk` switches this call to `streamText`, so
+ * a caller sees the answer arrive incrementally instead of waiting in
+ * silence for a full response — which can take several seconds on the
+ * local development model. Both the terminal (writes chunks straight to
+ * stdout) and Google Chat (buffers chunks and flushes them as separate
+ * messages, see `google-chat-streamer.ts`) provide it; either way this
+ * function still returns the full joined text and records it as one
+ * assistant history entry, same as the plain `generateText` path below.
  */
 import { stepCountIs, type LanguageModel, type Tool } from "ai";
 import { generateText, streamText } from "ai-sdk-ollama";
@@ -62,6 +64,18 @@ export type StepInfo = {
   toolResults: Array<{ toolCallId: string; toolName: string; output: unknown }>;
   content: Array<{ type: string; toolCallId?: string; error?: unknown }>;
 };
+
+/**
+ * Substituted for a turn's response when the model produced no text at
+ * all (or only whitespace) after using its whole step budget — see
+ * `runTurn`. A turn must never end in total silence: previously this
+ * meant an empty string reached the caller with no explanation, which on
+ * Google Chat's streaming path left a "might be stuck" status line
+ * unresolved forever, since there was nothing to flush that would ever
+ * clear it.
+ */
+export const EMPTY_RESPONSE_FALLBACK =
+  "Non sono riuscito a produrre una risposta in tempo: ho esaurito i tentativi disponibili. Riprova, magari con una domanda più mirata.";
 
 /** The shape of the AI SDK call this module needs, injectable for tests. */
 type GenerateTextFn = (params: {
@@ -90,13 +104,22 @@ type StreamTextFn = (params: {
  * `defaultGenerateTextFn` below is otherwise a thin, untestable wrapper
  * around a direct SDK call.
  *
- * `stopWhen: stepCountIs(5)` is the one non-obvious part: `generateText`
+ * `stopWhen: stepCountIs(20)` is the one non-obvious part: `generateText`
  * defaults to stopping after a single step. If that step is a tool call
  * with no accompanying text (the normal case — the model calls a tool,
  * then needs the tool's result before it can answer), the call returns
  * with `text: ""` and no error, having never given the model a chance to
- * read the tool result and respond. 5 steps is enough headroom for a
- * couple of tool calls in sequence before a final answer.
+ * read the tool result and respond — some cap above 1 is needed for
+ * that. 20, not the original 5: observed live, a conversation combining
+ * wiki lookups with a jira search (which always needs `--select`, so
+ * almost always costs 2 attempts) routinely burned all 5 steps on tool
+ * calls alone, leaving the model zero steps to ever write an answer. 20
+ * matches this SDK's own default for its higher-level agent construct
+ * (`ToolLoopAgentSettings` in `ai`'s own types) — a plausible number, not
+ * an arbitrary one. `runTurn`'s empty-text fallback (below) is the
+ * remaining safety net for whatever cap is in place: if a turn still
+ * exhausts it with nothing to show, that's communicated explicitly
+ * rather than left silent.
  *
  * `generateText` itself is imported from `ai-sdk-ollama`, not the plain
  * `ai` package — confirmed by a real run: with the standard SDK's
@@ -114,7 +137,7 @@ export function buildGenerateTextParams(params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: stepCountIs(5) };
+  return { ...params, stopWhen: stepCountIs(20) };
 }
 
 /** Default production implementation: calls the real `generateText` from `ai`. */
@@ -137,7 +160,7 @@ export function buildStreamTextParams(params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: stepCountIs(5) };
+  return { ...params, stopWhen: stepCountIs(20) };
 }
 
 /** Default production implementation: calls the real `streamText` from `ai-sdk-ollama`. */
@@ -219,6 +242,11 @@ export async function runTurn(
     }
     deps.onUsage?.((await result.totalUsage)?.inputTokens);
 
+    if (fullText.trim().length === 0) {
+      fullText = EMPTY_RESPONSE_FALLBACK;
+      deps.onTextChunk(fullText);
+    }
+
     await history.addAssistantMessage(fullText);
     return fullText;
   }
@@ -233,6 +261,7 @@ export async function runTurn(
   });
   deps.onUsage?.(result.totalUsage?.inputTokens);
 
-  await history.addAssistantMessage(result.text);
-  return result.text;
+  const text = result.text.trim().length === 0 ? EMPTY_RESPONSE_FALLBACK : result.text;
+  await history.addAssistantMessage(text);
+  return text;
 }
