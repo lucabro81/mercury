@@ -4,7 +4,12 @@
 
 ### Minor Changes
 
-- Google Chat replies now stream in as they're generated instead of arriving as one message at the end: the answer is split into several messages at sentence boundaries, a message shows which tool is currently running, and a one-time note appears if too much time passes with no activity. The terminal channel now shows which tool is running as soon as it starts, instead of only after it finishes. Also raises the model's tool-call budget so multi-step answers aren't cut short, with an explicit message if a turn still comes back empty.
+- Google Chat replies now stream in as they're generated, split into several messages at sentence boundaries, instead of arriving as one message at the end.
+- A message shows which tool is currently running during a Google Chat conversation.
+- A one-time note appears if too much time passes with no activity and no answer yet.
+- The terminal channel now shows which tool is running as soon as it starts, instead of only after it finishes.
+- Raised the model's tool-call budget so multi-step answers aren't cut short.
+- A turn that still comes back with no answer now gets an explicit message instead of silence.
 
 ## 0.6.0
 
