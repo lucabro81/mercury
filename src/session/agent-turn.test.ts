@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runTurn, buildGenerateTextParams, buildStreamTextParams } from "./agent-turn.ts";
+import { runTurn, buildGenerateTextParams, buildStreamTextParams, EMPTY_RESPONSE_FALLBACK } from "./agent-turn.ts";
 import { createSessionHistory } from "./history.ts";
 import type { Message } from "./history.ts";
 import type { Tool } from "ai";
@@ -239,6 +239,97 @@ describe("runTurn", () => {
 
     expect(receivedInputTokens).toBe(5678);
   });
+
+  // Regression: observed live — a turn that spent its entire tool-call
+  // budget on retries (e.g. jira's required --select, guessed wrong a
+  // couple of times) can reach the model's step limit with no step left
+  // to actually write an answer. streamText then resolves with a
+  // textStream that yields nothing at all: no error, no chunk, and
+  // (before this fix) nothing ever reached the user — Google Chat's
+  // streamer had literally nothing to flush, leaving a "might be stuck"
+  // status line unresolved forever. A turn must never end in total
+  // silence: an empty final answer becomes an explicit fallback message
+  // instead, delivered the same way real content would have been.
+  it("delivers an explicit fallback via onTextChunk, and records it, when the streamed answer is entirely empty", async () => {
+    async function* emptyStream() {
+      // yields nothing — the model ran out of steps before writing text
+    }
+    const history = createSessionHistory(neverSummarize);
+    const received: string[] = [];
+    const streamTextFn = async () => ({ textStream: emptyStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: (chunk) => received.push(chunk),
+    });
+
+    expect(received).toEqual([EMPTY_RESPONSE_FALLBACK]);
+    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+    expect(history.getMessages()).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: EMPTY_RESPONSE_FALLBACK },
+    ]);
+  });
+
+  it("treats a whitespace-only streamed answer the same as an empty one", async () => {
+    async function* whitespaceStream() {
+      yield "   \n";
+    }
+    const history = createSessionHistory(neverSummarize);
+    const streamTextFn = async () => ({ textStream: whitespaceStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+    });
+
+    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+  });
+
+  it("does not touch a non-empty streamed answer", async () => {
+    async function* fakeStream() {
+      yield "a real answer";
+    }
+    const history = createSessionHistory(neverSummarize);
+    const streamTextFn = async () => ({ textStream: fakeStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+    });
+
+    expect(result).toBe("a real answer");
+  });
+
+  // Same regression, non-streaming path (currently unused in production —
+  // both real channels always set onTextChunk — but kept correct since
+  // it's still a public, directly tested code path.
+  it("substitutes the fallback when generateText returns empty text", async () => {
+    const history = createSessionHistory(neverSummarize);
+    const generateTextFn = async () => ({ text: "" });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      generateTextFn,
+    });
+
+    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+    expect(history.getMessages()).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: EMPTY_RESPONSE_FALLBACK },
+    ]);
+  });
 });
 
 describe("buildGenerateTextParams", () => {
@@ -248,7 +339,15 @@ describe("buildGenerateTextParams", () => {
   // step to synthesize a final answer from the tool result — text comes
   // back empty. Observed for real: asking Mercury a Jira question made it
   // call jiraCli and return an empty string, with no error anywhere.
-  it("includes a stopWhen that allows more than one step, so a tool call isn't the final step", () => {
+  //
+  // The cap is 20, not the original 5: observed live, a conversation
+  // combining wiki lookups with a jira search (which always needs
+  // --select, so almost always costs 2 attempts) routinely spent all 5
+  // steps on tool calls alone, leaving zero steps for the model to ever
+  // write an answer. 20 matches this SDK's own default for its
+  // higher-level agent construct (see ai/dist/index.d.ts's
+  // ToolLoopAgentSettings) — a plausible, not arbitrary, number.
+  it("configures a step cap of 20, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
     const params = buildGenerateTextParams({
       model: "fake-model" as never,
       messages: [],
@@ -256,14 +355,15 @@ describe("buildGenerateTextParams", () => {
       system: SYSTEM,
     });
 
-    expect(params.stopWhen).toBeDefined();
+    const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
+    expect(await stopWhen({ steps: new Array(19).fill({}) })).toBe(false);
+    expect(await stopWhen({ steps: new Array(20).fill({}) })).toBe(true);
   });
 });
 
 describe("buildStreamTextParams", () => {
-  // Same regression as buildGenerateTextParams's, for the streaming path:
-  // a tool-call-only first step must not be the stream's last step.
-  it("includes a stopWhen that allows more than one step, so a tool call isn't the final step", () => {
+  // Same regression as buildGenerateTextParams's, for the streaming path.
+  it("configures a step cap of 20, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
     const params = buildStreamTextParams({
       model: "fake-model" as never,
       messages: [],
@@ -271,6 +371,8 @@ describe("buildStreamTextParams", () => {
       system: SYSTEM,
     });
 
-    expect(params.stopWhen).toBeDefined();
+    const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
+    expect(await stopWhen({ steps: new Array(19).fill({}) })).toBe(false);
+    expect(await stopWhen({ steps: new Array(20).fill({}) })).toBe(true);
   });
 });

@@ -38,6 +38,8 @@ import {
 import type { StepInfo } from "./session/agent-turn.ts";
 import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
 import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./router/channels/google-chat-client.ts";
+import { createChatStreamer } from "./router/channels/google-chat-streamer.ts";
+import { withToolStartHook } from "./session/tool-start-hook.ts";
 import { resolveSenderName } from "./router/user-resolution.ts";
 import {
   writeResolvedNote,
@@ -385,7 +387,11 @@ const staticTools: Record<string, Tool> = {};
 // are scoped per-person, not per-(space,person) pair, so it must not
 // include the space. Terminal has no real per-user identity (single
 // operator), so it just uses a fixed "terminal" id.
-function buildTools(sessionKey: string, wikiUserId: string): Record<string, Tool> {
+function buildTools(
+  sessionKey: string,
+  wikiUserId: string,
+  onToolStart?: (label: string) => void,
+): Record<string, Tool> {
   const sessionTools: Record<string, Tool> = { ...staticTools };
   if (Object.keys(activeCliConfigs).length > 0) {
     Object.assign(
@@ -395,7 +401,7 @@ function buildTools(sessionKey: string, wikiUserId: string): Record<string, Tool
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
-  return sessionTools;
+  return onToolStart ? withToolStartHook(sessionTools, onToolStart, activeCliConfigs) : sessionTools;
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
@@ -423,7 +429,7 @@ function logStep(prefix: string, step: StepInfo): void {
 
 if (googleChatTopic) {
   const manager = startGoogleChatChannelManager(
-    async (input, space, sender) => {
+    async (input, space, sender, onMessageSent) => {
       const sessionKey = deriveSessionKey(space, sender);
       // Touch before processing, not after: the idle clock should track time
       // since the human's last message, not Mercury's response latency.
@@ -440,21 +446,39 @@ if (googleChatTopic) {
         writeResolvedNoteFn: writeResolvedNote,
       });
       const markedInput = senderName ? `[Da: ${senderName}]\n${input}` : input;
-      return runTurn(getOrCreateHistory(sessionKey), markedInput, {
-        model,
-        // encodeURIComponent: matches how writeResolvedNote already encodes
-        // the sender id (which contains "/", e.g. "users/42") into a safe
-        // single path segment — using the raw sender here would scope wiki
-        // tool access to a directory that never actually gets written to.
-        tools: buildTools(sessionKey, encodeURIComponent(sender)),
-        system: chatSystem,
-        onStepFinish: (step) => {
-          logStep(`[chat:${space}:${sender}] `, step);
-          recordStep("google-chat", sessionKey, step);
-        },
-        onUsage: (inputTokens) =>
-          console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
+
+      // Streams the reply as it's generated, splitting it into several
+      // Chat messages at sentence boundaries, plus a new message each
+      // time a tool call starts and, after a sustained silence with
+      // nothing flushed yet, a "might be stuck" note (see
+      // `google-chat-streamer.ts`) — long pauses on constrained hardware
+      // used to look identical to Mercury being stuck.
+      const streamer = createChatStreamer(space, {
+        sendMessageFn: sendMessage,
+        runCliFn: runCli,
+        onMessageSent,
       });
+      try {
+        await runTurn(getOrCreateHistory(sessionKey), markedInput, {
+          model,
+          // encodeURIComponent: matches how writeResolvedNote already encodes
+          // the sender id (which contains "/", e.g. "users/42") into a safe
+          // single path segment — using the raw sender here would scope wiki
+          // tool access to a directory that never actually gets written to.
+          tools: buildTools(sessionKey, encodeURIComponent(sender), streamer.onToolStart),
+          system: chatSystem,
+          onTextChunk: streamer.onTextChunk,
+          onStepFinish: (step) => {
+            logStep(`[chat:${space}:${sender}] `, step);
+            recordStep("google-chat", sessionKey, step);
+          },
+          onUsage: (inputTokens) =>
+            console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
+        });
+        await streamer.finalize();
+      } finally {
+        streamer.stopHeartbeat(); // guards against a timer leak if runTurn/finalize throws
+      }
     },
     {
       spawnLinesFn: spawnLines,
@@ -535,13 +559,18 @@ await startTerminalRepl(
     lastSteps = [];
     const result = await runTurn(getOrCreateHistory("terminal"), input, {
       model,
-      tools: buildTools("terminal", "terminal"),
+      // The third arg prints a dim/italic "sto leggendo/scrivendo..." line
+      // the moment a tool call starts, reusing the same stdout pipe as
+      // onTextChunk below. Google Chat's wiring above passes
+      // streamer.onToolStart instead, which sends the same label as its
+      // own Chat message (see google-chat-streamer.ts's onToolStart).
+      tools: buildTools("terminal", "terminal", (label) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`)),
       system,
       // Streams the answer to the terminal as it's generated instead of
       // going silent for however long the full response takes — the local
       // development model can take several seconds. Google Chat's wiring
-      // above never sets this, since `messages send` needs one complete
-      // message anyway.
+      // above streams too now, but into separate Chat messages rather than
+      // one growing block of stdout text.
       onTextChunk: onChunk,
       // Visibility into what Mercury did before answering, same as Google
       // Chat's wiring above (see logStep) — additionally kept in
