@@ -340,14 +340,16 @@ describe("buildGenerateTextParams", () => {
   // back empty. Observed for real: asking Mercury a Jira question made it
   // call jiraCli and return an empty string, with no error anywhere.
   //
-  // The cap is 20, not the original 5: observed live, a conversation
+  // The cap was raised from an original 5: observed live, a conversation
   // combining wiki lookups with a jira search (which always needs
   // --select, so almost always costs 2 attempts) routinely spent all 5
   // steps on tool calls alone, leaving zero steps for the model to ever
-  // write an answer. 20 matches this SDK's own default for its
-  // higher-level agent construct (see ai/dist/index.d.ts's
-  // ToolLoopAgentSettings) — a plausible, not arbitrary, number.
-  it("configures a step cap of 20, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
+  // write an answer. First raised to 20 (matching this SDK's own default
+  // for its higher-level agent construct, see ai/dist/index.d.ts's
+  // ToolLoopAgentSettings), then to 100 for extra headroom during this
+  // research phase — the model should be free to make as many tool calls
+  // as it needs, not be cut off by an arbitrary ceiling.
+  it("configures a step cap of 100, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
     const params = buildGenerateTextParams({
       model: "fake-model" as never,
       messages: [],
@@ -356,14 +358,14 @@ describe("buildGenerateTextParams", () => {
     });
 
     const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
-    expect(await stopWhen({ steps: new Array(19).fill({}) })).toBe(false);
-    expect(await stopWhen({ steps: new Array(20).fill({}) })).toBe(true);
+    expect(await stopWhen({ steps: new Array(99).fill({}) })).toBe(false);
+    expect(await stopWhen({ steps: new Array(100).fill({}) })).toBe(true);
   });
 });
 
 describe("buildStreamTextParams", () => {
   // Same regression as buildGenerateTextParams's, for the streaming path.
-  it("configures a step cap of 20, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
+  it("configures a step cap of 100, so tool-heavy turns aren't cut off before the model gets to answer", async () => {
     const params = buildStreamTextParams({
       model: "fake-model" as never,
       messages: [],
@@ -372,7 +374,7 @@ describe("buildStreamTextParams", () => {
     });
 
     const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
-    expect(await stopWhen({ steps: new Array(19).fill({}) })).toBe(false);
-    expect(await stopWhen({ steps: new Array(20).fill({}) })).toBe(true);
+    expect(await stopWhen({ steps: new Array(99).fill({}) })).toBe(false);
+    expect(await stopWhen({ steps: new Array(100).fill({}) })).toBe(true);
   });
 });

@@ -104,22 +104,26 @@ type StreamTextFn = (params: {
  * `defaultGenerateTextFn` below is otherwise a thin, untestable wrapper
  * around a direct SDK call.
  *
- * `stopWhen: stepCountIs(20)` is the one non-obvious part: `generateText`
+ * `stopWhen: stepCountIs(100)` is the one non-obvious part: `generateText`
  * defaults to stopping after a single step. If that step is a tool call
  * with no accompanying text (the normal case — the model calls a tool,
  * then needs the tool's result before it can answer), the call returns
  * with `text: ""` and no error, having never given the model a chance to
  * read the tool result and respond — some cap above 1 is needed for
- * that. 20, not the original 5: observed live, a conversation combining
- * wiki lookups with a jira search (which always needs `--select`, so
- * almost always costs 2 attempts) routinely burned all 5 steps on tool
- * calls alone, leaving the model zero steps to ever write an answer. 20
- * matches this SDK's own default for its higher-level agent construct
- * (`ToolLoopAgentSettings` in `ai`'s own types) — a plausible number, not
- * an arbitrary one. `runTurn`'s empty-text fallback (below) is the
- * remaining safety net for whatever cap is in place: if a turn still
+ * that. Raised from an original 5 (observed live: a conversation
+ * combining wiki lookups with a jira search — which always needs
+ * `--select`, so almost always costs 2 attempts — routinely burned all 5
+ * steps on tool calls alone, leaving the model zero steps to ever write
+ * an answer) to 20 (matching this SDK's own default for its
+ * higher-level agent construct, `ToolLoopAgentSettings`), then to 100 for
+ * extra headroom during this research phase — the model should be free
+ * to make as many tool calls as it actually needs, not be cut off by an
+ * arbitrary ceiling. `runTurn`'s empty-text fallback (below) is the
+ * remaining safety net regardless of the cap's value: if a turn still
  * exhausts it with nothing to show, that's communicated explicitly
- * rather than left silent.
+ * rather than left silent — the real backstop against a runaway loop is
+ * that fallback plus the step count itself still being finite, not the
+ * specific number.
  *
  * `generateText` itself is imported from `ai-sdk-ollama`, not the plain
  * `ai` package — confirmed by a real run: with the standard SDK's
@@ -137,7 +141,7 @@ export function buildGenerateTextParams(params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: stepCountIs(20) };
+  return { ...params, stopWhen: stepCountIs(100) };
 }
 
 /** Default production implementation: calls the real `generateText` from `ai`. */
@@ -160,7 +164,7 @@ export function buildStreamTextParams(params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: stepCountIs(20) };
+  return { ...params, stopWhen: stepCountIs(100) };
 }
 
 /** Default production implementation: calls the real `streamText` from `ai-sdk-ollama`. */
