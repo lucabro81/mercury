@@ -233,6 +233,33 @@ export async function writeInferredNote(
 }
 
 /**
+ * Writes a deterministically-promoted procedural correction at
+ * `curated/standards/<tool>-<topic>.md` — one file per correction, not
+ * merged into a single per-tool doc (that would need safe section-level
+ * merging into whatever a human already wrote by hand there, e.g.
+ * `curated/standards/jira-cli.md`, deliberately out of scope here).
+ * Frontmatter is still `type: inferred, source: agent` (same provenance
+ * shape as `writeInferredNote` — probabilistic, consolidation-derived, not
+ * human-authored) even though the file lives under `curated/`: the path
+ * controls read visibility (every user's wiki tools expose `curated/`,
+ * only their own `inferred/users/<userId>/`), not authorship.
+ */
+export async function writeToolCorrectionNote(
+  vaultPath: string,
+  tool: string,
+  topic: string,
+  fields: { confidence: "low" | "medium" | "high"; derived_from: string[]; last_reviewed: string | null },
+  body: string,
+): Promise<void> {
+  assertNoPathSeparator("tool", tool);
+  assertNoPathSeparator("topic", topic);
+  const frontmatter = InferredFrontmatterSchema.parse({ type: "inferred", source: "agent", ...fields });
+  const standardsRoot = resolve(vaultPath, "curated", "standards");
+  const fullPath = resolveWithinRoot(standardsRoot, `${tool}-${topic}.md`);
+  await writeNoteFile(vaultPath, fullPath, frontmatter, body, `inferred: standards/${tool}-${topic}`);
+}
+
+/**
  * Writes the deterministic id->display-name lookup at
  * `inferred/users/<encoded userId>/resolved-name.md` — always exactly one
  * fact per user (unlike `writeInferredNote`'s LLM-chosen `topic`), so

@@ -6,6 +6,7 @@ import { parse as parseYaml } from "yaml";
 import {
   writeCuratedNote,
   writeInferredNote,
+  writeToolCorrectionNote,
   writeResolvedNote,
   writeJiraUserResolvedNote,
   writeRawEntry,
@@ -187,6 +188,71 @@ describe("writeInferredNote", () => {
         "../../evil",
         "ticket_closing_style",
         { confidence: "low", derived_from: ["ep_a1b2"], last_reviewed: null },
+        "body",
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("writeToolCorrectionNote", () => {
+  it("writes a file under curated/standards/<tool>-<topic>.md with full frontmatter", async () => {
+    const vaultPath = await makeTempVault();
+    await writeToolCorrectionNote(
+      vaultPath,
+      "jira",
+      "select-prefix",
+      { confidence: "high", derived_from: ["2026-07-20T09:00:00.000Z"], last_reviewed: null },
+      "Ogni --select deve iniziare per issues.",
+    );
+
+    const text = await readFile(join(vaultPath, "curated/standards/jira-select-prefix.md"), "utf-8");
+    const { frontmatter, body } = splitFrontmatter(text);
+    expect(frontmatter).toEqual({
+      type: "inferred",
+      source: "agent",
+      confidence: "high",
+      derived_from: ["2026-07-20T09:00:00.000Z"],
+      last_reviewed: null,
+    });
+    expect(body).toBe("Ogni --select deve iniziare per issues.\n");
+  });
+
+  it("commits the write, leaving a clean working tree", async () => {
+    const vaultPath = await makeTempVault();
+    await writeToolCorrectionNote(
+      vaultPath,
+      "jira",
+      "select-prefix",
+      { confidence: "high", derived_from: ["2026-07-20T09:00:00.000Z"], last_reviewed: null },
+      "body",
+    );
+
+    const log = await gitLog(vaultPath);
+    expect(log[0]).toContain("standards/jira-select-prefix");
+    expect(await gitStatusPorcelain(vaultPath)).toBe("");
+  });
+
+  it("rejects a tool name containing a path separator", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(
+      writeToolCorrectionNote(
+        vaultPath,
+        "../../evil",
+        "select-prefix",
+        { confidence: "low", derived_from: ["x"], last_reviewed: null },
+        "body",
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a topic containing a path separator", async () => {
+    const vaultPath = await makeTempVault();
+    await expect(
+      writeToolCorrectionNote(
+        vaultPath,
+        "jira",
+        "../../evil",
+        { confidence: "low", derived_from: ["x"], last_reviewed: null },
         "body",
       ),
     ).rejects.toThrow();
