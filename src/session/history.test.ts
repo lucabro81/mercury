@@ -95,4 +95,51 @@ describe("createSessionHistory", () => {
     const expected = messages.reduce((sum, m) => sum + m.content.length, 0);
     expect(history.getCharCount()).toBe(expected);
   });
+
+  // onBeforeCompress lets an episodic/semantic capture mirror a batch of
+  // messages to Qdrant right before Layer 1 discards them from the live
+  // context — see idle-session-cron.ts's shared capture function.
+  describe("onBeforeCompress", () => {
+    it("is called with exactly the batch about to be compressed, before summarize resolves", async () => {
+      const seen: Message[][] = [];
+      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      const history = createSessionHistory(fakeSummarizer(), (messages) => {
+        seen.push(messages);
+      });
+
+      await history.addUserMessage(big);
+
+      expect(seen).toEqual([[{ role: "user", content: big }]]);
+    });
+
+    it("is never called while under the threshold", async () => {
+      const seen: Message[][] = [];
+      const history = createSessionHistory(fakeSummarizer(), (messages) => {
+        seen.push(messages);
+      });
+
+      await history.addUserMessage("short message");
+      expect(seen.length).toBe(0);
+    });
+
+    it("is optional — omitting it changes nothing about summarization behavior", async () => {
+      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      const history = createSessionHistory(fakeSummarizer());
+      await history.addUserMessage(big);
+      expect(history.getMessages()[0]?.content).toContain("a summary");
+    });
+
+    it("receives the prior summary re-injected as a leading message, same batch summarize() gets", async () => {
+      const seen: Message[][] = [];
+      const history = createSessionHistory(fakeSummarizer(), (messages) => {
+        seen.push(messages);
+      });
+
+      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1)); // first compression
+      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1)); // second compression, summary now exists
+
+      expect(seen.length).toBe(2);
+      expect(seen[1]?.[0]).toEqual({ role: "assistant", content: "Earlier conversation summary: a summary" });
+    });
+  });
 });

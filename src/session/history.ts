@@ -68,9 +68,17 @@ function summaryMessage(summary: string): Message {
  *   threshold check runs after every individual append (not once per
  *   turn), so the crossing point is caught precisely regardless of
  *   whether it's the user or assistant message that tips it over.
+ * @param onBeforeCompress - Optional, called synchronously with the exact
+ *   same batch `summarize` is about to receive, right before it's
+ *   compressed out of the live context — a second, independent signal a
+ *   caller can mirror to somewhere durable (see `idle-session-cron.ts`'s
+ *   shared capture function) before that content stops being directly
+ *   visible to the model. Fire-and-forget on purpose: this function must
+ *   never block or fail Layer 1's own compression on an external write.
  */
 export function createSessionHistory(
   summarize: (messages: Message[]) => Promise<string>,
+  onBeforeCompress?: (messages: Message[]) => void,
 ): SessionHistory {
   let rawMessages: Message[] = [];
   let summary: string | null = null;
@@ -81,6 +89,7 @@ export function createSessionHistory(
     const total = rawMessages.reduce((sum, m) => sum + m.content.length, 0);
     if (total > MAX_HISTORY_CHARS) {
       const batch = summary ? [summaryMessage(summary), ...rawMessages] : rawMessages;
+      onBeforeCompress?.(batch);
       summary = await summarize(batch);
       rawMessages = [];
     }

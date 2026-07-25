@@ -1,12 +1,120 @@
 import { describe, it, expect } from "bun:test";
 import { createIdleSessionScanner } from "./idle-session-scanner.ts";
-import { runIdleSessionSweep, startIdleSessionCron } from "./idle-session-cron.ts";
+import { runIdleSessionSweep, startIdleSessionCron, captureSessionToMemory } from "./idle-session-cron.ts";
 import type { Message } from "../session/history.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 import type { SemanticFactEntry } from "../memory/semantic-facts-store.ts";
 
 const NOW = 1_000_000_000;
 const TIMEOUT = 30 * 60_000;
+
+describe("captureSessionToMemory", () => {
+  // Regression guard for the model-invented-date bug (see
+  // episodic-summarizer.ts): the summary text is stored exactly as
+  // produced, verbatim — the entry's own `timestamp` field is the one and
+  // only source of truth for "when", never duplicated into the text.
+  it("summarizes and stores an episodic entry verbatim, without touching the summary text", async () => {
+    let stored: EpisodicSummary | undefined;
+    const messages: Message[] = [{ role: "user", content: "hi" }];
+
+    await captureSessionToMemory("users/1", "spaces/X:users/1", messages, NOW, {
+      summarize: async (msgs) => {
+        expect(msgs).toBe(messages);
+        return "user said hi";
+      },
+      store: async (entry) => {
+        stored = entry;
+      },
+    });
+
+    expect(stored).toEqual({
+      userId: "users/1",
+      sessionKey: "spaces/X:users/1",
+      summary: "user said hi",
+      timestamp: new Date(NOW).toISOString(),
+    });
+  });
+
+  it("lets a summarize/store failure propagate to the caller", async () => {
+    await expect(
+      captureSessionToMemory("users/1", "k", [], NOW, {
+        summarize: async () => "ok",
+        store: async () => {
+          throw new Error("qdrant unreachable");
+        },
+      }),
+    ).rejects.toThrow("qdrant unreachable");
+  });
+
+  it("extracts and consolidates semantic facts after a successful store, when semantic deps are provided", async () => {
+    const messages: Message[] = [{ role: "user", content: "preferisco l'italiano" }];
+    const storedFacts: SemanticFactEntry[] = [];
+    const consolidatedTopics: Array<[string, string]> = [];
+
+    await captureSessionToMemory("users/1", "k", messages, NOW, {
+      summarize: async () => "ok",
+      store: async () => {},
+      extractFacts: async (msgs) => {
+        expect(msgs).toBe(messages);
+        return [{ topic: "preferred-language", value: "italiano" }];
+      },
+      storeFact: async (entry) => {
+        storedFacts.push(entry);
+      },
+      consolidateFact: async (userId, topic) => {
+        consolidatedTopics.push([userId, topic]);
+      },
+    });
+
+    expect(storedFacts).toEqual([
+      { userId: "users/1", topic: "preferred-language", value: "italiano", timestamp: new Date(NOW).toISOString() },
+    ]);
+    expect(consolidatedTopics).toEqual([["users/1", "preferred-language"]]);
+  });
+
+  it("a failure extracting semantic facts is caught and logged, doesn't throw", async () => {
+    const loggedMessages: string[] = [];
+
+    await captureSessionToMemory("users/1", "k", [], NOW, {
+      summarize: async () => "ok",
+      store: async () => {},
+      extractFacts: async () => {
+        throw new Error("model unreachable");
+      },
+      storeFact: async () => {},
+      consolidateFact: async () => {},
+      log: (msg) => loggedMessages.push(msg),
+    });
+
+    expect(loggedMessages.some((m) => m.includes("model unreachable"))).toBe(true);
+  });
+
+  it("a failure storing/consolidating one fact doesn't stop the others", async () => {
+    const consolidatedTopics: string[] = [];
+    const loggedMessages: string[] = [];
+
+    await captureSessionToMemory("users/1", "k", [], NOW, {
+      summarize: async () => "ok",
+      store: async () => {},
+      extractFacts: async () => [
+        { topic: "team", value: "x" },
+        { topic: "role", value: "y" },
+      ],
+      storeFact: async (entry) => {
+        if (entry.topic === "team") {
+          throw new Error("qdrant unreachable");
+        }
+      },
+      consolidateFact: async (_userId, topic) => {
+        consolidatedTopics.push(topic);
+      },
+      log: (msg) => loggedMessages.push(msg),
+    });
+
+    expect(consolidatedTopics).toEqual(["role"]);
+    expect(loggedMessages.some((m) => m.includes("team") && m.includes("qdrant unreachable"))).toBe(true);
+  });
+});
 
 describe("runIdleSessionSweep", () => {
   it("summarizes, stores, and closes each idle session, then clears it from the scanner", async () => {
@@ -191,11 +299,11 @@ describe("runIdleSessionSweep", () => {
       store: async () => {},
       closeSession: () => {},
       extractFacts: async () => [
-        { topic: "bad-topic", value: "x" },
-        { topic: "good-topic", value: "y" },
+        { topic: "team", value: "x" },
+        { topic: "role", value: "y" },
       ],
       storeFact: async (entry) => {
-        if (entry.topic === "bad-topic") {
+        if (entry.topic === "team") {
           throw new Error("qdrant unreachable");
         }
       },
@@ -205,8 +313,8 @@ describe("runIdleSessionSweep", () => {
       log: (msg) => loggedMessages.push(msg),
     });
 
-    expect(consolidatedTopics).toEqual(["good-topic"]);
-    expect(loggedMessages.some((m) => m.includes("bad-topic") && m.includes("qdrant unreachable"))).toBe(true);
+    expect(consolidatedTopics).toEqual(["role"]);
+    expect(loggedMessages.some((m) => m.includes("team") && m.includes("qdrant unreachable"))).toBe(true);
   });
 });
 
