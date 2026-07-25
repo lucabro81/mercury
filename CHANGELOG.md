@@ -1,5 +1,17 @@
 # mercury
 
+## 0.8.0
+
+### Minor Changes
+
+- Episodic memory summaries no longer invent a date inside the text — the model was guessing (sometimes wrong) since it has no reliable notion of "today"; the real date is tracked in a separate, structured field instead.
+- Conversations are now mirrored to episodic/semantic memory periodically during a long session, not only once it finally goes idle.
+- Facts extracted about a user during a conversation are now limited to a fixed set of categories (team, role, preferred language, tools used), and no longer include the user's identity/name — that's already tracked separately, from a more reliable source.
+- Mercury can now learn from its own corrected mistakes: when a tool command fails and a corrected version succeeds in the same turn, it can write a standing note about the fix for future use.
+- Fixed a bug where a user's learned-preference notes could silently fail to be saved.
+- Google Chat replies now arrive as a single message instead of being split into several messages at sentence boundaries — the per-tool status messages during a reply are unaffected.
+- Raised the model's tool-call budget further, to allow longer multi-step research tasks to complete.
+
 ## 0.7.0
 
 ### Minor Changes
