@@ -1,32 +1,36 @@
 /**
- * Coordinates Google Chat's streaming reply for one turn: buffers the
- * model's streamed text and flushes it as separate messages at sentence
- * boundaries (`google-chat-message-buffer.ts`), and sends a new message
- * every time a tool call starts, showing which tool is running. If too
- * much time passes with no tool activity and no real answer yet, one
- * "might be stuck" note is sent too — it has no real consequence (there
- * is no cancellation mechanism anywhere in this codebase), and it is
- * never edited or deleted afterward even once the real answer arrives:
- * a full, permanent history of every tool call plus the stuck note (if
- * any) directly in the space is more useful for observing behavior
- * during this research phase than a tidied-up trail would be, and
- * costs nothing extra (send and update are both a real CLI subprocess +
- * network round trip, so unifying them into one edited-in-place message
- * was tried and dropped — it never actually reduced how many slow
- * operations were queued, only how many message bubbles were visible).
+ * Coordinates Google Chat's messages for one turn: sends a new message
+ * every time a tool call starts, showing which tool is running, and — once
+ * the turn is done — the final answer as one message (split only if it
+ * would exceed Google Chat's own message-size limit, see
+ * `google-chat-message-buffer.ts`). If too much time passes with no tool
+ * activity and no real answer yet, one "might be stuck" note is sent too —
+ * it has no real consequence (there is no cancellation mechanism anywhere
+ * in this codebase), and it is never edited or deleted afterward even once
+ * the real answer arrives: a full, permanent history of every tool call
+ * plus the stuck note (if any) directly in the space is more useful for
+ * observing behavior during this research phase than a tidied-up trail
+ * would be.
  *
- * Tool activity is real proof Mercury isn't stuck: `onToolStart`
- * postpones the stuck-note timer (see `scheduleNextTick`), so a turn
- * with several back-to-back tool calls never reaches it just because a
- * fixed delay elapsed.
+ * No longer consumes streamed text chunk-by-chunk (dropped along with the
+ * old sentence-boundary splitting it used to do — reviewed after live use
+ * and judged to not actually improve readability, only tool-call status
+ * messages were found genuinely useful): the Google Chat channel now
+ * drives `runTurn` on its plain, non-streaming path and hands the whole
+ * final text to `finalize` in one call.
+ *
+ * Tool activity is real proof Mercury isn't stuck: `onToolStart` postpones
+ * the stuck-note timer (see `scheduleNextTick`), so a turn with several
+ * back-to-back tool calls never reaches it just because a fixed delay
+ * elapsed.
  *
  * Every outgoing send is funneled through a single promise chain so
  * delivery order always matches call order, even though sends can be
  * triggered from independent async sources (the stuck-note timer,
- * `onToolStart`, `onTextChunk`) — same pattern `google-chat-events.ts`
- * already uses for incoming lines, applied here to outgoing ones.
+ * `onToolStart`, `finalize`) — same pattern `google-chat-events.ts` already
+ * uses for incoming lines, applied here to outgoing ones.
  */
-import { appendAndFlush } from "./google-chat-message-buffer.ts";
+import { splitForSendLimit } from "./google-chat-message-buffer.ts";
 import { NO_REPLY } from "./google-chat-events.ts";
 import type { sendMessage } from "./google-chat-client.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
@@ -36,14 +40,17 @@ export const STUCK_NOTE =
   "Non ho ancora una risposta pronta: potrebbe essersi inceppato qualcosa, ma potrebbe ripartire da sola. Non serve fare nulla.";
 
 export type ChatStreamer = {
-  /** Pass directly as runTurn's deps.onTextChunk. */
-  onTextChunk: (chunk: string) => void;
   /** Pass as buildTools' onToolStart — sends `label` as a new Chat message and postpones the stuck-note timer. */
   onToolStart: (label: string) => void;
   /** Stops the stuck-note timer immediately; idempotent, safe to call any time. */
   stopHeartbeat: () => void;
-  /** Call once the turn is done: flushes any remainder (suppressing an exact NO_REPLY match), then awaits every in-flight send. */
-  finalize: () => Promise<void>;
+  /**
+   * Call once the turn is done, with the model's complete final text:
+   * stops the stuck-note timer, sends the text as one or more messages
+   * (suppressing an exact `NO_REPLY` match, sending nothing), then awaits
+   * every in-flight send.
+   */
+  finalize: (finalText: string) => Promise<void>;
 };
 
 export function createChatStreamer(
@@ -51,7 +58,7 @@ export function createChatStreamer(
   deps: {
     sendMessageFn: typeof sendMessage;
     runCliFn: typeof runCli;
-    /** Called once per message actually sent (tool-start, stuck note, or real flush), with its returned name. */
+    /** Called once per message actually sent (tool-start, stuck note, or the final answer), with its returned name. */
     onMessageSent: (name: string) => void;
     setTimeoutFn?: typeof setTimeout;
     clearTimeoutFn?: typeof clearTimeout;
@@ -62,8 +69,6 @@ export function createChatStreamer(
   const clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
   const stuckNoteDelayMs = opts?.stuckNoteDelayMs ?? STUCK_NOTE_DELAY_MS;
 
-  let buffer = "";
-  let hasFlushedReal = false;
   let chain: Promise<void> = Promise.resolve();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
@@ -116,33 +121,16 @@ export function createChatStreamer(
     sendPlain(`_${label}_`);
   }
 
-  function flushMessages(messages: string[]): void {
-    if (!hasFlushedReal) {
-      hasFlushedReal = true;
-      stopHeartbeat();
-    }
-    for (const message of messages) {
-      sendPlain(message);
-    }
-  }
-
-  function onTextChunk(chunk: string): void {
-    const result = appendAndFlush(buffer, chunk, false);
-    buffer = result.remainder;
-    if (result.messages.length > 0) flushMessages(result.messages);
-  }
-
-  async function finalize(): Promise<void> {
+  async function finalize(finalText: string): Promise<void> {
     stopHeartbeat();
-    const result = appendAndFlush(buffer, "", true);
-    buffer = result.remainder;
-    const isSuppressedNoReply =
-      !hasFlushedReal && result.messages.length === 1 && result.messages[0] === NO_REPLY;
-    if (result.messages.length > 0 && !isSuppressedNoReply) {
-      flushMessages(result.messages);
+    const trimmed = finalText.trim();
+    if (trimmed.length > 0 && trimmed !== NO_REPLY) {
+      for (const message of splitForSendLimit(trimmed)) {
+        sendPlain(message);
+      }
     }
     await chain;
   }
 
-  return { onTextChunk, onToolStart, stopHeartbeat, finalize };
+  return { onToolStart, stopHeartbeat, finalize };
 }

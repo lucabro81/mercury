@@ -1,18 +1,21 @@
 /**
- * Pure, I/O-free buffering for splitting a model's streamed answer into
- * separate Google Chat messages at sentence boundaries, instead of one
- * final wall of text (see `google-chat-streamer.ts`, the only caller).
+ * Splits a complete final answer into more than one Google Chat message
+ * only when it would exceed the API's own message-size limit — a purely
+ * technical safety net, not a readability choice (see
+ * `google-chat-streamer.ts`, the only caller). Google Chat rejects a
+ * message over 32,000 bytes ("the maximum message size... is 32,000
+ * bytes... your Chat app must send multiple messages instead" —
+ * https://developers.google.com/workspace/chat/create-messages). A local
+ * model's answer coming anywhere close to that is effectively never
+ * observed in practice, but the cut stays in place as a correctness net
+ * regardless.
  */
 
-export const MAX_CHAT_MESSAGE_CHARS = 350;
-export const SENTENCE_END_RE = /[.!?][ \t\n\r]+/;
-
-export type BufferFlushResult = {
-  /** Zero or more messages to send now, in the order they must be sent. */
-  messages: string[];
-  /** What remains buffered, to be prepended to the next chunk (or flushed at isFinal). */
-  remainder: string;
-};
+// Characters, not bytes — a wide margin under the real 32,000-byte limit.
+// Multi-byte UTF-8 characters (accents, emoji) mean chars != bytes, but the
+// margin is generous enough that only text many times longer than any real
+// answer would ever need the exact byte count instead of this estimate.
+export const MAX_CHAT_MESSAGE_CHARS = 30_000;
 
 function lastWhitespaceIndex(s: string): number {
   for (let i = s.length - 1; i >= 0; i--) {
@@ -22,42 +25,26 @@ function lastWhitespaceIndex(s: string): number {
 }
 
 /**
- * Appends `chunk` to `buffer`, then repeatedly extracts complete sentences
- * (terminal `.`/`!`/`?` followed by real whitespace) until none remain. If
- * what's left still exceeds `MAX_CHAT_MESSAGE_CHARS`, force-flushes at the
- * last whitespace at-or-before the limit — never splits a single word, even
- * if that means one piece exceeds the cap (a single unbroken token longer
- * than the cap is left untouched rather than split). When `isFinal` is
- * true, whatever is left after all of the above is flushed too, trimmed,
- * regardless of trailing punctuation.
+ * Splits `text` at the last whitespace at-or-before `MAX_CHAT_MESSAGE_CHARS`,
+ * repeated as needed — never splits a single word, even if that means one
+ * piece exceeds the cap (a single unbroken token longer than the cap is
+ * left intact, the one documented case where the cap can be exceeded).
+ * Returns `[]` for empty/whitespace-only input.
  */
-export function appendAndFlush(buffer: string, chunk: string, isFinal: boolean): BufferFlushResult {
-  let combined = buffer + chunk;
+export function splitForSendLimit(text: string): string[] {
   const messages: string[] = [];
+  let remaining = text.trim();
 
-  for (;;) {
-    const match = SENTENCE_END_RE.exec(combined);
-    if (!match) break;
-    const sentence = combined.slice(0, match.index + 1).trim();
-    if (sentence.length > 0) messages.push(sentence);
-    combined = combined.slice(match.index + match[0].length);
-  }
-
-  while (combined.length > MAX_CHAT_MESSAGE_CHARS) {
-    const window = combined.slice(0, MAX_CHAT_MESSAGE_CHARS);
+  while (remaining.length > MAX_CHAT_MESSAGE_CHARS) {
+    const window = remaining.slice(0, MAX_CHAT_MESSAGE_CHARS);
     const cutAt = lastWhitespaceIndex(window);
     if (cutAt <= 0) break; // no safe cut point without splitting a word
-    const piece = combined.slice(0, cutAt).trim();
+    const piece = remaining.slice(0, cutAt).trim();
     if (piece.length === 0) break;
     messages.push(piece);
-    combined = combined.slice(cutAt).replace(/^\s+/, "");
+    remaining = remaining.slice(cutAt).trim();
   }
 
-  if (isFinal) {
-    const rest = combined.trim();
-    if (rest.length > 0) messages.push(rest);
-    combined = "";
-  }
-
-  return { messages, remainder: combined };
+  if (remaining.length > 0) messages.push(remaining);
+  return messages;
 }

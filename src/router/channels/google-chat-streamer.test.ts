@@ -38,7 +38,7 @@ describe("createChatStreamer", () => {
     streamer.stopHeartbeat();
   });
 
-  it("stops the stuck-note timer immediately once the first real flush happens", async () => {
+  it("stops the stuck-note timer immediately once finalize() sends the real answer", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer(
       "spaces/X",
@@ -46,7 +46,7 @@ describe("createChatStreamer", () => {
       { stuckNoteDelayMs: 20 },
     );
 
-    streamer.onTextChunk("Ecco la risposta vera. ");
+    await streamer.finalize("Ecco la risposta vera.");
     await new Promise((r) => setTimeout(r, 40)); // well past stuckNoteDelayMs
 
     expect(sendCalls).toEqual(["Ecco la risposta vera."]); // no STUCK_NOTE, ever
@@ -68,49 +68,46 @@ describe("createChatStreamer", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(sendCalls).toEqual([STUCK_NOTE]);
 
-    streamer.onTextChunk("Eccomi, falso allarme. ");
-    await new Promise((r) => setTimeout(r, 10));
+    await streamer.finalize("Eccomi, falso allarme.");
 
     expect(sendCalls).toEqual([STUCK_NOTE, "Eccomi, falso allarme."]);
   });
 
-  it("finalize() flushes a non-punctuated remainder as one final message", async () => {
+  it("finalize() sends the given text as a single message", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
-    streamer.onTextChunk("risposta senza punto");
-    await streamer.finalize();
+    await streamer.finalize("risposta senza punto");
     expect(sendCalls).toEqual(["risposta senza punto"]);
   });
 
-  it("finalize() sends nothing when the never-flushed buffer trims to exactly NO_REPLY", async () => {
+  it("finalize() sends nothing when the final text trims to exactly NO_REPLY", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
-    streamer.onTextChunk(NO_REPLY);
-    await streamer.finalize();
+    await streamer.finalize(NO_REPLY);
     expect(sendCalls).toEqual([]);
   });
 
-  it("finalize() is a no-op when the buffer is empty", async () => {
+  it("finalize() is a no-op when the final text is empty or whitespace-only", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
-    await streamer.finalize();
+    await streamer.finalize("   ");
     expect(sendCalls).toEqual([]);
   });
 
   it("delivers messages in call order even when an earlier send resolves after a later one", async () => {
     const order: string[] = [];
     const sendMessageFn = async (_space: string, text: string): Promise<{ name: string }> => {
-      const delay = text === "prima." ? 30 : 0;
+      const delay = text === "_prima…_" ? 30 : 0;
       await new Promise((r) => setTimeout(r, delay));
       order.push(text);
       return { name: `spaces/X/messages/${text}` };
     };
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
 
-    streamer.onTextChunk("prima. seconda. ");
-    await streamer.finalize();
+    streamer.onToolStart("prima…");
+    await streamer.finalize("seconda.");
 
-    expect(order).toEqual(["prima.", "seconda."]);
+    expect(order).toEqual(["_prima…_", "seconda."]);
   });
 
   it("onToolStart sends the label as a Chat-italic message and reports its name", async () => {
@@ -123,29 +120,20 @@ describe("createChatStreamer", () => {
     });
 
     streamer.onToolStart("Sto leggendo dati con jira…");
-    await streamer.finalize();
+    await streamer.finalize("");
 
     expect(sendCalls).toEqual(["_Sto leggendo dati con jira…_"]);
     expect(names).toHaveLength(1);
   });
 
-  // Reverted from the earlier "one shared, edited-in-place status
-  // message" design: send/update cost the same CLI subprocess + network
-  // round trip either way, so unifying them never actually reduced the
-  // number of slow operations queued ahead of the real answer — it only
-  // reduced how many message bubbles were visible in the space. Since
-  // the real fix for queue growth was removing the unbounded generic
-  // filler heartbeat (a separate turn's worth of work), a full visible
-  // history of every tool call is strictly more useful for observing
-  // behavior during this research phase, at no extra cost.
-  it("sends a brand new message for every tool-start call, in order, instead of editing a shared one", async () => {
+  it("sends a brand new message for every tool-start call, in order", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
 
     streamer.onToolStart("Sto leggendo il wiki…");
     streamer.onToolStart("Sto leggendo dati con jira…");
     streamer.onToolStart("Sto leggendo dati con jira…");
-    await streamer.finalize();
+    await streamer.finalize("");
 
     expect(sendCalls).toEqual([
       "_Sto leggendo il wiki…_",
@@ -154,13 +142,12 @@ describe("createChatStreamer", () => {
     ]);
   });
 
-  it("keeps a tool-start message in call order relative to a real flush right after it", async () => {
+  it("keeps a tool-start message in call order relative to the final answer right after it", async () => {
     const { sendMessageFn, sendCalls } = fakeSenders();
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
 
     streamer.onToolStart("Sto leggendo dati con jira…");
-    streamer.onTextChunk("Ecco la risposta. ");
-    await streamer.finalize();
+    await streamer.finalize("Ecco la risposta.");
 
     expect(sendCalls).toEqual(["_Sto leggendo dati con jira…_", "Ecco la risposta."]);
   });
@@ -193,7 +180,7 @@ describe("createChatStreamer", () => {
     const streamer = createChatStreamer("spaces/X", { sendMessageFn, runCliFn, onMessageSent: () => {} });
     streamer.stopHeartbeat();
     streamer.stopHeartbeat();
-    await streamer.finalize();
+    await streamer.finalize("");
     expect(() => streamer.stopHeartbeat()).not.toThrow();
   });
 });

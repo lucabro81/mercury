@@ -33,11 +33,15 @@
  * opt-in: providing `onTextChunk` switches this call to `streamText`, so
  * a caller sees the answer arrive incrementally instead of waiting in
  * silence for a full response — which can take several seconds on the
- * local development model. Both the terminal (writes chunks straight to
- * stdout) and Google Chat (buffers chunks and flushes them as separate
- * messages, see `google-chat-streamer.ts`) provide it; either way this
- * function still returns the full joined text and records it as one
- * assistant history entry, same as the plain `generateText` path below.
+ * local development model. Only the terminal channel provides it (writes
+ * chunks straight to stdout); Google Chat calls this on the plain
+ * `generateText` path instead (no `onTextChunk`) and sends the returned
+ * text as a single message via `google-chat-streamer.ts`'s `finalize` —
+ * incremental delivery never actually reached a human faster there, since
+ * Chat only shows a message once it's fully sent, unlike a terminal's
+ * live-updating stdout. Either way this function still returns the full
+ * text and records it as one assistant history entry, same as the plain
+ * `generateText` path below.
  */
 import { stepCountIs, type LanguageModel, type Tool } from "ai";
 import { generateText, streamText } from "ai-sdk-ollama";
