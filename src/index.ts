@@ -21,7 +21,7 @@ import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
 import { tryConfirm } from "./router/confirm-flow.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
-import { createSessionHistory, type SessionHistory } from "./session/history.ts";
+import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
@@ -47,19 +47,22 @@ import {
   writeCuratedNote,
   writeJiraUserResolvedNote,
   writeInferredNote,
+  writeToolCorrectionNote,
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { recordStep } from "./session/tool-log-buffer.ts";
 import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
-import { startIdleSessionCron } from "./cron/idle-session-cron.ts";
+import { startIdleSessionCron, captureSessionToMemory, type CaptureDeps } from "./cron/idle-session-cron.ts";
 import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory } from "./memory/episodic-store.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
-import { consolidateSemanticFact } from "./cron/semantic-consolidation.ts";
+import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
+import { consolidateSemanticFact, consolidateToolCorrection, type ToolCorrectionConsolidationDeps } from "./cron/semantic-consolidation.ts";
+import { createToolCorrectionExtractor } from "./session/tool-correction-extractor.ts";
 import { createEmbedder } from "./memory/embedder.ts";
 import { initVault } from "./wiki/vault-init.ts";
 import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
-import { listWikiFilesInRoots, readWikiFile } from "./wiki/wiki-read.ts";
+import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { isNotificationSuppressed } from "./cron/notification-suppression.ts";
@@ -220,10 +223,30 @@ const model = provider(ollamaModel);
 const summarize = createSummarizer(model);
 
 const histories = new Map<string, SessionHistory>();
-function getOrCreateHistory(key: string): SessionHistory {
+/**
+ * `trackForCapture` wires `onBeforeCompress` so a Layer 1 compression also
+ * mirrors the compressed batch to Qdrant (see `captureIncrement` further
+ * down) — only meaningful for Google Chat sessions, which are the only
+ * ones tracked in `sessionUsers`/`sessionCaptureMarkers`; the terminal
+ * channel omits it and behaves exactly as before.
+ */
+function getOrCreateHistory(key: string, trackForCapture = false): SessionHistory {
   let history = histories.get(key);
   if (!history) {
-    history = createSessionHistory(summarize);
+    history = createSessionHistory(
+      summarize,
+      trackForCapture
+        ? (messages) => {
+            void captureIncrement(key, messages).finally(() => {
+              // The new getMessages() view after compression starts fresh
+              // (just the new synthetic summary message) — the old
+              // marker's index has no meaning against it regardless of
+              // whether the capture above succeeded.
+              sessionCaptureMarkers.set(key, 0);
+            });
+          }
+        : undefined,
+    );
     histories.set(key, history);
   }
   return history;
@@ -237,6 +260,20 @@ function getOrCreateHistory(key: string): SessionHistory {
 // multi-user surface, and per-user isolation needs a real Google Chat
 // sender, which the terminal doesn't have.
 const sessionUsers = new Map<string, string>(); // session key -> Google Chat sender (userId)
+// How many of a session's current getMessages() entries have already been
+// mirrored to Qdrant by captureIncrement below — advanced only after a
+// successful capture, so a failure retries the same (or a larger) slice
+// next time instead of silently losing it. Reset to 0 whenever Layer 1
+// compresses the session (see history.ts's onBeforeCompress wiring further
+// down): the new getMessages() view starts fresh at that point, nothing in
+// it has been captured yet. Discarded along with everything else on
+// idle-timeout close, same as sessionUsers.
+const sessionCaptureMarkers = new Map<string, number>();
+// The current turn's tool-status callback (ChatStreamer.onToolStart),
+// refreshed each turn since a fresh streamer is created per turn — looked
+// up lazily by captureIncrement/onBeforeCompress rather than captured once,
+// same reason sessionUsers is looked up lazily instead of closed over.
+const sessionOnCaptureCallbacks = new Map<string, (label: string) => void>();
 const idleScanner = createIdleSessionScanner();
 const episodicSummarize = createEpisodicSummarizer(model);
 const embeddingModel = provider.textEmbeddingModel(process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text");
@@ -261,6 +298,25 @@ const extractFacts = createSemanticFactExtractor(model);
 const wikiVaultPath = requireEnv("WIKI_VAULT_PATH");
 await initVault(wikiVaultPath);
 
+// Shared by the idle sweep below (final capture + close) and by
+// captureIncrement further down (the two mid-conversation triggers,
+// neither of which closes the session) — one definition of "how to
+// capture", reused everywhere instead of duplicated per trigger.
+const captureDeps: CaptureDeps = {
+  summarize: episodicSummarize,
+  store: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+  extractFacts,
+  storeFact: (entry) => storeSemanticFact(qdrant, semanticFactsCollection, embed, entry),
+  consolidateFact: (userId, topic) =>
+    consolidateSemanticFact(userId, topic, {
+      vaultPath: wikiVaultPath,
+      clusterFn: (u, t, limit) => searchSemanticFactsByTopic(qdrant, semanticFactsCollection, embed, { userId: u, topic: t, limit }),
+      readWikiFileFn: readWikiFile,
+      writeInferredNoteFn: writeInferredNote,
+    }),
+  log: (msg) => console.error(`[cron] ${msg}`),
+};
+
 const idleCron = startIdleSessionCron(
   idleScanner,
   {
@@ -272,22 +328,13 @@ const idleCron = startIdleSessionCron(
       }
       return { key, userId, messages: history.getMessages() };
     },
-    summarize: episodicSummarize,
-    store: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     closeSession: (key) => {
       histories.delete(key);
       sessionUsers.delete(key);
+      sessionCaptureMarkers.delete(key);
+      sessionOnCaptureCallbacks.delete(key);
     },
-    extractFacts,
-    storeFact: (entry) => storeSemanticFact(qdrant, semanticFactsCollection, embed, entry),
-    consolidateFact: (userId, topic) =>
-      consolidateSemanticFact(userId, topic, {
-        vaultPath: wikiVaultPath,
-        clusterFn: (u, t, limit) => searchSemanticFactsByTopic(qdrant, semanticFactsCollection, embed, { userId: u, topic: t, limit }),
-        readWikiFileFn: readWikiFile,
-        writeInferredNoteFn: writeInferredNote,
-      }),
-    log: (msg) => console.error(`[cron] ${msg}`),
+    ...captureDeps,
   },
   {
     idleTimeoutMs: Number(process.env.SESSION_IDLE_TIMEOUT_MS ?? String(30 * 60_000)),
@@ -295,6 +342,90 @@ const idleCron = startIdleSessionCron(
   },
 );
 void idleCron; // kept alive for the process lifetime; no shutdown hook exists yet (same as the rest of Mercury today)
+
+// How many new messages (since the last capture) a live Google Chat
+// session needs before captureIncrement mirrors them to Qdrant, instead of
+// only ever capturing on idle-timeout — see the plan discussion: a
+// conversation that stays active for a long time, or even just 6-7
+// messages well under Layer 1's own compression threshold, previously
+// wrote nothing to Qdrant until it finally went idle.
+const MESSAGE_COUNT_CAPTURE_THRESHOLD = Number(process.env.SESSION_CAPTURE_MESSAGE_THRESHOLD ?? "6");
+
+/**
+ * Captures whatever's new in `messages` since the last capture for
+ * `sessionKey` (tracked via `sessionCaptureMarkers`) — a no-op if nothing
+ * new. Shared by both mid-conversation triggers (message-count threshold,
+ * Layer 1 compression); the idle-timeout trigger uses
+ * `runIdleSessionSweep`/`captureSessionToMemory` directly instead, since it
+ * also closes the session. Looks up that turn's tool-status callback
+ * (`sessionOnCaptureCallbacks`, refreshed per turn) and, when present,
+ * calls it once with a status label right before the capture starts —
+ * reuses the same mechanism already wired for tool-call status messages
+ * (`ChatStreamer.onToolStart` on Google Chat, the dim/italic terminal
+ * callback), so a live conversation shows this happening instead of it
+ * running invisibly.
+ */
+async function captureIncrement(sessionKey: string, messages: Message[]): Promise<void> {
+  const userId = sessionUsers.get(sessionKey);
+  if (!userId) return;
+
+  const alreadyCaptured = sessionCaptureMarkers.get(sessionKey) ?? 0;
+  const pending = messages.slice(alreadyCaptured);
+  if (pending.length === 0) return;
+
+  sessionOnCaptureCallbacks.get(sessionKey)?.("Mi sto segnando un'informazione importante…");
+  try {
+    await captureSessionToMemory(userId, sessionKey, pending, Date.now(), captureDeps);
+    sessionCaptureMarkers.set(sessionKey, messages.length);
+  } catch (err) {
+    console.error(`[capture] failed for ${sessionKey}, will retry next trigger: ${String(err)}`);
+  }
+}
+
+// Procedural corrections (punto 2/Fase D): per-turn, not per-idle-session
+// — the tool-call trace only exists in memory for the duration of the
+// turn it belongs to (see tool-correction-extractor.ts's own header for
+// why idle-session-cron.ts's sweep isn't the right place for this).
+const toolCorrectionsCollection = process.env.QDRANT_TOOL_CORRECTIONS_COLLECTION ?? "tool_corrections";
+const toolCorrectionsVectorSize = Number(process.env.QDRANT_TOOL_CORRECTIONS_VECTOR_SIZE ?? "768");
+await ensureToolCorrectionsCollection(qdrant, toolCorrectionsCollection, toolCorrectionsVectorSize);
+const extractToolCorrections = createToolCorrectionExtractor(model, undefined, {
+  log: (msg) => console.error(`[cron] ${msg}`),
+});
+const toolCorrectionConsolidationDeps: ToolCorrectionConsolidationDeps = {
+  vaultPath: wikiVaultPath,
+  clusterFn: (tool, topic, limit) =>
+    searchToolCorrectionsByTopic(qdrant, toolCorrectionsCollection, embed, { tool, topic, limit }),
+  readNoteFn: (vp, relativePath) => readWikiFileInRoots(vp, [resolvePath(vp, "curated")], relativePath),
+  writeNoteFn: writeToolCorrectionNote,
+  // A single confirmed correction (a precise error, then a precise fix, in
+  // the same turn) is already a strong signal — unlike identity/preference
+  // facts (DEFAULT_CONSOLIDATION_K = 3), which benefit from repetition to
+  // rule out a one-off. k: 1 means defaultConfidenceForCount's own
+  // dominantCount >= k branch fires on the very first candidate ("high"
+  // confidence immediately), not a separately-tuned confidence function.
+  k: 1,
+};
+
+/**
+ * Extracts and consolidates any procedural corrections found in one turn's
+ * `steps` — a no-op if none are found. `onCapture`, when given, gets the
+ * same status label used by `captureIncrement` (reused, not a new one),
+ * right before each correction is stored.
+ */
+async function processToolCorrections(steps: StepInfo[], onCapture?: (label: string) => void): Promise<void> {
+  const corrections = await extractToolCorrections(steps);
+  for (const correction of corrections) {
+    onCapture?.("Mi sto segnando un'informazione importante…");
+    try {
+      const timestamp = new Date().toISOString();
+      await storeToolCorrection(qdrant, toolCorrectionsCollection, embed, { ...correction, timestamp });
+      await consolidateToolCorrection(correction.tool, correction.topic, toolCorrectionConsolidationDeps);
+    } catch (err) {
+      console.error(`[capture] procedural correction failed for ${correction.tool}/${correction.topic}: ${String(err)}`);
+    }
+  }
+}
 
 const selfReviewCron = startSelfReviewCron(
   {
@@ -447,19 +578,30 @@ if (googleChatTopic) {
       });
       const markedInput = senderName ? `[Da: ${senderName}]\n${input}` : input;
 
-      // Streams the reply as it's generated, splitting it into several
-      // Chat messages at sentence boundaries, plus a new message each
-      // time a tool call starts and, after a sustained silence with
-      // nothing flushed yet, a "might be stuck" note (see
-      // `google-chat-streamer.ts`) — long pauses on constrained hardware
-      // used to look identical to Mercury being stuck.
+      // Sends a new message each time a tool call starts (showing which
+      // one is running) and, after a sustained silence with no real answer
+      // yet, a "might be stuck" note (see `google-chat-streamer.ts`) — long
+      // pauses on constrained hardware used to look identical to Mercury
+      // being stuck. The final answer itself is no longer split into
+      // several messages at sentence boundaries (reviewed after live use:
+      // it didn't improve readability, only the tool-status messages did)
+      // — runTurn below runs its plain, non-streaming path (no
+      // onTextChunk) and the whole result is handed to finalize() in one
+      // call once it resolves.
       const streamer = createChatStreamer(space, {
         sendMessageFn: sendMessage,
         runCliFn: runCli,
         onMessageSent,
       });
+      // Refreshed every turn: a fresh streamer (and so a fresh onToolStart)
+      // is created per turn, but captureIncrement/onBeforeCompress look
+      // this up lazily whenever a capture actually happens — see
+      // sessionOnCaptureCallbacks' own comment.
+      sessionOnCaptureCallbacks.set(sessionKey, streamer.onToolStart);
+      const history = getOrCreateHistory(sessionKey, true);
+      const turnSteps: StepInfo[] = [];
       try {
-        await runTurn(getOrCreateHistory(sessionKey), markedInput, {
+        const replyText = await runTurn(history, markedInput, {
           model,
           // encodeURIComponent: matches how writeResolvedNote already encodes
           // the sender id (which contains "/", e.g. "users/42") into a safe
@@ -467,18 +609,32 @@ if (googleChatTopic) {
           // tool access to a directory that never actually gets written to.
           tools: buildTools(sessionKey, encodeURIComponent(sender), streamer.onToolStart),
           system: chatSystem,
-          onTextChunk: streamer.onTextChunk,
           onStepFinish: (step) => {
+            turnSteps.push(step);
             logStep(`[chat:${space}:${sender}] `, step);
             recordStep("google-chat", sessionKey, step);
           },
           onUsage: (inputTokens) =>
             console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
         });
-        await streamer.finalize();
+        await streamer.finalize(replyText);
       } finally {
         streamer.stopHeartbeat(); // guards against a timer leak if runTurn/finalize throws
       }
+
+      // Message-count capture trigger: mirrors new messages to Qdrant
+      // without waiting for idle, once enough have piled up since the last
+      // capture (see MESSAGE_COUNT_CAPTURE_THRESHOLD/captureIncrement).
+      // Never blocks the reply that already went out above.
+      const currentMessages = history.getMessages();
+      const alreadyCaptured = sessionCaptureMarkers.get(sessionKey) ?? 0;
+      if (currentMessages.length - alreadyCaptured >= MESSAGE_COUNT_CAPTURE_THRESHOLD) {
+        await captureIncrement(sessionKey, currentMessages);
+      }
+
+      // Procedural corrections for this turn (punto 2/Fase D) — global,
+      // not scoped to this session's own capture marker.
+      await processToolCorrections(turnSteps, streamer.onToolStart);
     },
     {
       spawnLinesFn: spawnLines,
@@ -588,6 +744,10 @@ await startTerminalRepl(
     if (contextLength === null) {
       contextLength = await getLoadedContextLength(ollamaHost, ollamaModel);
     }
+    // Procedural corrections for this turn (punto 2/Fase D) — same as
+    // Google Chat's wiring above, reusing lastSteps (already populated by
+    // onStepFinish above) instead of a separate accumulator.
+    await processToolCorrections(lastSteps, (label) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`));
     return result;
   },
   undefined,
