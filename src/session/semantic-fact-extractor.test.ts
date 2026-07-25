@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createSemanticFactExtractor, normalizeTopic, type SemanticFact } from "./semantic-fact-extractor.ts";
+import { createSemanticFactExtractor, SemanticFactSchema, type SemanticFact } from "./semantic-fact-extractor.ts";
 import type { LanguageModel } from "ai";
 import type { Message } from "./history.ts";
 
@@ -60,30 +60,64 @@ describe("createSemanticFactExtractor", () => {
     expect(received?.system.toLowerCase()).toMatch(/stabil|ricorrent|preferenz/);
   });
 
-  // Clustering (next unit) groups facts by userId+topic — inconsistent
-  // casing/formatting from the LLM ("Team" vs "team" vs "il team") would
-  // silently defeat that grouping, so topics are normalized deterministically
-  // in code rather than trusted to the model's formatting.
-  it("normalizes each fact's topic but leaves value untouched", async () => {
-    const generateObjectFn = async () => ({ object: [{ topic: "Preferred Language", value: "Italiano" }] });
+  // Point 5: identity/name is already tracked deterministically elsewhere
+  // (writeResolvedNote, sourced from Google Chat's own user API) — a
+  // semantic fact about "who the user is" would only ever duplicate or
+  // contradict that more authoritative source, never add anything.
+  it("instructs the model not to extract the user's identity/name", async () => {
+    let received: { system: string } | undefined;
+    const generateObjectFn = async (params: { system: string }) => {
+      received = params;
+      return { object: [] };
+    };
 
     const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
-    const result = await extract(MESSAGES);
+    await extract(MESSAGES);
 
-    expect(result).toEqual([{ topic: "preferred-language", value: "Italiano" }]);
+    expect(received?.system.toLowerCase()).toMatch(/identità|nome/);
+  });
+
+  // Point 4: index.ts prepends "[Da: <name>]" to every user message before
+  // it reaches history — a bookkeeping marker Mercury wrote itself, not
+  // something the user said. Left in, the extractor mistakes the repeated
+  // marker for a "stable, recurring fact" (this is exactly how the
+  // duplicate name/user-name topics happened live).
+  it("strips the '[Da: <name>]' sender marker from user messages before building the prompt", async () => {
+    let received: { prompt: string } | undefined;
+    const generateObjectFn = async (params: { prompt: string }) => {
+      received = params;
+      return { object: [] };
+    };
+
+    const markedMessages: Message[] = [
+      { role: "user", content: "[Da: Luca Brognara]\npreferisco che le risposte siano in italiano" },
+      { role: "assistant", content: "ok, risponderò in italiano" },
+    ];
+
+    const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
+    await extract(markedMessages);
+
+    expect(received?.prompt).not.toContain("[Da:");
+    expect(received?.prompt).not.toContain("Luca Brognara");
+    expect(received?.prompt).toContain("preferisco che le risposte siano in italiano");
   });
 });
 
-describe("normalizeTopic", () => {
-  it("lowercases and trims surrounding whitespace", () => {
-    expect(normalizeTopic("  Preferred Language  ")).toBe("preferred-language");
+describe("SemanticFactSchema", () => {
+  // Point 3: a closed vocabulary eliminates topic drift at the source —
+  // the model can no longer invent a new key ("name" vs "user-name") for
+  // the same concept, since only these exact values are valid output.
+  it("accepts only the closed set of known topics", () => {
+    for (const topic of ["team", "role", "preferred-language", "tools-used"]) {
+      expect(SemanticFactSchema.safeParse({ topic, value: "x" }).success).toBe(true);
+    }
   });
 
-  it("replaces spaces and underscores with hyphens", () => {
-    expect(normalizeTopic("preferred_language")).toBe("preferred-language");
-  });
-
-  it("collapses repeated separators into a single hyphen", () => {
-    expect(normalizeTopic("preferred   language__team")).toBe("preferred-language-team");
+  // Point 5: identity/name is deliberately not part of the enum — see the
+  // system-prompt test above for why.
+  it("rejects identity-shaped topics and anything else outside the closed set", () => {
+    for (const topic of ["name", "user-name", "identity", "email", "Team"]) {
+      expect(SemanticFactSchema.safeParse({ topic, value: "x" }).success).toBe(false);
+    }
   });
 });
