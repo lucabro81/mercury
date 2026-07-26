@@ -25,6 +25,7 @@ import { createSessionHistory, type SessionHistory, type Message } from "./sessi
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
+import { buildContextPrimer } from "./session/context-primer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { startTerminalRepl } from "./router/terminal.ts";
 import {
@@ -54,7 +55,12 @@ import { recordStep } from "./session/tool-log-buffer.ts";
 import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron, captureSessionToMemory, type CaptureDeps } from "./cron/idle-session-cron.ts";
-import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory } from "./memory/episodic-store.ts";
+import {
+  ensureEpisodicCollection,
+  storeEpisodicSummary,
+  searchEpisodicMemory,
+  getLastSessionEpisodicSummaries,
+} from "./memory/episodic-store.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
 import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
 import { consolidateSemanticFact, consolidateToolCorrection, type ToolCorrectionConsolidationDeps } from "./cron/semantic-consolidation.ts";
@@ -230,7 +236,7 @@ const histories = new Map<string, SessionHistory>();
  * ones tracked in `sessionUsers`/`sessionCaptureMarkers`; the terminal
  * channel omits it and behaves exactly as before.
  */
-function getOrCreateHistory(key: string, trackForCapture = false): SessionHistory {
+function getOrCreateHistory(key: string, trackForCapture = false, primer?: string): SessionHistory {
   let history = histories.get(key);
   if (!history) {
     history = createSessionHistory(
@@ -246,6 +252,7 @@ function getOrCreateHistory(key: string, trackForCapture = false): SessionHistor
             });
           }
         : undefined,
+      primer,
     );
     histories.set(key, history);
   }
@@ -598,7 +605,20 @@ if (googleChatTopic) {
       // this up lazily whenever a capture actually happens — see
       // sessionOnCaptureCallbacks' own comment.
       sessionOnCaptureCallbacks.set(sessionKey, streamer.onToolStart);
-      const history = getOrCreateHistory(sessionKey, true);
+      // Only on a genuinely new session (never seen this sessionKey before)
+      // — seeds it with facts from the user's last closed session. Built
+      // before getOrCreateHistory creates the history, since the primer can
+      // only be set at creation time (see history.ts's primer param).
+      const isNewSession = !histories.has(sessionKey);
+      const primer = isNewSession
+        ? await buildContextPrimer(sender, {
+            vaultPath: wikiVaultPath,
+            getLastSessionEntries: (userId) => getLastSessionEpisodicSummaries(qdrant, episodicCollection, { userId }),
+            listWikiFilesInRootsFn: listWikiFilesInRoots,
+            readWikiFileInRootsFn: readWikiFileInRoots,
+          })
+        : undefined;
+      const history = getOrCreateHistory(sessionKey, true, primer);
       const turnSteps: StepInfo[] = [];
       try {
         const replyText = await runTurn(history, markedInput, {
