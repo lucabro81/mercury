@@ -14,7 +14,14 @@
 import { truncateForDisplay } from "../router/tool-log.ts";
 import type { StepInfo } from "./agent-turn.ts";
 
-export type ToolLogChannel = "terminal" | "google-chat";
+/**
+ * Whatever the provider that ran the turn calls itself — see
+ * `InboundTurn.channel` in `src/router/provider.ts`. Was a closed union
+ * ("terminal" | "google-chat") back when the set of providers was fixed in
+ * this file; widened so a new provider is a new `Provider` implementation,
+ * not an edit here.
+ */
+export type ToolLogChannel = string;
 
 export type ToolLogEntry = {
   timestamp: string;

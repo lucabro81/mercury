@@ -5,12 +5,17 @@ import { join } from "node:path";
 import { resolveChatTargetForJiraUser, resolveChatTargetForBitbucketUser } from "./identity-bridge.ts";
 import { writeResolvedNote } from "../wiki/wiki-note.ts";
 import { initVault } from "../wiki/vault-init.ts";
-import type { notifyAdmin } from "./admin-notify.ts";
-import type { sendMessage } from "../router/channels/google-chat-client.ts";
+import type { Notifier } from "../router/provider.ts";
 import type { runCli, CliResult } from "../tools/cli-executor.ts";
 
-const runCliFn: typeof runCli = async () => ({ ok: true, data: {} });
-const sendMessageFn: typeof sendMessage = async () => ({ name: "spaces/ADMIN/messages/1" });
+function fakeNotifier(onNotifyAdmin?: (text: string) => void): Notifier {
+  return {
+    notify: async () => ({ sessionKey: "spaces/DM1" }),
+    notifyAdmin: async (text: string) => {
+      onNotifyAdmin?.(text);
+    },
+  };
+}
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -38,16 +43,16 @@ describe("resolveChatTargetForJiraUser", () => {
     );
 
     let notifyCalls = 0;
-    const notifyAdminFn: typeof notifyAdmin = async () => {
+    const notifier = fakeNotifier(() => {
       notifyCalls++;
-    };
+    });
 
     const result = await resolveChatTargetForJiraUser(
       { accountId: "jira-1", email: "mario@example.com", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn },
+      { vaultPath, notifier },
     );
 
-    expect(result).toEqual({ kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" });
+    expect(result).toEqual({ kind: "found", userId: "users/42", displayName: "Mario Rossi" });
     expect(notifyCalls).toBe(0);
   });
 
@@ -60,13 +65,12 @@ describe("resolveChatTargetForJiraUser", () => {
       "Mario Rossi",
     );
 
-    const notifyAdminFn: typeof notifyAdmin = async () => {};
     const result = await resolveChatTargetForJiraUser(
       { accountId: "jira-1", email: "mario@example.com", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn },
+      { vaultPath, notifier: fakeNotifier() },
     );
 
-    expect(result).toEqual({ kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" });
+    expect(result).toEqual({ kind: "found", userId: "users/42", displayName: "Mario Rossi" });
   });
 
   it("notifies the admin space and returns not-found when no cached Chat user has this email", async () => {
@@ -79,13 +83,13 @@ describe("resolveChatTargetForJiraUser", () => {
     );
 
     let notifiedText: string | undefined;
-    const notifyAdminFn: typeof notifyAdmin = async (text) => {
+    const notifier = fakeNotifier((text) => {
       notifiedText = text;
-    };
+    });
 
     const result = await resolveChatTargetForJiraUser(
       { accountId: "jira-1", email: "mario@example.com", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn },
+      { vaultPath, notifier },
     );
 
     expect(result).toEqual({ kind: "not-found" });
@@ -97,13 +101,13 @@ describe("resolveChatTargetForJiraUser", () => {
     const vaultPath = await makeTempVault();
 
     let notifiedText: string | undefined;
-    const notifyAdminFn: typeof notifyAdmin = async (text) => {
+    const notifier = fakeNotifier((text) => {
       notifiedText = text;
-    };
+    });
 
     const result = await resolveChatTargetForJiraUser(
       { accountId: "jira-1", email: null, displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn },
+      { vaultPath, notifier },
     );
 
     expect(result).toEqual({ kind: "not-found" });
@@ -122,10 +126,9 @@ describe("resolveChatTargetForJiraUser", () => {
       "Someone",
     );
 
-    const notifyAdminFn: typeof notifyAdmin = async () => {};
     const result = await resolveChatTargetForJiraUser(
       { accountId: "jira-1", email: "not-cached@example.com", displayName: "Nobody" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn },
+      { vaultPath, notifier: fakeNotifier() },
     );
 
     expect(result).toEqual({ kind: "not-found" });
@@ -148,15 +151,14 @@ describe("resolveChatTargetForBitbucketUser", () => {
       expect(binary).toBe("atlassian-admin");
       return { ok: true, data: { account: { account_id: "bb-1", email: "mario@example.com" } } };
     };
-    const notifyAdminFn: typeof notifyAdmin = async () => {};
 
     const result = await resolveChatTargetForBitbucketUser(
       { accountId: "bb-1", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn: lookupRunCliFn },
+      { vaultPath, notifier: fakeNotifier(), runCliFn: lookupRunCliFn },
     );
 
     expect(receivedArgs).toEqual(["user", "get", "--account-id", "bb-1", "--select-all"]);
-    expect(result).toEqual({ kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" });
+    expect(result).toEqual({ kind: "found", userId: "users/42", displayName: "Mario Rossi" });
   });
 
   it("notifies the admin space and returns not-found when the atlassian-admin lookup itself fails", async () => {
@@ -167,13 +169,13 @@ describe("resolveChatTargetForBitbucketUser", () => {
     });
 
     let notifiedText: string | undefined;
-    const notifyAdminFn: typeof notifyAdmin = async (text) => {
+    const notifier = fakeNotifier((text) => {
       notifiedText = text;
-    };
+    });
 
     const result = await resolveChatTargetForBitbucketUser(
       { accountId: "bb-1", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn: failingRunCliFn },
+      { vaultPath, notifier, runCliFn: failingRunCliFn },
     );
 
     expect(result).toEqual({ kind: "not-found" });
@@ -189,13 +191,13 @@ describe("resolveChatTargetForBitbucketUser", () => {
     });
 
     let notifiedText: string | undefined;
-    const notifyAdminFn: typeof notifyAdmin = async (text) => {
+    const notifier = fakeNotifier((text) => {
       notifiedText = text;
-    };
+    });
 
     const result = await resolveChatTargetForBitbucketUser(
       { accountId: "bb-1", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn: noEmailRunCliFn },
+      { vaultPath, notifier, runCliFn: noEmailRunCliFn },
     );
 
     expect(result).toEqual({ kind: "not-found" });
@@ -211,13 +213,13 @@ describe("resolveChatTargetForBitbucketUser", () => {
     });
 
     let notifiedText: string | undefined;
-    const notifyAdminFn: typeof notifyAdmin = async (text) => {
+    const notifier = fakeNotifier((text) => {
       notifiedText = text;
-    };
+    });
 
     const result = await resolveChatTargetForBitbucketUser(
       { accountId: "bb-1", displayName: "Mario Rossi" },
-      { vaultPath, adminSpace: "spaces/ADMIN", notifyAdminFn, sendMessageFn, runCliFn: resolvingRunCliFn },
+      { vaultPath, notifier, runCliFn: resolvingRunCliFn },
     );
 
     expect(result).toEqual({ kind: "not-found" });

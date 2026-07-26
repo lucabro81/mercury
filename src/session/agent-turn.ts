@@ -24,19 +24,19 @@
  * available is `src/index.ts`'s job, since that's where the set of
  * enabled CLIs/tools is decided.
  *
- * Used by: `src/router/terminal.ts` and `src/router/channels/
- * google-chat-events.ts` both call this with the same shape (a string
- * in, a string out) — `runTurn` itself doesn't know or care which
- * channel a given conversation came from.
+ * Used by: `src/router/turn-runner.ts`'s `createTurnRunner`, the one
+ * shared driver every `Provider` (terminal, Google Chat) funnels its
+ * turns through (see `src/router/provider.ts`) — `runTurn` itself doesn't
+ * know or care which provider a given conversation came from.
  *
  * Streaming (see `buildStreamTextParams`/`runTurn`'s `onTextChunk`) is
  * opt-in: providing `onTextChunk` switches this call to `streamText`, so
  * a caller sees the answer arrive incrementally instead of waiting in
  * silence for a full response — which can take several seconds on the
- * local development model. Only the terminal channel provides it (writes
- * chunks straight to stdout); Google Chat calls this on the plain
- * `generateText` path instead (no `onTextChunk`) and sends the returned
- * text as a single message via `google-chat-streamer.ts`'s `finalize` —
+ * local development model. Only the terminal provider supplies it (writes
+ * chunks straight to stdout, via its `TurnSink.onTextChunk`); Google Chat's
+ * `TurnSink` leaves it undefined, so this runs the plain `generateText`
+ * path instead and the provider sends the returned text as one message —
  * incremental delivery never actually reached a human faster there, since
  * Chat only shows a message once it's fully sent, unlike a terminal's
  * live-updating stdout. Either way this function still returns the full
@@ -190,12 +190,14 @@ const defaultStreamTextFn: StreamTextFn = (params) => streamText(buildStreamText
  *   function doesn't validate that, the caller is responsible for
  *   keeping the two in sync.
  * @param deps.onStepFinish - Optional, called once per generation step
- *   (including intermediate ones with only a tool call, no text). The
- *   terminal channel uses this to print what Mercury did before
- *   producing a final answer — see `src/router/terminal.ts` and
- *   `src/index.ts`. Google Chat doesn't wire this up; showing raw tool
- *   calls to a chat audience isn't the same call as showing them to
- *   whoever's debugging at a terminal.
+ *   (including intermediate ones with only a tool call, no text).
+ *   `src/router/turn-runner.ts`'s shared `createTurnRunner` wires this for
+ *   every provider (fans out to `logStep`/`recordStep`/the provider's own
+ *   `TurnSink.onStep`) — what each provider actually *does* with a step
+ *   still differs (the terminal prints it, Google Chat's `TurnSink`
+ *   doesn't define `onStep` at all, showing raw tool calls to a chat
+ *   audience isn't the same call as showing them to whoever's debugging at
+ *   a terminal), but the wiring itself is no longer channel-specific.
  * @param deps.onTextChunk - Optional. When provided, this turn uses
  *   `streamText` instead of `generateText`, calling this once per text
  *   chunk as it arrives — see the file header for why this is terminal-

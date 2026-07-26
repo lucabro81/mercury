@@ -9,8 +9,10 @@
  *
  * Used by: `src/tools/jira.ts` (`createJiraTool`'s `execute`, via
  * `runCli`) and any future per-CLI tool module that follows the same
- * pattern; `src/router/channels/google-chat-events.ts` (via
- * `spawnLines`, to consume `google-chat listen`'s output).
+ * pattern. The registered Google Chat provider (`src/router/channels/
+ * google-chat-provider.ts`) does not use this module at all — it talks to
+ * the Chat REST API and Pub/Sub directly over HTTPS, never through a CLI
+ * subprocess (see `google-chat-app-client.ts`).
  */
 
 /**

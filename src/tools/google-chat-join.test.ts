@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { createJoinSpaceTool } from "./google-chat-join.ts";
-import type { ChannelManager } from "../router/channels/google-chat-events.ts";
+import type { GoogleChatProvider } from "../router/channels/google-chat-provider.ts";
 
 describe("createJoinSpaceTool", () => {
   it("execute calls ensureChannel with the given space", async () => {
     let receivedSpace: string | undefined;
-    const ensureChannel: ChannelManager["ensureChannel"] = async (space) => {
+    const ensureChannel: GoogleChatProvider["ensureChannel"] = async (space) => {
       receivedSpace = space;
     };
 
@@ -18,7 +18,7 @@ describe("createJoinSpaceTool", () => {
   });
 
   it("execute returns a readable error instead of throwing when ensureChannel rejects", async () => {
-    const ensureChannel: ChannelManager["ensureChannel"] = async () => {
+    const ensureChannel: GoogleChatProvider["ensureChannel"] = async () => {
       throw new Error("not a member of that space");
     };
 

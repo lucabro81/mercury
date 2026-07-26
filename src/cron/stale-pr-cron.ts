@@ -15,17 +15,15 @@ import type { runCli } from "../tools/cli-executor.ts";
 import type { readWikiFile } from "../wiki/wiki-read.ts";
 import type { writeCuratedNote } from "../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
-import type { sendMessage, getOrCreateDmSpace } from "../router/channels/google-chat-client.ts";
+import type { Notifier } from "../router/provider.ts";
 import { loadNotificationThresholds, DEFAULT_PR_STALE_DAYS } from "./notification-config.ts";
 import { isNotificationSuppressed } from "./notification-suppression.ts";
 import { resolveChatTargetForBitbucketUser, type IdentityBridgeResult } from "./identity-bridge.ts";
 import { composeStalePrMessage, type StalePrFinding } from "./notification-composer.ts";
 import { findStalePrs, type StalePrFinding as DetectedStalePr } from "./stale-pr-finder.ts";
-import type { notifyAdmin } from "./admin-notify.ts";
 
 export type StalePrSweepDeps = {
   vaultPath: string;
-  adminSpace: string;
   model: LanguageModel;
   runCliFn: typeof runCli;
   readWikiFileFn: typeof readWikiFile;
@@ -39,9 +37,7 @@ export type StalePrSweepDeps = {
     history: EpisodicSummary[],
     deps: { model: LanguageModel },
   ) => Promise<string>;
-  getOrCreateDmSpaceFn: typeof getOrCreateDmSpace;
-  sendMessageFn: typeof sendMessage;
-  notifyAdminFn: typeof notifyAdmin;
+  notifier: Notifier;
   recordEventFn: (entry: EpisodicSummary) => Promise<void>;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -61,31 +57,24 @@ async function processOneFinding(
 
   const bridgeResult: IdentityBridgeResult = await deps.resolveChatTargetForBitbucketUserFn(
     { accountId: finding.reviewer.accountId, displayName: finding.reviewer.displayName },
-    {
-      vaultPath: deps.vaultPath,
-      adminSpace: deps.adminSpace,
-      notifyAdminFn: deps.notifyAdminFn,
-      sendMessageFn: deps.sendMessageFn,
-      runCliFn: deps.runCliFn,
-    },
+    { vaultPath: deps.vaultPath, notifier: deps.notifier, runCliFn: deps.runCliFn },
   );
   if (bridgeResult.kind === "not-found") {
     return; // resolveChatTargetForBitbucketUser already notified the admin space itself
   }
 
-  const history = await deps.historyFn(bridgeResult.chatUserId, `notifiche per PR #${finding.prId} su ${finding.repository}`);
+  const history = await deps.historyFn(bridgeResult.userId, `notifiche per PR #${finding.prId} su ${finding.repository}`);
   const text = await deps.composeStalePrMessageFn(
     { repository: finding.repository, prId: finding.prId, title: finding.title, staleDays },
     history,
     { model: deps.model },
   );
 
-  const space = await deps.getOrCreateDmSpaceFn(bridgeResult.chatUserId, deps.runCliFn);
-  await deps.sendMessageFn(space.name, text, deps.runCliFn);
+  const { sessionKey } = await deps.notifier.notify(bridgeResult.userId, text);
 
   await deps.recordEventFn({
-    userId: bridgeResult.chatUserId,
-    sessionKey: space.name,
+    userId: bridgeResult.userId,
+    sessionKey,
     summary: `Mercury ha notificato la PR #${finding.prId} di ${finding.repository} (in attesa di review da ${staleDays} giorni) a ${bridgeResult.displayName}.`,
     timestamp: nowDate.toISOString(),
   });

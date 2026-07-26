@@ -8,7 +8,7 @@
  * https://developers.google.com/workspace/chat/create-messages). A local
  * model's answer coming anywhere close to that is effectively never
  * observed in practice, but the cut stays in place as a correctness net
- * regardless.
+ * regardless. Caller: `google-chat-provider.ts`.
  */
 
 // Characters, not bytes — a wide margin under the real 32,000-byte limit.

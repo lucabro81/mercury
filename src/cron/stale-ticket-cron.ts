@@ -18,12 +18,11 @@ import type { runCli } from "../tools/cli-executor.ts";
 import type { readWikiFile } from "../wiki/wiki-read.ts";
 import type { writeCuratedNote, writeJiraUserResolvedNote } from "../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
-import type { sendMessage, getOrCreateDmSpace } from "../router/channels/google-chat-client.ts";
+import type { Notifier } from "../router/provider.ts";
 import { loadNotificationThresholds, DEFAULT_STALE_TICKET_JQL } from "./notification-config.ts";
 import { isNotificationSuppressed } from "./notification-suppression.ts";
 import { resolveChatTargetForJiraUser, type IdentityBridgeResult } from "./identity-bridge.ts";
 import { composeStaleTicketMessage, type StaleTicketFinding } from "./notification-composer.ts";
-import type { notifyAdmin } from "./admin-notify.ts";
 
 const JIRA_SELECT =
   "issues.key,issues.fields.summary,issues.fields.assignee.accountId,issues.fields.assignee.emailAddress,issues.fields.assignee.displayName";
@@ -33,7 +32,6 @@ type JiraIssue = { key: string; fields: { summary: string; assignee: JiraAssigne
 
 export type StaleTicketSweepDeps = {
   vaultPath: string;
-  adminSpace: string;
   model: LanguageModel;
   runCliFn: typeof runCli;
   readWikiFileFn: typeof readWikiFile;
@@ -47,9 +45,7 @@ export type StaleTicketSweepDeps = {
     history: EpisodicSummary[],
     deps: { model: LanguageModel },
   ) => Promise<string>;
-  getOrCreateDmSpaceFn: typeof getOrCreateDmSpace;
-  sendMessageFn: typeof sendMessage;
-  notifyAdminFn: typeof notifyAdmin;
+  notifier: Notifier;
   recordEventFn: (entry: EpisodicSummary) => Promise<void>;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -68,9 +64,8 @@ async function processOneTicket(
 
   const assignee = issue.fields.assignee;
   if (!assignee) {
-    await deps.notifyAdminFn(
+    await deps.notifier.notifyAdmin(
       `Ticket ${issue.key} ("${issue.fields.summary}") è fermo da ${staleDays} giorni ma non ha un assegnatario.`,
-      { adminSpace: deps.adminSpace, sendMessageFn: deps.sendMessageFn, runCliFn: deps.runCliFn },
     );
     return;
   }
@@ -85,31 +80,24 @@ async function processOneTicket(
 
   const bridgeResult: IdentityBridgeResult = await deps.resolveChatTargetForJiraUserFn(
     { accountId: assignee.accountId, email: assignee.emailAddress ?? null, displayName: assignee.displayName },
-    {
-      vaultPath: deps.vaultPath,
-      adminSpace: deps.adminSpace,
-      notifyAdminFn: deps.notifyAdminFn,
-      sendMessageFn: deps.sendMessageFn,
-      runCliFn: deps.runCliFn,
-    },
+    { vaultPath: deps.vaultPath, notifier: deps.notifier },
   );
   if (bridgeResult.kind === "not-found") {
     return; // resolveChatTargetForJiraUser already notified the admin space itself
   }
 
-  const history = await deps.historyFn(bridgeResult.chatUserId, `notifiche per ${issue.key}`);
+  const history = await deps.historyFn(bridgeResult.userId, `notifiche per ${issue.key}`);
   const text = await deps.composeStaleTicketMessageFn(
     { key: issue.key, summary: issue.fields.summary, staleDays },
     history,
     { model: deps.model },
   );
 
-  const space = await deps.getOrCreateDmSpaceFn(bridgeResult.chatUserId, deps.runCliFn);
-  await deps.sendMessageFn(space.name, text, deps.runCliFn);
+  const { sessionKey } = await deps.notifier.notify(bridgeResult.userId, text);
 
   await deps.recordEventFn({
-    userId: bridgeResult.chatUserId,
-    sessionKey: space.name,
+    userId: bridgeResult.userId,
+    sessionKey,
     summary: `Mercury ha notificato ${issue.key} (fermo da ${staleDays} giorni) a ${bridgeResult.displayName}.`,
     timestamp: resolvedAt,
   });

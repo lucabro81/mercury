@@ -1,8 +1,8 @@
 /**
  * Model-invocable tool that lets a user, in any conversation (terminal
- * or a Google Chat space), ask Mercury to start participating in a
- * specific space right away, instead of waiting for the next periodic
- * discovery tick (see `src/router/channels/google-chat-events.ts`).
+ * or a Google Chat space), ask Mercury to join a specific space right
+ * away (see `src/router/channels/google-chat-provider.ts`'s `ensureChannel`
+ * — self-join via the Members API, best-effort and not yet verified live).
  *
  * Unlike `jiraCli` or the Google Chat channel transport itself
  * (reading/sending messages, never model-invocable), this genuinely is
@@ -22,14 +22,14 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
-import type { ChannelManager } from "../router/channels/google-chat-events.ts";
+import type { GoogleChatProvider } from "../router/channels/google-chat-provider.ts";
 
 /**
  * Builds the `joinSpace` tool. `ensureChannel` is injected (normally
- * `ChannelManager.ensureChannel` from the running Google Chat channel
- * manager) so this stays testable without a real manager/CLI.
+ * `GoogleChatProvider.ensureChannel` from the running provider) so this
+ * stays testable without a real provider/network call.
  */
-export function createJoinSpaceTool(ensureChannel: ChannelManager["ensureChannel"]) {
+export function createJoinSpaceTool(ensureChannel: GoogleChatProvider["ensureChannel"]) {
   const joinSpace = tool({
     description:
       "Start listening to a Google Chat space immediately, without waiting for periodic discovery. Assumes Mercury is already a member of that space.",

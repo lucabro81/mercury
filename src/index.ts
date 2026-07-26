@@ -14,36 +14,28 @@
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
-import { getLoadedContextLength } from "./model/context-size.ts";
-import { runCli, spawnLines } from "./tools/cli-executor.ts";
+import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
-import { tryConfirm } from "./router/confirm-flow.ts";
 import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
+import { createNotifyUserTool } from "./tools/notify-user.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
 import { runTurn } from "./session/agent-turn.ts";
-import { startTerminalRepl } from "./router/terminal.ts";
+import { createTurnRunner } from "./router/turn-runner.ts";
+import { createTerminalProvider } from "./router/terminal-provider.ts";
 import {
   truncateForDisplay,
   describeToolOutcome,
-  formatContextUsage,
-  parseDumpCommand,
-  defaultDumpPath,
-  writeDump,
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/agent-turn.ts";
-import { startGoogleChatChannelManager, deriveSessionKey, NO_REPLY } from "./router/channels/google-chat-events.ts";
-import { ensureSpaceSubscription, sendMessage, getUser, getOrCreateDmSpace } from "./router/channels/google-chat-client.ts";
-import { createChatStreamer } from "./router/channels/google-chat-streamer.ts";
+import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
-import { resolveSenderName } from "./router/user-resolution.ts";
 import {
-  writeResolvedNote,
   writeSuppressionNote,
   writeCuratedNote,
   writeJiraUserResolvedNote,
@@ -72,9 +64,8 @@ import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots } from "./wiki/
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { isNotificationSuppressed } from "./cron/notification-suppression.ts";
-import { resolveChatTargetForJiraUser, resolveChatTargetForBitbucketUser } from "./cron/identity-bridge.ts";
+import { resolveChatTargetForJiraUser, resolveChatTargetForBitbucketUser, findChatUserByEmail } from "./cron/identity-bridge.ts";
 import { composeStaleTicketMessage, composeStalePrMessage } from "./cron/notification-composer.ts";
-import { notifyAdmin } from "./cron/admin-notify.ts";
 import { startStaleTicketCron } from "./cron/stale-ticket-cron.ts";
 import { findStalePrs } from "./cron/stale-pr-finder.ts";
 import { startStalePrCron } from "./cron/stale-pr-cron.ts";
@@ -158,13 +149,23 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
         "- If a user asks you to participate in a specific Google Chat space, use it to start listening immediately instead of waiting for periodic discovery.",
       ].join("\n"),
     );
+    lines.push(
+      [
+        "You have access to the notifyUser tool, to message a specific third party on Google Chat mid-conversation (e.g. \"avvisa Marco di questo ticket\").",
+        "DO:",
+        "- It needs the recipient's email address, not just a name — if you only have a first name, ask the user for the person's email before calling it.",
+        "DON'T:",
+        "- DON'T guess an email address or guess which person a first name refers to.",
+      ].join("\n"),
+    );
   }
 
   if (opts.multiUserChannel) {
     // Interim, explicitly non-deterministic mitigation for Mercury replying
     // to every message in a shared space — not a replacement for real
-    // mention detection, which needs Mercury's own identity (not available
-    // yet). See NO_REPLY in google-chat-events.ts for the code side of this check.
+    // @-mention detection, which the registered app's own identity now
+    // makes possible but which isn't implemented yet. See NO_REPLY in
+    // google-chat-provider.ts for the code side of this check.
     lines.push(
       [
         "This conversation may be a shared space with more than one person, not a private one-on-one chat.",
@@ -213,17 +214,21 @@ const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
 const jiraEnabled = Boolean(activeCliConfigs.jira);
 const bitbucketEnabled = Boolean(activeCliConfigs.bitbucket);
 const atlassianAdminEnabled = Boolean(activeCliConfigs["atlassian-admin"]);
-const googleChatTopic = process.env.GOOGLE_CHAT_PUBSUB_TOPIC;
+// A single subscription for the whole app (Cloud Pub/Sub deployment) —
+// unlike the retired impersonation channel, there's no per-space Workspace
+// Events subscription to manage: whatever space the app is a member of
+// delivers its events here.
+const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 
 // Two separate system prompts, not one shared string: the multiUserChannel
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
 // always a private 1:1 conversation — an operator typing normally
 // shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
-const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatTopic), multiUserChannel: true });
+const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatSubscription), multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatSubscription), multiUserChannel: true });
 
 const provider = getOllamaProvider();
-const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for getLoadedContextLength's direct HTTP call
+const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
 const ollamaModel = requireEnv("OLLAMA_MODEL");
 const model = provider(ollamaModel);
 const summarize = createSummarizer(model);
@@ -446,71 +451,6 @@ const selfReviewCron = startSelfReviewCron(
 );
 void selfReviewCron; // kept alive for the process lifetime, same as idleCron
 
-// Needs both an active Jira CLI config (there's nothing to query
-// otherwise) and an admin space (the identity bridge and unassigned-ticket
-// path both need somewhere to send an ownerless finding) — skip cleanly
-// with a clear reason instead of starting a cron that will fail on its
-// first ownerless case.
-const mercuryAdminSpace = process.env.MERCURY_ADMIN_SPACE;
-if (jiraEnabled && mercuryAdminSpace) {
-  const staleTicketCron = startStaleTicketCron(
-    {
-      vaultPath: wikiVaultPath,
-      adminSpace: mercuryAdminSpace,
-      model,
-      runCliFn: runCli,
-      readWikiFileFn: readWikiFile,
-      writeCuratedNoteFn: writeCuratedNote,
-      writeJiraUserResolvedNoteFn: writeJiraUserResolvedNote,
-      isNotificationSuppressedFn: isNotificationSuppressed,
-      resolveChatTargetForJiraUserFn: resolveChatTargetForJiraUser,
-      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
-      composeStaleTicketMessageFn: composeStaleTicketMessage,
-      getOrCreateDmSpaceFn: getOrCreateDmSpace,
-      sendMessageFn: sendMessage,
-      notifyAdminFn: notifyAdmin,
-      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-      log: (msg) => console.error(`[cron] ${msg}`),
-    },
-    { checkIntervalMs: Number(process.env.STALE_TICKET_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
-  );
-  void staleTicketCron; // kept alive for the process lifetime, same as idleCron
-} else if (jiraEnabled) {
-  console.error("[cron] stale-ticket check not started: MERCURY_ADMIN_SPACE is not set");
-}
-
-// Same gating logic as the stale-ticket check above, plus atlassian-admin
-// (the Bitbucket identity bridge resolves account_id -> email through it,
-// no email is available on a PR participant directly).
-if (bitbucketEnabled && atlassianAdminEnabled && mercuryAdminSpace) {
-  const stalePrCron = startStalePrCron(
-    {
-      vaultPath: wikiVaultPath,
-      adminSpace: mercuryAdminSpace,
-      model,
-      runCliFn: runCli,
-      readWikiFileFn: readWikiFile,
-      writeCuratedNoteFn: writeCuratedNote,
-      findStalePrsFn: findStalePrs,
-      isNotificationSuppressedFn: isNotificationSuppressed,
-      resolveChatTargetForBitbucketUserFn: resolveChatTargetForBitbucketUser,
-      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
-      composeStalePrMessageFn: composeStalePrMessage,
-      getOrCreateDmSpaceFn: getOrCreateDmSpace,
-      sendMessageFn: sendMessage,
-      notifyAdminFn: notifyAdmin,
-      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-      log: (msg) => console.error(`[cron] ${msg}`),
-    },
-    { checkIntervalMs: Number(process.env.STALE_PR_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
-  );
-  void stalePrCron; // kept alive for the process lifetime, same as idleCron
-} else if (bitbucketEnabled) {
-  console.error(
-    "[cron] stale-PR check not started: needs atlassian-admin active and MERCURY_ADMIN_SPACE set",
-  );
-}
-
 // runCommand's confirm-required branch stages a command per-session (see
 // createCliTool's opts) — the tool itself must therefore be rebuilt fresh
 // for each turn, scoped to that turn's own sessionKey, rather than built
@@ -565,116 +505,134 @@ function logStep(prefix: string, step: StepInfo): void {
   }
 }
 
-if (googleChatTopic) {
-  const manager = startGoogleChatChannelManager(
-    async (input, space, sender, onMessageSent) => {
-      const sessionKey = deriveSessionKey(space, sender);
-      // Touch before processing, not after: the idle clock should track time
-      // since the human's last message, not Mercury's response latency.
-      sessionUsers.set(sessionKey, sender);
-      idleScanner.touch(sessionKey, Date.now());
-      // Lazy, on-demand: resolves (and caches in the vault) the sender's
-      // display name the first time this id is seen, since Chat's own API
-      // never exposes one on message.sender. Never blocks/fails the turn —
-      // a resolution failure just means no name marker gets prepended.
-      const senderName = await resolveSenderName(sender, {
+// Shared turn-taking pipeline (see src/router/turn-runner.ts): deduplicates
+// what used to be two near-identical per-channel closures. Parameterized
+// entirely by Provider/InboundTurn/TurnSink (src/router/provider.ts) — this
+// function doesn't know or care which provider a given turn came from.
+// getOrCreateHistory seeds a context primer (src/session/context-primer.ts)
+// only for a genuinely new, tracked (real per-user identity) session —
+// today that's Google Chat; the terminal's turn.userId is always undefined,
+// so it never triggers this, same as before this refactor.
+const handleTurn = createTurnRunner({
+  model,
+  systemPrompts: { singleUser: system, multiUser: chatSystem },
+  buildTools,
+  getOrCreateHistory: async (key, trackForCapture, userId) => {
+    if (trackForCapture && userId && !histories.has(key)) {
+      const primer = await buildContextPrimer(userId, {
         vaultPath: wikiVaultPath,
-        getUserFn: getUser,
-        runCliFn: runCli,
-        writeResolvedNoteFn: writeResolvedNote,
+        getLastSessionEntries: (uid) => getLastSessionEpisodicSummaries(qdrant, episodicCollection, { userId: uid }),
+        listWikiFilesInRootsFn: listWikiFilesInRoots,
+        readWikiFileInRootsFn: readWikiFileInRoots,
       });
-      const markedInput = senderName ? `[Da: ${senderName}]\n${input}` : input;
+      return getOrCreateHistory(key, trackForCapture, primer);
+    }
+    return getOrCreateHistory(key, trackForCapture);
+  },
+  trackSession: (key, userId, at) => {
+    sessionUsers.set(key, userId);
+    idleScanner.touch(key, at);
+  },
+  registerCaptureCallback: (key, cb) => sessionOnCaptureCallbacks.set(key, cb),
+  maybeCapture: async (key, history) => {
+    const messages = history.getMessages();
+    const alreadyCaptured = sessionCaptureMarkers.get(key) ?? 0;
+    if (messages.length - alreadyCaptured >= MESSAGE_COUNT_CAPTURE_THRESHOLD) {
+      await captureIncrement(key, messages);
+    }
+  },
+  processToolCorrections,
+  logStep,
+});
 
-      // Sends a new message each time a tool call starts (showing which
-      // one is running) and, after a sustained silence with no real answer
-      // yet, a "might be stuck" note (see `google-chat-streamer.ts`) — long
-      // pauses on constrained hardware used to look identical to Mercury
-      // being stuck. The final answer itself is no longer split into
-      // several messages at sentence boundaries (reviewed after live use:
-      // it didn't improve readability, only the tool-status messages did)
-      // — runTurn below runs its plain, non-streaming path (no
-      // onTextChunk) and the whole result is handed to finalize() in one
-      // call once it resolves.
-      const streamer = createChatStreamer(space, {
-        sendMessageFn: sendMessage,
-        runCliFn: runCli,
-        onMessageSent,
-      });
-      // Refreshed every turn: a fresh streamer (and so a fresh onToolStart)
-      // is created per turn, but captureIncrement/onBeforeCompress look
-      // this up lazily whenever a capture actually happens — see
-      // sessionOnCaptureCallbacks' own comment.
-      sessionOnCaptureCallbacks.set(sessionKey, streamer.onToolStart);
-      // Only on a genuinely new session (never seen this sessionKey before)
-      // — seeds it with facts from the user's last closed session. Built
-      // before getOrCreateHistory creates the history, since the primer can
-      // only be set at creation time (see history.ts's primer param).
-      const isNewSession = !histories.has(sessionKey);
-      const primer = isNewSession
-        ? await buildContextPrimer(sender, {
-            vaultPath: wikiVaultPath,
-            getLastSessionEntries: (userId) => getLastSessionEpisodicSummaries(qdrant, episodicCollection, { userId }),
-            listWikiFilesInRootsFn: listWikiFilesInRoots,
-            readWikiFileInRootsFn: readWikiFileInRoots,
-          })
-        : undefined;
-      const history = getOrCreateHistory(sessionKey, true, primer);
-      const turnSteps: StepInfo[] = [];
-      try {
-        const replyText = await runTurn(history, markedInput, {
-          model,
-          // encodeURIComponent: matches how writeResolvedNote already encodes
-          // the sender id (which contains "/", e.g. "users/42") into a safe
-          // single path segment — using the raw sender here would scope wiki
-          // tool access to a directory that never actually gets written to.
-          tools: buildTools(sessionKey, encodeURIComponent(sender), streamer.onToolStart),
-          system: chatSystem,
-          onStepFinish: (step) => {
-            turnSteps.push(step);
-            logStep(`[chat:${space}:${sender}] `, step);
-            recordStep("google-chat", sessionKey, step);
-          },
-          onUsage: (inputTokens) =>
-            console.error(`[chat:${space}:${sender}] [usage] inputTokens=${inputTokens ?? "?"}`),
-        });
-        await streamer.finalize(replyText);
-      } finally {
-        streamer.stopHeartbeat(); // guards against a timer leak if runTurn/finalize throws
-      }
-
-      // Message-count capture trigger: mirrors new messages to Qdrant
-      // without waiting for idle, once enough have piled up since the last
-      // capture (see MESSAGE_COUNT_CAPTURE_THRESHOLD/captureIncrement).
-      // Never blocks the reply that already went out above.
-      const currentMessages = history.getMessages();
-      const alreadyCaptured = sessionCaptureMarkers.get(sessionKey) ?? 0;
-      if (currentMessages.length - alreadyCaptured >= MESSAGE_COUNT_CAPTURE_THRESHOLD) {
-        await captureIncrement(sessionKey, currentMessages);
-      }
-
-      // Procedural corrections for this turn (punto 2/Fase D) — global,
-      // not scoped to this session's own capture marker.
-      await processToolCorrections(turnSteps, streamer.onToolStart);
+// Registered Chat app credentials — its own service-account identity, not
+// a Workspace-user impersonation: no domain-wide delegation, no
+// impersonate_user field. Constructed (and started) before the crons below
+// so they can depend on it for delivery.
+const mercuryAdminSpace = process.env.MERCURY_ADMIN_SPACE;
+let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
+if (googleChatSubscription) {
+  chatProvider = createGoogleChatProvider({
+    credentials: {
+      clientEmail: requireEnv("GOOGLE_CHAT_APP_CLIENT_EMAIL"),
+      // A PEM key is multi-line; stored in a single-line env var with
+      // literal "\n" escape sequences (the standard convention for this),
+      // not real newlines — unescape before handing it to Node's crypto,
+      // which needs the real thing.
+      privateKey: requireEnv("GOOGLE_CHAT_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
     },
-    {
-      spawnLinesFn: spawnLines,
-      sendMessageFn: sendMessage,
-      ensureSpaceSubscriptionFn: ensureSpaceSubscription,
-      runCliFn: runCli,
-      store: confirmationStore,
-      vaultPath: wikiVaultPath,
-      writeSuppressionNoteFn: writeSuppressionNote,
-      recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-    },
-    {
-      topic: googleChatTopic,
-      spaces: (process.env.GOOGLE_CHAT_SPACES ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    },
+    subscription: googleChatSubscription,
+    store: confirmationStore,
+    vaultPath: wikiVaultPath,
+    runCliFn: runCli,
+    writeSuppressionNoteFn: writeSuppressionNote,
+    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+    adminSpace: mercuryAdminSpace ?? "",
+  });
+  await chatProvider.start(handleTurn);
+  Object.assign(staticTools, createJoinSpaceTool(chatProvider.ensureChannel));
+  Object.assign(
+    staticTools,
+    createNotifyUserTool({ notifier: chatProvider, vaultPath: wikiVaultPath, findChatUserByEmailFn: findChatUserByEmail }),
   );
-  Object.assign(staticTools, createJoinSpaceTool(manager.ensureChannel));
+}
+
+// Needs both an active Jira CLI config (there's nothing to query
+// otherwise), an admin space, and the Google Chat provider actually
+// configured (delivery needs a Notifier to exist) — skip cleanly with a
+// clear reason instead of starting a cron that will fail on its first
+// delivery attempt.
+if (jiraEnabled && mercuryAdminSpace && chatProvider) {
+  const staleTicketCron = startStaleTicketCron(
+    {
+      vaultPath: wikiVaultPath,
+      model,
+      runCliFn: runCli,
+      readWikiFileFn: readWikiFile,
+      writeCuratedNoteFn: writeCuratedNote,
+      writeJiraUserResolvedNoteFn: writeJiraUserResolvedNote,
+      isNotificationSuppressedFn: isNotificationSuppressed,
+      resolveChatTargetForJiraUserFn: resolveChatTargetForJiraUser,
+      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
+      composeStaleTicketMessageFn: composeStaleTicketMessage,
+      notifier: chatProvider,
+      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+      log: (msg) => console.error(`[cron] ${msg}`),
+    },
+    { checkIntervalMs: Number(process.env.STALE_TICKET_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
+  );
+  void staleTicketCron; // kept alive for the process lifetime, same as idleCron
+} else if (jiraEnabled) {
+  console.error("[cron] stale-ticket check not started: MERCURY_ADMIN_SPACE not set or Google Chat channel not configured");
+}
+
+// Same gating logic as the stale-ticket check above, plus atlassian-admin
+// (the Bitbucket identity bridge resolves account_id -> email through it,
+// no email is available on a PR participant directly).
+if (bitbucketEnabled && atlassianAdminEnabled && mercuryAdminSpace && chatProvider) {
+  const stalePrCron = startStalePrCron(
+    {
+      vaultPath: wikiVaultPath,
+      model,
+      runCliFn: runCli,
+      readWikiFileFn: readWikiFile,
+      writeCuratedNoteFn: writeCuratedNote,
+      findStalePrsFn: findStalePrs,
+      isNotificationSuppressedFn: isNotificationSuppressed,
+      resolveChatTargetForBitbucketUserFn: resolveChatTargetForBitbucketUser,
+      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
+      composeStalePrMessageFn: composeStalePrMessage,
+      notifier: chatProvider,
+      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+      log: (msg) => console.error(`[cron] ${msg}`),
+    },
+    { checkIntervalMs: Number(process.env.STALE_PR_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
+  );
+  void stalePrCron; // kept alive for the process lifetime, same as idleCron
+} else if (bitbucketEnabled) {
+  console.error(
+    "[cron] stale-PR check not started: needs atlassian-admin active, MERCURY_ADMIN_SPACE set, and Google Chat channel configured",
+  );
 }
 
 // POC admin panel (see docs/plans, throwaway scaffolding) — opt-in only,
@@ -699,80 +657,14 @@ if (process.env.ADMIN_PANEL_ENABLED === "true") {
   console.error(`[admin] panel listening on http://localhost:${adminPort}`);
 }
 
-let lastSteps: StepInfo[] = [];
-
-// Real (not estimated) context-usage figures for the prompt indicator
-// below. lastInputTokens comes from runTurn's onUsage, once a turn has
-// actually completed. contextLength is fetched lazily, after the first
-// turn — /api/ps only reports models that are actually loaded, and the
-// model isn't loaded until its first real call.
-let lastInputTokens: number | undefined;
-let contextLength: number | null = null;
-
-await startTerminalRepl(
-  async (input, onChunk) => {
-    const dumpCommand = parseDumpCommand(input);
-    if (dumpCommand) {
-      const path = dumpCommand.path ?? defaultDumpPath();
-      await writeDump(path, lastSteps);
-      return `wrote ${lastSteps.length} tool step(s) from the last turn to ${path}`;
-    }
-
-    // Same deterministic interception as Google Chat's processLine — never
-    // let running a previously-approved mutation depend on the model.
-    const confirmReply = await tryConfirm(input, "terminal", {
-      store: confirmationStore,
-      runCliFn: runCli,
-      userId: "terminal",
-      vaultPath: wikiVaultPath,
-      writeSuppressionNoteFn: writeSuppressionNote,
-      recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-    });
-    if (confirmReply !== null) {
-      return confirmReply;
-    }
-
-    lastSteps = [];
-    const result = await runTurn(getOrCreateHistory("terminal"), input, {
-      model,
-      // The third arg prints a dim/italic "sto leggendo/scrivendo..." line
-      // the moment a tool call starts, reusing the same stdout pipe as
-      // onTextChunk below. Google Chat's wiring above passes
-      // streamer.onToolStart instead, which sends the same label as its
-      // own Chat message (see google-chat-streamer.ts's onToolStart).
-      tools: buildTools("terminal", "terminal", (label) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`)),
-      system,
-      // Streams the answer to the terminal as it's generated instead of
-      // going silent for however long the full response takes — the local
-      // development model can take several seconds. Google Chat's wiring
-      // above streams too now, but into separate Chat messages rather than
-      // one growing block of stdout text.
-      onTextChunk: onChunk,
-      // Visibility into what Mercury did before answering, same as Google
-      // Chat's wiring above (see logStep) — additionally kept in
-      // lastSteps here so the terminal-only `/dump` command can write the
-      // untruncated version to a file.
-      onStepFinish: (step) => {
-        lastSteps.push(step);
-        logStep("", step);
-        recordStep("terminal", "terminal", step);
-      },
-      onUsage: (inputTokens) => {
-        lastInputTokens = inputTokens;
-      },
-    });
-    if (contextLength === null) {
-      contextLength = await getLoadedContextLength(ollamaHost, ollamaModel);
-    }
-    // Procedural corrections for this turn (punto 2/Fase D) — same as
-    // Google Chat's wiring above, reusing lastSteps (already populated by
-    // onStepFinish above) instead of a separate accumulator.
-    await processToolCorrections(lastSteps, (label) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`));
-    return result;
+await createTerminalProvider({
+  confirmDeps: {
+    store: confirmationStore,
+    runCliFn: runCli,
+    vaultPath: wikiVaultPath,
+    writeSuppressionNoteFn: writeSuppressionNote,
+    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
   },
-  undefined,
-  // A degraded answer under a long conversation is hard to tell apart by
-  // eye from "the context is genuinely near full" — this shows a live,
-  // real figure right before every prompt, terminal-only debugging aid.
-  { promptSuffix: () => formatContextUsage(lastInputTokens, contextLength) },
-);
+  ollamaHost,
+  ollamaModel,
+}).start(handleTurn);

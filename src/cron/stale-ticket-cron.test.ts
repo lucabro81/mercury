@@ -4,6 +4,7 @@ import { DEFAULT_NOTIFICATION_THRESHOLDS_BODY, DEFAULT_STALE_TICKET_JQL } from "
 import type { CliResult } from "../tools/cli-executor.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 import type { IdentityBridgeResult } from "./identity-bridge.ts";
+import type { Notifier } from "../router/provider.ts";
 
 const MODEL = "fake-model" as never;
 
@@ -24,11 +25,18 @@ function issuesFixture() {
   };
 }
 
+function fakeNotifier(overrides: Partial<Notifier> = {}): Notifier {
+  return {
+    notify: async () => ({ sessionKey: "spaces/DM1" }),
+    notifyAdmin: async () => {},
+    ...overrides,
+  };
+}
+
 function baseDeps(overrides: Partial<StaleTicketSweepDeps> = {}): StaleTicketSweepDeps {
   const jiraCallLog: string[][] = [];
   return {
     vaultPath: "/vault",
-    adminSpace: "spaces/ADMIN",
     model: MODEL,
     runCliFn: async (binary, args) => {
       jiraCallLog.push(args);
@@ -40,12 +48,10 @@ function baseDeps(overrides: Partial<StaleTicketSweepDeps> = {}): StaleTicketSwe
     writeJiraUserResolvedNoteFn: async () => {},
     isNotificationSuppressedFn: async () => false,
     resolveChatTargetForJiraUserFn: async () =>
-      ({ kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" }) satisfies IdentityBridgeResult,
+      ({ kind: "found", userId: "users/42", displayName: "Mario Rossi" }) satisfies IdentityBridgeResult,
     historyFn: async () => [],
     composeStaleTicketMessageFn: async () => "messaggio composto",
-    getOrCreateDmSpaceFn: async () => ({ name: "spaces/DM1" }),
-    sendMessageFn: async () => ({ name: "spaces/DM1/messages/1" }),
-    notifyAdminFn: async () => {},
+    notifier: fakeNotifier(),
     recordEventFn: async () => {},
     now: () => new Date("2026-07-21T00:00:00Z"),
     ...overrides,
@@ -153,9 +159,11 @@ describe("runStaleTicketSweep", () => {
         bridgeCalled = true;
         return { kind: "not-found" };
       },
-      notifyAdminFn: async (text) => {
-        notifiedText = text;
-      },
+      notifier: fakeNotifier({
+        notifyAdmin: async (text) => {
+          notifiedText = text;
+        },
+      }),
     });
 
     await runStaleTicketSweep(Date.now(), deps);
@@ -173,7 +181,7 @@ describe("runStaleTicketSweep", () => {
       },
       resolveChatTargetForJiraUserFn: async (...args) => {
         bridgeArgs = args;
-        return { kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" };
+        return { kind: "found", userId: "users/42", displayName: "Mario Rossi" };
       },
     });
 
@@ -189,30 +197,31 @@ describe("runStaleTicketSweep", () => {
 
   it("does nothing further when the identity bridge returns not-found (it already notified admin itself)", async () => {
     let historyCalled = false;
-    let sendCalled = false;
+    let notifyCalled = false;
     const deps = baseDeps({
       resolveChatTargetForJiraUserFn: async () => ({ kind: "not-found" }),
       historyFn: async () => {
         historyCalled = true;
         return [];
       },
-      sendMessageFn: async (...args) => {
-        sendCalled = true;
-        return { name: "spaces/DM1/messages/1" };
-      },
+      notifier: fakeNotifier({
+        notify: async (userId, text) => {
+          notifyCalled = true;
+          return { sessionKey: "spaces/DM1" };
+        },
+      }),
     });
 
     await runStaleTicketSweep(Date.now(), deps);
 
     expect(historyCalled).toBe(false);
-    expect(sendCalled).toBe(false);
+    expect(notifyCalled).toBe(false);
   });
 
-  it("composes, delivers via DM, and records an episodic event when the identity bridge finds a match", async () => {
+  it("composes, delivers via the notifier, and records an episodic event when the identity bridge finds a match", async () => {
     let historyQuery: { userId: string; queryText: string } | undefined;
     let composedFinding: unknown;
-    let dmUserId: string | undefined;
-    let sentArgs: unknown[] | undefined;
+    let notifyArgs: [string, string] | undefined;
     let recordedEvent: EpisodicSummary | undefined;
 
     const deps = baseDeps({
@@ -224,14 +233,12 @@ describe("runStaleTicketSweep", () => {
         composedFinding = finding;
         return "ecco il messaggio";
       },
-      getOrCreateDmSpaceFn: async (userId) => {
-        dmUserId = userId;
-        return { name: "spaces/DM1" };
-      },
-      sendMessageFn: async (...args) => {
-        sentArgs = args;
-        return { name: "spaces/DM1/messages/1" };
-      },
+      notifier: fakeNotifier({
+        notify: async (userId, text) => {
+          notifyArgs = [userId, text];
+          return { sessionKey: "spaces/DM1" };
+        },
+      }),
       recordEventFn: async (entry) => {
         recordedEvent = entry;
       },
@@ -242,9 +249,8 @@ describe("runStaleTicketSweep", () => {
     expect(historyQuery?.userId).toBe("users/42");
     expect(historyQuery?.queryText).toContain("KAN-1");
     expect(composedFinding).toEqual({ key: "KAN-1", summary: "Fix login bug", staleDays: 5 });
-    expect(dmUserId).toBe("users/42");
-    expect(sentArgs?.[0]).toBe("spaces/DM1");
-    expect(sentArgs?.[1]).toBe("ecco il messaggio");
+    expect(notifyArgs?.[0]).toBe("users/42");
+    expect(notifyArgs?.[1]).toBe("ecco il messaggio");
     expect(recordedEvent).toEqual({
       userId: "users/42",
       sessionKey: "spaces/DM1",
@@ -276,7 +282,7 @@ describe("runStaleTicketSweep", () => {
       },
       resolveChatTargetForJiraUserFn: async (jiraUser) => {
         if (jiraUser.accountId === "b") secondProcessed = true;
-        return { kind: "found", chatUserId: "users/99", displayName: jiraUser.displayName };
+        return { kind: "found", userId: "users/99", displayName: jiraUser.displayName };
       },
       log: (msg) => logged.push(msg),
     });

@@ -4,6 +4,7 @@ import { DEFAULT_NOTIFICATION_THRESHOLDS_BODY, DEFAULT_PR_STALE_DAYS } from "./n
 import type { StalePrFinding as DetectedStalePr } from "./stale-pr-finder.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 import type { IdentityBridgeResult } from "./identity-bridge.ts";
+import type { Notifier } from "../router/provider.ts";
 
 const MODEL = "fake-model" as never;
 
@@ -19,10 +20,17 @@ function findingsFixture(): DetectedStalePr[] {
   ];
 }
 
+function fakeNotifier(overrides: Partial<Notifier> = {}): Notifier {
+  return {
+    notify: async () => ({ sessionKey: "spaces/DM1" }),
+    notifyAdmin: async () => {},
+    ...overrides,
+  };
+}
+
 function baseDeps(overrides: Partial<StalePrSweepDeps> = {}): StalePrSweepDeps {
   return {
     vaultPath: "/vault",
-    adminSpace: "spaces/ADMIN",
     model: MODEL,
     runCliFn: async () => ({ ok: true, data: {} }),
     readWikiFileFn: async () => DEFAULT_NOTIFICATION_THRESHOLDS_BODY,
@@ -30,12 +38,10 @@ function baseDeps(overrides: Partial<StalePrSweepDeps> = {}): StalePrSweepDeps {
     findStalePrsFn: async () => findingsFixture(),
     isNotificationSuppressedFn: async () => false,
     resolveChatTargetForBitbucketUserFn: async () =>
-      ({ kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" }) satisfies IdentityBridgeResult,
+      ({ kind: "found", userId: "users/42", displayName: "Mario Rossi" }) satisfies IdentityBridgeResult,
     historyFn: async () => [],
     composeStalePrMessageFn: async () => "messaggio composto",
-    getOrCreateDmSpaceFn: async () => ({ name: "spaces/DM1" }),
-    sendMessageFn: async () => ({ name: "spaces/DM1/messages/1" }),
-    notifyAdminFn: async () => {},
+    notifier: fakeNotifier(),
     recordEventFn: async () => {},
     now: () => new Date("2026-07-22T00:00:00Z"),
     ...overrides,
@@ -112,7 +118,7 @@ describe("runStalePrSweep", () => {
     const deps = baseDeps({
       resolveChatTargetForBitbucketUserFn: async (...args) => {
         bridgeArgs = args;
-        return { kind: "found", chatUserId: "users/42", displayName: "Mario Rossi" };
+        return { kind: "found", userId: "users/42", displayName: "Mario Rossi" };
       },
     });
 
@@ -123,30 +129,31 @@ describe("runStalePrSweep", () => {
 
   it("does nothing further when the identity bridge returns not-found (it already notified admin itself)", async () => {
     let historyCalled = false;
-    let sendCalled = false;
+    let notifyCalled = false;
     const deps = baseDeps({
       resolveChatTargetForBitbucketUserFn: async () => ({ kind: "not-found" }),
       historyFn: async () => {
         historyCalled = true;
         return [];
       },
-      sendMessageFn: async () => {
-        sendCalled = true;
-        return { name: "spaces/DM1/messages/1" };
-      },
+      notifier: fakeNotifier({
+        notify: async () => {
+          notifyCalled = true;
+          return { sessionKey: "spaces/DM1" };
+        },
+      }),
     });
 
     await runStalePrSweep(Date.now(), deps);
 
     expect(historyCalled).toBe(false);
-    expect(sendCalled).toBe(false);
+    expect(notifyCalled).toBe(false);
   });
 
-  it("composes, delivers via DM, and records an episodic event when the identity bridge finds a match", async () => {
+  it("composes, delivers via the notifier, and records an episodic event when the identity bridge finds a match", async () => {
     let historyQuery: { userId: string; queryText: string } | undefined;
     let composedFinding: unknown;
-    let dmUserId: string | undefined;
-    let sentArgs: unknown[] | undefined;
+    let notifyArgs: [string, string] | undefined;
     let recordedEvent: EpisodicSummary | undefined;
 
     const deps = baseDeps({
@@ -158,14 +165,12 @@ describe("runStalePrSweep", () => {
         composedFinding = finding;
         return "ecco il messaggio";
       },
-      getOrCreateDmSpaceFn: async (userId) => {
-        dmUserId = userId;
-        return { name: "spaces/DM1" };
-      },
-      sendMessageFn: async (...args) => {
-        sentArgs = args;
-        return { name: "spaces/DM1/messages/1" };
-      },
+      notifier: fakeNotifier({
+        notify: async (userId, text) => {
+          notifyArgs = [userId, text];
+          return { sessionKey: "spaces/DM1" };
+        },
+      }),
       recordEventFn: async (entry) => {
         recordedEvent = entry;
       },
@@ -181,9 +186,8 @@ describe("runStalePrSweep", () => {
       title: "Feature/update docs",
       staleDays: DEFAULT_PR_STALE_DAYS,
     });
-    expect(dmUserId).toBe("users/42");
-    expect(sentArgs?.[0]).toBe("spaces/DM1");
-    expect(sentArgs?.[1]).toBe("ecco il messaggio");
+    expect(notifyArgs?.[0]).toBe("users/42");
+    expect(notifyArgs?.[1]).toBe("ecco il messaggio");
     expect(recordedEvent).toEqual({
       userId: "users/42",
       sessionKey: "spaces/DM1",
@@ -203,7 +207,7 @@ describe("runStalePrSweep", () => {
       resolveChatTargetForBitbucketUserFn: async (user) => {
         if (user.accountId === "a") throw new Error("boom");
         secondProcessed = true;
-        return { kind: "found", chatUserId: "users/99", displayName: user.displayName };
+        return { kind: "found", userId: "users/99", displayName: user.displayName };
       },
       log: (msg) => logged.push(msg),
     });
