@@ -142,4 +142,58 @@ describe("createSessionHistory", () => {
       expect(seen[1]?.[0]).toEqual({ role: "assistant", content: "Earlier conversation summary: a summary" });
     });
   });
+
+  // The primer seeds a brand-new session with facts from the user's last
+  // closed session (see context-primer.ts) — kept as state independent from
+  // `summary` on purpose, so it's never at risk of being paraphrased or
+  // dropped by the LLM summarizer (see history_primer design note).
+  describe("primer", () => {
+    it("seeds getMessages() with the primer as the leading message before any turn happens", () => {
+      const history = createSessionHistory(fakeSummarizer(), undefined, "user is a data scientist");
+      expect(history.getMessages()).toEqual([
+        { role: "assistant", content: "Context from your last session: user is a data scientist" },
+      ]);
+    });
+
+    it("orders the primer before the summary message once a real compression produces one", async () => {
+      const history = createSessionHistory(fakeSummarizer(), undefined, "prior session facts");
+      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1));
+
+      const messages = history.getMessages();
+      expect(messages[0]).toEqual({
+        role: "assistant",
+        content: "Context from your last session: prior session facts",
+      });
+      expect(messages[1]?.content).toContain("a summary");
+    });
+
+    it("omitting the primer behaves exactly as before this change — no leading primer message", () => {
+      const history = createSessionHistory(fakeSummarizer());
+      expect(history.getMessages()).toEqual([]);
+    });
+
+    it("an empty-string primer behaves like an omitted one", () => {
+      const history = createSessionHistory(fakeSummarizer(), undefined, "");
+      expect(history.getMessages()).toEqual([]);
+    });
+
+    it("survives a real compression event unchanged — it is never part of the batch sent to summarize()", async () => {
+      const calls: Message[][] = [];
+      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      const history = createSessionHistory(fakeSummarizer({ calls }), undefined, "prior session facts");
+
+      await history.addUserMessage(big);
+
+      expect(calls).toEqual([[{ role: "user", content: big }]]);
+      expect(history.getMessages()[0]).toEqual({
+        role: "assistant",
+        content: "Context from your last session: prior session facts",
+      });
+    });
+
+    it("getCharCount includes the primer's length once it's present", () => {
+      const history = createSessionHistory(fakeSummarizer(), undefined, "hello");
+      expect(history.getCharCount()).toBe("Context from your last session: hello".length);
+    });
+  });
 });

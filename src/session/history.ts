@@ -58,6 +58,17 @@ function summaryMessage(summary: string): Message {
 }
 
 /**
+ * Wraps a primer string as the synthetic leading message `getMessages()`
+ * prepends ahead of any `summary` message. Distinct wording from
+ * `summaryMessage` on purpose — the primer describes the user's last
+ * *closed* session, not a summary of *this* one, and must not be confused
+ * with it.
+ */
+function primerMessage(primer: string): Message {
+  return { role: "assistant", content: `Context from your last session: ${primer}` };
+}
+
+/**
  * Creates an empty `SessionHistory`.
  *
  * @param summarize - Called with the full raw message batch (including
@@ -75,10 +86,16 @@ function summaryMessage(summary: string): Message {
  *   shared capture function) before that content stops being directly
  *   visible to the model. Fire-and-forget on purpose: this function must
  *   never block or fail Layer 1's own compression on an external write.
+ * @param primer - Optional, set once at creation from the user's last closed
+ *   session (see `context-primer.ts`). Held as its own state, entirely
+ *   independent from `summary`: it's never included in the batch passed to
+ *   `summarize`, so a real compression event can't paraphrase or drop it.
+ *   Leads `getMessages()` for the whole life of this history.
  */
 export function createSessionHistory(
   summarize: (messages: Message[]) => Promise<string>,
   onBeforeCompress?: (messages: Message[]) => void,
+  primer?: string,
 ): SessionHistory {
   let rawMessages: Message[] = [];
   let summary: string | null = null;
@@ -96,7 +113,14 @@ export function createSessionHistory(
   }
 
   function getMessages(): Message[] {
-    return summary ? [summaryMessage(summary), ...rawMessages] : [...rawMessages];
+    const leading: Message[] = [];
+    if (primer) {
+      leading.push(primerMessage(primer));
+    }
+    if (summary) {
+      leading.push(summaryMessage(summary));
+    }
+    return [...leading, ...rawMessages];
   }
 
   return {
