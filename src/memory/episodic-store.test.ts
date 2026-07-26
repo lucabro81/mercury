@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { ensureEpisodicCollection, storeEpisodicSummary, searchEpisodicMemory, type QdrantClientLike } from "./episodic-store.ts";
+import {
+  ensureEpisodicCollection,
+  storeEpisodicSummary,
+  searchEpisodicMemory,
+  getLastSessionEpisodicSummaries,
+  type QdrantClientLike,
+} from "./episodic-store.ts";
 
 describe("ensureEpisodicCollection", () => {
   it("creates the collection if it doesn't already exist", async () => {
@@ -188,5 +194,247 @@ describe("searchEpisodicMemory", () => {
     expect(await searchEpisodicMemory(client, "episodic_memory", embed, { userId: "users/42", queryText: "x" })).toEqual(
       [],
     );
+  });
+});
+
+// Not similarity-scoped like searchEpisodicMemory: this answers "what
+// happened last time", used to seed a brand-new session's context primer —
+// there's no query yet to compare against at session start.
+describe("getLastSessionEpisodicSummaries", () => {
+  it("finds the most recent entry, then returns entries scoped exactly to its own sessionKey", async () => {
+    const calls: unknown[] = [];
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      scroll: async (_collection, params) => {
+        calls.push(params);
+        if (calls.length === 1) {
+          return {
+            points: [
+              {
+                id: "p-latest",
+                payload: {
+                  userId: "users/42",
+                  sessionKey: "spaces/X:users/42:session-B",
+                  summary: "closed session summary A",
+                  timestamp: "2026-07-25T18:00:00.000Z",
+                },
+              },
+            ],
+          };
+        }
+        return {
+          points: [
+            {
+              id: "p2",
+              payload: {
+                userId: "users/42",
+                sessionKey: "spaces/X:users/42:session-B",
+                summary: "closed session summary B",
+                timestamp: "2026-07-25T17:50:00.000Z",
+              },
+            },
+            {
+              id: "p1",
+              payload: {
+                userId: "users/42",
+                sessionKey: "spaces/X:users/42:session-B",
+                summary: "closed session summary A",
+                timestamp: "2026-07-25T18:00:00.000Z",
+              },
+            },
+          ],
+        };
+      },
+    };
+
+    const results = await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" });
+
+    expect(calls[0]).toEqual({
+      filter: { must: [{ key: "userId", match: { value: "users/42" } }] },
+      order_by: { key: "timestamp", direction: "desc" },
+      limit: 1,
+    });
+    expect(calls[1]).toEqual({
+      filter: {
+        must: [
+          { key: "userId", match: { value: "users/42" } },
+          { key: "sessionKey", match: { value: "spaces/X:users/42:session-B" } },
+        ],
+      },
+      order_by: { key: "timestamp", direction: "desc" },
+      limit: 3,
+    });
+    expect(results).toEqual([
+      {
+        userId: "users/42",
+        sessionKey: "spaces/X:users/42:session-B",
+        summary: "closed session summary B",
+        timestamp: "2026-07-25T17:50:00.000Z",
+      },
+      {
+        userId: "users/42",
+        sessionKey: "spaces/X:users/42:session-B",
+        summary: "closed session summary A",
+        timestamp: "2026-07-25T18:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("returns an empty array when the user has no episodic history at all", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      scroll: async () => ({ points: [] }),
+    };
+
+    expect(await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" })).toEqual([]);
+  });
+
+  it("respects a custom limit on the session-scoped fetch instead of the default", async () => {
+    let callCount = 0;
+    let secondCallLimit: number | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      scroll: async (_collection, params) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            points: [
+              {
+                id: "p1",
+                payload: {
+                  userId: "users/42",
+                  sessionKey: "spaces/X:users/42",
+                  summary: "s",
+                  timestamp: "2026-07-25T18:00:00.000Z",
+                },
+              },
+            ],
+          };
+        }
+        secondCallLimit = params.limit;
+        return { points: [] };
+      },
+    };
+
+    await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42", limit: 5 });
+
+    expect(secondCallLimit).toBe(5);
+  });
+
+  // Regression guard: the session boundary must be enforced by the query
+  // sent to Qdrant (server-side filter), not just assumed — otherwise an
+  // unrelated earlier session's entries could leak into a brand-new
+  // session's primer just because they're also "recent".
+  it("scopes the second query to the most recent entry's own sessionKey, not a hardcoded or reused one", async () => {
+    let callCount = 0;
+    let secondCallFilter: unknown;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      scroll: async (_collection, params) => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            points: [
+              {
+                id: "p1",
+                payload: {
+                  userId: "users/42",
+                  sessionKey: "spaces/X:users/42:session-C",
+                  summary: "latest",
+                  timestamp: "2026-07-25T18:00:00.000Z",
+                },
+              },
+            ],
+          };
+        }
+        secondCallFilter = params.filter;
+        return { points: [] };
+      },
+    };
+
+    await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" });
+
+    expect(secondCallFilter).toEqual({
+      must: [
+        { key: "userId", match: { value: "users/42" } },
+        { key: "sessionKey", match: { value: "spaces/X:users/42:session-C" } },
+      ],
+    });
+  });
+
+  it("returns an empty array without erroring when the client doesn't support scroll", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+    };
+
+    expect(await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" })).toEqual([]);
+  });
+
+  it("skips malformed payloads in the session-scoped results instead of throwing", async () => {
+    let callCount = 0;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      scroll: async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            points: [
+              {
+                id: "p1",
+                payload: {
+                  userId: "users/42",
+                  sessionKey: "spaces/X:users/42",
+                  summary: "latest",
+                  timestamp: "2026-07-25T18:00:00.000Z",
+                },
+              },
+            ],
+          };
+        }
+        return {
+          points: [
+            { id: "bad", payload: null },
+            {
+              id: "good",
+              payload: {
+                userId: "users/42",
+                sessionKey: "spaces/X:users/42",
+                summary: "latest",
+                timestamp: "2026-07-25T18:00:00.000Z",
+              },
+            },
+          ],
+        };
+      },
+    };
+
+    const results = await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" });
+
+    expect(results).toEqual([
+      {
+        userId: "users/42",
+        sessionKey: "spaces/X:users/42",
+        summary: "latest",
+        timestamp: "2026-07-25T18:00:00.000Z",
+      },
+    ]);
   });
 });
