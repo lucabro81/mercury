@@ -14,6 +14,7 @@ import { startTerminalRepl } from "./terminal.ts";
 import { tryConfirm } from "./confirm-flow.ts";
 import { parseDumpCommand, defaultDumpPath, writeDump, formatContextUsage } from "./tool-log.ts";
 import { getLoadedContextLength } from "../model/context-size.ts";
+import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/agent-turn.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
@@ -82,7 +83,16 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
           const sink: TurnSink = {
             onToolStart: dim,
             onTextChunk: onChunk,
-            onStep: (step) => lastSteps.push(step),
+            onStep: (step) => {
+              lastSteps.push(step);
+              // cli-tool.ts no longer tells the model to relay a token as
+              // text (that's channel-specific now) — the terminal has to
+              // say it itself, from the structured step data.
+              const pending = detectPendingConfirmation(step);
+              if (pending) {
+                onChunk(`Azione in sospeso: \`${pending.command}\` — scrivi: conferma ${pending.token}\n`);
+              }
+            },
             onUsage: (tokens) => {
               lastInputTokens = tokens;
             },

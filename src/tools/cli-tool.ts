@@ -106,11 +106,14 @@ export function formatPrefixes(prefixes: string[][]): string {
  *
  * `opts.sessionKey`/`opts.store` scope the confirm-required branch: a
  * confirm-gated command is staged in `store` under `sessionKey` instead of
- * running, and the model is handed a token to relay verbatim to the user
- * (see `confirm-flow.ts` for the other half — actually running it once
- * that token comes back). Staging is inherently per-session, so callers
- * must build a fresh tool per turn, scoped to that turn's own session —
- * not a tool meant to be built once and reused across sessions.
+ * running, and the result carries a structured `token` — how the user is
+ * actually told to confirm is channel-specific (a card button on Google
+ * Chat, a typed `conferma <token>` on the terminal), not dictated here or
+ * by the model (see `confirm-flow.ts` for the other half — actually
+ * running it once that token comes back). Staging is inherently
+ * per-session, so callers must build a fresh tool per turn, scoped to
+ * that turn's own session — not a tool meant to be built once and reused
+ * across sessions.
  */
 export function createCliTool(
   runCliFn: typeof runCli,
@@ -153,7 +156,7 @@ export function createCliTool(
           ok: false,
           pendingConfirmation: true,
           token,
-          error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation. Relay this exact token to the user and ask them to reply \`conferma ${token}\` to proceed — never invent a different token, never claim this already succeeded.`,
+          error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation before it can run. Tell the user this action is staged and awaiting their confirmation — do not tell them how to confirm it, the channel handles that on its own.`,
         };
       }
 

@@ -33,11 +33,42 @@ import {
 } from "./google-chat-app-client.ts";
 import { splitForSendLimit } from "./google-chat-message-buffer.ts";
 import { tryConfirm } from "../confirm-flow.ts";
+import { detectPendingConfirmation, type PendingConfirmation } from "../../session/pending-confirmation.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
 import type { writeSuppressionNote } from "../../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../../memory/episodic-store.ts";
+
+/**
+ * Builds the confirmation card sent when a step stages an irreversible
+ * command (see `pending-confirmation.ts`). The button's parameters carry
+ * the token, so a click routes straight into the same execution path a
+ * typed `conferma <token>` uses (see `onCardClick`'s `confirm` case,
+ * below) — the user never has to see or type the token themselves.
+ */
+function buildConfirmCard(pending: PendingConfirmation): ChatCard {
+  return {
+    header: { title: "Conferma richiesta" },
+    sections: [
+      {
+        widgets: [
+          { textParagraph: { text: `\`${pending.command}\`` } },
+          {
+            buttonList: {
+              buttons: [
+                {
+                  text: "Conferma",
+                  onClick: { action: { function: "confirm", parameters: [{ key: "token", value: pending.token }] } },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
 
 /** Sentinel a model can return to mean "this message isn't addressed to me" in a shared, multi-person space — see `buildSystemPrompt`'s multiUser block in `index.ts`. Unchanged from the retired channel. */
 export const NO_REPLY = "NO_REPLY";
@@ -136,10 +167,13 @@ export type GoogleChatProviderDeps = {
   recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
   adminSpace: string;
   /**
-   * Handles a `CARD_CLICKED` event's action parameters — e.g. resolving a
-   * staged `notify-user` disambiguation token (see `notify-user.ts`).
-   * Defaults to a no-op logger: a provider built before that feature exists
-   * (or in a test) shouldn't crash on an unexpected click.
+   * Handles a `CARD_CLICKED` event's action parameters. Defaults to
+   * resolving the confirm-required button's token through the same
+   * `tryConfirm` path a typed `conferma <token>` message uses (see
+   * `createGoogleChatProvider`'s default below) — override only to
+   * handle a different card's click shape (e.g. a future `notify-user`
+   * disambiguation token, see `notify-user.ts`), not to change how
+   * confirmation itself resolves.
    */
   onCardClick?: CardClickHandler;
   /** Test seams — default to the real client functions bound with a token source built from `credentials`. */
@@ -187,10 +221,37 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
   const setTimeoutFn = deps.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
-  const onCardClick: CardClickHandler = deps.onCardClick ?? (async () => log("[chat] card click with no handler wired"));
-
   const clientDeps = { tokenSource };
   const sentMessageNames = new Set<string>();
+
+  /**
+   * Default `onCardClick`: the confirm button's token routes through the
+   * exact same `tryConfirm` logic a typed `conferma <token>` message
+   * uses, synthesizing the text it would have parsed — one execution
+   * path, one set of valid/expired/wrong-session-token behaviors,
+   * regardless of how the token got here.
+   */
+  const onCardClick: CardClickHandler =
+    deps.onCardClick ??
+    (async (params, space, sender) => {
+      const token = params.token;
+      if (!token) {
+        log(`[chat] card click with no token parameter`);
+        return;
+      }
+      const reply = await tryConfirm(`conferma ${token}`, deriveSessionKey(space, sender), {
+        store: deps.store,
+        runCliFn: deps.runCliFn,
+        userId: sender,
+        vaultPath: deps.vaultPath,
+        writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
+        recordSuppressionEventFn: deps.recordSuppressionEventFn,
+      });
+      if (reply !== null) {
+        const sent = await sendMessageFn(space, reply, clientDeps);
+        sentMessageNames.add(sent.name);
+      }
+    });
   let stopped = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -235,6 +296,16 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       // faster — this MUST stay undefined, it's what keeps runTurn on its
       // non-streaming path (see src/router/provider.ts's TurnSink).
       onUsage: (inputTokens) => log(`[chat:${space}] [usage] inputTokens=${inputTokens ?? "?"}`),
+      onStep: (step) => {
+        const pending = detectPendingConfirmation(step);
+        if (pending) {
+          scheduleStuckTimer();
+          enqueue(async () => {
+            const sent = await sendCardFn(space, buildConfirmCard(pending), clientDeps);
+            sentMessageNames.add(sent.name);
+          });
+        }
+      },
       finalize: async (finalText: string) => {
         stopStuckTimer();
         const trimmed = finalText.trim();

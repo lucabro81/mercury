@@ -300,6 +300,90 @@ describe("createGoogleChatProvider — poll loop", () => {
     expect(cardClickArgs).toEqual([{ token: "TOK" }, "spaces/X", "users/42"]);
   });
 
+  // The confirmation button's whole point: a click routes into the exact
+  // same execution path a typed `conferma <token>` message does — no
+  // separate logic to keep in sync, no new failure mode. Only exercised
+  // when the caller doesn't override `onCardClick` (the default behavior).
+  test("clicking the confirm button with a valid token executes the staged command", async () => {
+    const store = createConfirmationStore();
+    const token = store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
+    let intervalCallback: (() => void) | undefined;
+    const sent: string[] = [];
+
+    const deps = baseDeps({
+      store,
+      pullEventsFn: async () => [
+        {
+          ackId: "a1",
+          data: {
+            type: "CARD_CLICKED",
+            space: { name: "spaces/X" },
+            user: { name: "users/42" },
+            action: { parameters: [{ key: "token", value: token }] },
+          },
+        },
+      ],
+      acknowledgeFn: async () => {},
+      runCliFn: (async () => ({ ok: true as const, data: { deleted: true } })) as any,
+      sendMessageFn: async (_space, text) => {
+        sent.push(text);
+        return { name: "spaces/X/messages/2" };
+      },
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async () => {});
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sent).toEqual(['Confermato ed eseguito: {"deleted":true}']);
+  });
+
+  test("clicking the confirm button with an unknown/expired token gets a clean error, nothing executes", async () => {
+    let intervalCallback: (() => void) | undefined;
+    const sent: string[] = [];
+    let runCliCalled = false;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => [
+        {
+          ackId: "a1",
+          data: {
+            type: "CARD_CLICKED",
+            space: { name: "spaces/X" },
+            user: { name: "users/42" },
+            action: { parameters: [{ key: "token", value: "NOPE" }] },
+          },
+        },
+      ],
+      acknowledgeFn: async () => {},
+      runCliFn: (async () => {
+        runCliCalled = true;
+        return { ok: true as const, data: {} };
+      }) as any,
+      sendMessageFn: async (_space, text) => {
+        sent.push(text);
+        return { name: "spaces/X/messages/2" };
+      },
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async () => {});
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(runCliCalled).toBe(false);
+    expect(sent).toEqual(["Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita."]);
+  });
+
   // Regression test for the redelivery/duplicate-processing bug: pollOnce
   // used to ack the whole batch only after every event's handleTurn call
   // had resolved, so any turn slower than the subscription's ack deadline
@@ -396,5 +480,46 @@ describe("createGoogleChatProvider — poll loop", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(acked).toEqual([["a1"], ["a2"]]);
+  });
+
+  // Since cli-tool.ts stopped dictating "reply `conferma <token>`" to the
+  // model (channel-specific now), Google Chat's own confirmation UX is a
+  // card with a button — not text the user has to type. The button's
+  // parameters carry the token, so a click can be routed straight into
+  // the same execution path as a typed token, without the user ever
+  // seeing or handling the token themselves.
+  test("a confirm-required step sends a card with the staged command and a token-carrying button, instead of plain text", async () => {
+    const sentCards: Array<{ space: string; card: unknown }> = [];
+    let intervalCallback: (() => void) | undefined;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
+      acknowledgeFn: async () => {},
+      sendCardFn: async (space, card) => {
+        sentCards.push({ space, card });
+        return { name: "spaces/X/messages/card1" };
+      },
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (_turn, sink) => {
+      sink.onStep?.({
+        toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1 --confirm" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1" } }],
+        content: [],
+      });
+      await sink.finalize("Questa azione richiede conferma.");
+    });
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sentCards).toHaveLength(1);
+    expect(sentCards[0]!.space).toBe("spaces/X");
+    expect(JSON.stringify(sentCards[0]!.card)).toContain("jira issue delete KAN-1 --confirm");
+    expect(JSON.stringify(sentCards[0]!.card)).toContain("TOK1");
   });
 });

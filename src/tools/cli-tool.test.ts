@@ -210,9 +210,11 @@ describe("createCliTool", () => {
 
   // The confirm-required branch is distinct from "not permitted": the
   // shape IS recognized, but instead of running it, it's staged in the
-  // ConfirmationStore under the tool's own sessionKey and a token is
-  // handed back for the model to relay verbatim — runCliFn only runs
-  // later, once the user replies with that token (see confirm-flow.ts).
+  // ConfirmationStore under the tool's own sessionKey and a structured
+  // `token` is handed back — runCliFn only runs later, once that token
+  // comes back through whatever channel-specific confirmation mechanism
+  // the caller's provider uses (see confirm-flow.ts and
+  // terminal-provider.ts/google-chat-provider.ts).
   it("execute stages a confirm-required command instead of running it, and returns its token", async () => {
     let called = false;
     const runCliFn = async (): Promise<CliResult> => {
@@ -233,7 +235,6 @@ describe("createCliTool", () => {
     expect(result.pendingConfirmation).toBe(true);
     expect(result.token).toBe("TOK1");
     if (!result.ok) {
-      expect(result.error).toContain("TOK1");
       expect(result.error).not.toContain("not permitted");
     }
 
@@ -243,6 +244,29 @@ describe("createCliTool", () => {
       binary: "jira",
       args: ["issue", "delete", "KAN-1", "--confirm"],
     });
+  });
+
+  // Confirming is now channel-specific (a card button on Google Chat, a
+  // typed token on the terminal — see terminal-provider.ts/google-chat-
+  // provider.ts) instead of a fixed instruction the model relays as text.
+  // The tool result stays channel-neutral: it hands over the structured
+  // `token`, but must not dictate literal wording ("reply `conferma X`")
+  // that would be wrong on a channel using a button instead.
+  it("does not instruct the model to relay a literal 'conferma <token>' reply — that's channel-specific now", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await runCommand.execute(
+      { command: "jira issue delete KAN-1 --confirm" },
+      {} as never,
+    )) as CliResult & { pendingConfirmation?: true; token?: string };
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.toLowerCase()).not.toContain("conferma");
+    }
   });
 
   it("stages a confirm-required command under the tool's own sessionKey, not a different one", async () => {

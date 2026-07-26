@@ -127,6 +127,40 @@ describe("createTerminalProvider", () => {
     expect(chunks).toEqual(["\x1b[2m\x1b[3msto leggendo jira...\x1b[0m\n"]);
   });
 
+  // Since cli-tool.ts stopped dictating "reply `conferma <token>`" to the
+  // model (that's channel-specific now), the terminal must tell the user
+  // itself, from the structured step data — not rely on the model's own
+  // text to mention it.
+  test("a confirm-required step prints the token instruction itself, not relying on the model's text", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onStep?.({
+        toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1 --confirm" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1" } }],
+        content: [],
+      });
+      await sink.finalize("Questa azione richiede conferma.");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("elimina KAN-1", (chunk) => chunks.push(chunk));
+    expect(chunks.join("")).toContain("jira issue delete KAN-1 --confirm");
+    expect(chunks.join("")).toContain("conferma TOK1");
+  });
+
   test("the sink's onTextChunk is the terminal's real onChunk (streaming enabled)", async () => {
     let capturedHandleInput!: CapturedHandleInput;
 
