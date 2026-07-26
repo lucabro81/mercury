@@ -1,5 +1,11 @@
 # mercury
 
+## 0.9.0
+
+### Minor Changes
+
+- A new Google Chat session now starts with a short recap of the user's last session instead of a blank slate: the wiki facts that session reinforced, plus its own episodic summary.
+
 ## 0.8.0
 
 ### Minor Changes
