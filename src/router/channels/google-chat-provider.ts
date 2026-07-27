@@ -217,6 +217,14 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
   const clientDeps = { tokenSource };
   const sentMessageNames = new Set<string>();
+  // Per-session serialization: pollOnce's setInterval fires on a fixed
+  // clock regardless of whether the previous tick's turn finished, so two
+  // overlapping ticks could otherwise both call handleTurn for the SAME
+  // session at once — both reading/writing the same SessionHistory
+  // concurrently. Scoped by sessionKey only (not global), so a slow turn
+  // for one user/space never blocks a different one's.
+  const busySessions = new Set<string>();
+  const queuedEvents = new Map<string, ParsedMessageEvent[]>();
 
   /**
    * Default `onCardClick`: the confirm button's token routes through the
@@ -326,19 +334,40 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       return;
     }
 
-    const sink = createSink(event.space);
-    await handleTurn(
-      {
-        channel: "google-chat",
-        multiUser: true,
-        text: markedInput,
-        sessionKey,
-        userId: event.sender,
-        wikiUserId: encodeURIComponent(event.sender),
-        logPrefix: `[chat:${event.space}:${event.sender}] `,
-      },
-      sink,
-    );
+    // Only the actual model turn needs serializing — tryConfirm above
+    // never touches SessionHistory, so it's always safe to run right
+    // away regardless of whether this session is mid-turn.
+    if (busySessions.has(sessionKey)) {
+      const queue = queuedEvents.get(sessionKey) ?? [];
+      queue.push(event);
+      queuedEvents.set(sessionKey, queue);
+      return;
+    }
+
+    busySessions.add(sessionKey);
+    try {
+      const sink = createSink(event.space);
+      await handleTurn(
+        {
+          channel: "google-chat",
+          multiUser: true,
+          text: markedInput,
+          sessionKey,
+          userId: event.sender,
+          wikiUserId: encodeURIComponent(event.sender),
+          logPrefix: `[chat:${event.space}:${event.sender}] `,
+        },
+        sink,
+      );
+    } finally {
+      busySessions.delete(sessionKey);
+      const queue = queuedEvents.get(sessionKey);
+      const next = queue?.shift();
+      if (queue && queue.length === 0) queuedEvents.delete(sessionKey);
+      if (next) {
+        processMessageEvent(next, handleTurn).catch((err) => log(`[chat] queued event handling failed: ${String(err)}`));
+      }
+    }
   }
 
   /**

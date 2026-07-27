@@ -553,4 +553,148 @@ describe("createGoogleChatProvider — poll loop", () => {
 
     expect(sent).toEqual([]);
   });
+
+  // Regression test: pollOnce's setInterval fires on a fixed clock,
+  // regardless of whether the previous tick's turn finished — two
+  // overlapping ticks pulling two different messages for the SAME session
+  // used to both call handleTurn concurrently, both reading/writing the
+  // same SessionHistory at once (observed live: confusing, stale-looking
+  // replies mixing content from two different turns). A session must
+  // finish its current turn before starting another one.
+  test("serializes two messages for the same session across overlapping poll ticks", async () => {
+    const started: string[] = [];
+    let resolveFirst!: () => void;
+    const firstGate = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    let intervalCallback: (() => void) | undefined;
+    let pullCount = 0;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => {
+        pullCount++;
+        if (pullCount === 1) return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first" }) }];
+        if (pullCount === 2) return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second" }) }];
+        return [];
+      },
+      acknowledgeFn: async () => {},
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (turn, sink) => {
+      started.push(turn.text.split("\n").pop()!);
+      if (turn.text.includes("first")) await firstGate;
+      await sink.finalize("ok");
+    });
+
+    intervalCallback!(); // tick 1: starts "first", blocks on firstGate
+    await new Promise((r) => setTimeout(r, 10));
+    intervalCallback!(); // tick 2 (overlapping): pulls "second" for the same session
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(started).toEqual(["first"]); // "second" must be queued, not started yet
+
+    resolveFirst();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(started).toEqual(["first", "second"]);
+  });
+
+  // The per-session lock must not become a global one — a slow turn for
+  // one user/space must never hold up a different session's turn.
+  test("does not block a different session's turn while one session is busy", async () => {
+    const started: string[] = [];
+    let resolveFirst!: () => void;
+    const firstGate = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    let intervalCallback: (() => void) | undefined;
+    let pullCount = 0;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => {
+        pullCount++;
+        if (pullCount === 1) {
+          return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first", sender: "users/1" }) }];
+        }
+        if (pullCount === 2) {
+          return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second", sender: "users/2" }) }];
+        }
+        return [];
+      },
+      acknowledgeFn: async () => {},
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (turn, sink) => {
+      started.push(turn.text.split("\n").pop()!);
+      if (turn.text.includes("first")) await firstGate;
+      await sink.finalize("ok");
+    });
+
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 10));
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(started).toEqual(["first", "second"]);
+
+    resolveFirst();
+  });
+
+  // A burst of more than two messages for the same busy session must all
+  // queue and drain in the order they arrived, not just the first one.
+  test("drains more than one queued message for the same session, in order", async () => {
+    const started: string[] = [];
+    let resolveFirst!: () => void;
+    const firstGate = new Promise<void>((r) => {
+      resolveFirst = r;
+    });
+    let intervalCallback: (() => void) | undefined;
+    let pullCount = 0;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => {
+        pullCount++;
+        if (pullCount === 1) return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first" }) }];
+        if (pullCount === 2) return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second" }) }];
+        if (pullCount === 3) return [{ ackId: "a3", data: messageEvent({ messageName: "spaces/X/messages/3", text: "third" }) }];
+        return [];
+      },
+      acknowledgeFn: async () => {},
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (turn, sink) => {
+      started.push(turn.text.split("\n").pop()!);
+      if (turn.text.includes("first")) await firstGate;
+      await sink.finalize("ok");
+    });
+
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 10));
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 10));
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(started).toEqual(["first"]);
+
+    resolveFirst();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(started).toEqual(["first", "second", "third"]);
+  });
 });
