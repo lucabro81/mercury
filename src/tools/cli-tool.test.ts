@@ -246,6 +246,43 @@ describe("createCliTool", () => {
     });
   });
 
+  // Regression test: the model asked for "jira issue delete MER-19"
+  // (without --confirm) in a real conversation. Mercury staged it exactly
+  // as typed, and once the user confirmed via card, execution failed
+  // because jira-cli itself refuses to delete without its own --confirm
+  // flag — a completely separate safety net from Mercury's own token, and
+  // one the model can't be relied on to remember. Staging must add it
+  // whenever it's missing, so the confirmed command actually succeeds.
+  it("adds --confirm to the staged args when the model omitted it", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await runCommand.execute({ command: "jira issue delete MER-19" }, {} as never);
+
+    expect(store.take("terminal", "TOK1")).toEqual({
+      kind: "cli",
+      binary: "jira",
+      args: ["issue", "delete", "MER-19", "--confirm"],
+    });
+  });
+
+  it("does not duplicate --confirm when the model already included it", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await runCommand.execute({ command: "jira issue delete MER-19 --confirm" }, {} as never);
+
+    expect(store.take("terminal", "TOK1")).toEqual({
+      kind: "cli",
+      binary: "jira",
+      args: ["issue", "delete", "MER-19", "--confirm"],
+    });
+  });
+
   // Confirming is now channel-specific (a card button on Google Chat, a
   // typed token on the terminal — see terminal-provider.ts/google-chat-
   // provider.ts) instead of a fixed instruction the model relays as text.

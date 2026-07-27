@@ -151,12 +151,20 @@ export function createCliTool(
         };
       }
       if (match.kind === "confirm-required") {
-        const token = opts.store.stage(opts.sessionKey, { kind: "cli", binary: parsed.binary, args: parsed.args });
+        // The underlying CLI has its own, separate --confirm safety flag
+        // (jira-cli/google-chat-cli both refuse a delete without it) —
+        // independent of Mercury's own token. Once a human confirms
+        // through Mercury, that flag must actually be there when the
+        // staged args run, regardless of whether the model remembered to
+        // include it on the first attempt (observed live: it usually
+        // doesn't).
+        const argsToStage = parsed.args.includes("--confirm") ? parsed.args : [...parsed.args, "--confirm"];
+        const token = opts.store.stage(opts.sessionKey, { kind: "cli", binary: parsed.binary, args: argsToStage });
         return {
           ok: false,
           pendingConfirmation: true,
           token,
-          error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation before it can run. Tell the user this action is staged and awaiting their confirmation — do not tell them how to confirm it, the channel handles that on its own.`,
+          error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation before it can run. Tell the user this action is staged and awaiting their confirmation. Never mention the token value in your reply, in any form — do not tell them how to confirm it, the channel handles that on its own.`,
         };
       }
 

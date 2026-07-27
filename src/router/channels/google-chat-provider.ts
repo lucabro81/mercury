@@ -248,6 +248,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         recordSuppressionEventFn: deps.recordSuppressionEventFn,
       });
       if (reply !== null) {
+        log(`[chat:${space}] [out] ${reply}`);
         const sent = await sendMessageFn(space, reply, clientDeps);
         sentMessageNames.add(sent.name);
       }
@@ -271,6 +272,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     }
     function sendPlain(text: string): void {
       enqueue(async () => {
+        log(`[chat:${space}] [out] ${text}`);
         const sent = await sendMessageFn(space, text, clientDeps);
         sentMessageNames.add(sent.name);
       });
@@ -301,6 +303,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         if (pending) {
           scheduleStuckTimer();
           enqueue(async () => {
+            log(`[chat:${space}] [out] confirm card: ${pending.command}`);
             const sent = await sendCardFn(space, buildConfirmCard(pending), clientDeps);
             sentMessageNames.add(sent.name);
           });
@@ -339,6 +342,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       recordSuppressionEventFn: deps.recordSuppressionEventFn,
     });
     if (confirmReply !== null) {
+      log(`[chat:${event.space}] [out] ${confirmReply}`);
       const sent = await sendMessageFn(event.space, confirmReply, clientDeps);
       sentMessageNames.add(sent.name);
       return;
