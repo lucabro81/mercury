@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { createToolLogRecallTool } from "./tool-log-recall-tool.ts";
 import { recordStep, resetToolLogForTest } from "./tool-log-buffer.ts";
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 function stepWithOneCall(toolName: string, input: unknown, output: unknown): StepInfo {
   return {

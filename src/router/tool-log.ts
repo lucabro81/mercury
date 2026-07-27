@@ -12,7 +12,7 @@
  * these.
  */
 import { tmpdir } from "node:os";
-import type { StepInfo } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 
 /**
  * Stringifies `value` as JSON, truncating to `maxChars` and appending a

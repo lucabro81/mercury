@@ -2,12 +2,14 @@
  * Detects a confirm-required `runCommand` staging within a single turn's
  * step (see `cli-tool.ts`'s `confirm-required` branch): a structured
  * `{pendingConfirmation: true, token}` tool result, distinct from an
- * ordinary success or failure. How the user is actually told to confirm
- * is channel-specific (see `terminal-provider.ts`/`google-chat-provider.ts`)
- * — this helper only extracts what a channel needs to build its own
- * confirmation UI, never a message meant to be shown verbatim.
+ * ordinary success or failure. Two callers: `agent-turn.ts` uses it to
+ * stop the tool-calling loop right there (`pendingConfirmationStop`) so
+ * the model never gets a further step to comment on it; each provider
+ * (`terminal-provider.ts`/`google-chat-provider.ts`) uses it to build its
+ * own channel-specific confirmation UI (a printed token, a card) from the
+ * same detection — never a message meant to be shown verbatim.
  */
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 export type PendingConfirmation = { token: string; command: string };
 

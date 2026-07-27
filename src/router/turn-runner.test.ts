@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createTurnRunner } from "./turn-runner.ts";
 import type { InboundTurn, TurnSink } from "./provider.ts";
 import type { SessionHistory } from "../session/history.ts";
-import type { StepInfo } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 
 function fakeHistory(): SessionHistory {
   return {

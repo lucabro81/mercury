@@ -10,7 +10,8 @@
  * given turn came from — same channel-agnostic spirit as `runTurn` itself.
  */
 import type { LanguageModel, Tool } from "ai";
-import { runTurn, type StepInfo } from "../session/agent-turn.ts";
+import { runTurn } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";

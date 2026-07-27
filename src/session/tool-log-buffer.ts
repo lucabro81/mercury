@@ -12,7 +12,7 @@
  * `onStepFinish` wiring, changing neither channel's own behavior.
  */
 import { truncateForDisplay } from "../router/tool-log.ts";
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 /**
  * Whatever the provider that ran the turn calls itself — see

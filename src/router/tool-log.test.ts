@@ -9,7 +9,7 @@ import {
   describeToolOutcome,
   formatContextUsage,
 } from "./tool-log.ts";
-import type { StepInfo } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 
 describe("truncateForDisplay", () => {
   it("returns the exact JSON unchanged when it fits within maxChars", () => {

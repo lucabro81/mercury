@@ -16,7 +16,7 @@ import { parseDumpCommand, defaultDumpPath, writeDump, formatContextUsage } from
 import { getLoadedContextLength } from "../model/context-size.ts";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
-import type { StepInfo } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { runCli } from "../tools/cli-executor.ts";
 import type { writeSuppressionNote } from "../wiki/wiki-note.ts";

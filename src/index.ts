@@ -32,7 +32,7 @@ import {
   truncateForDisplay,
   describeToolOutcome,
 } from "./router/tool-log.ts";
-import type { StepInfo } from "./session/agent-turn.ts";
+import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {

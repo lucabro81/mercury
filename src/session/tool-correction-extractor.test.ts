@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { createToolCorrectionExtractor, type ProceduralCorrection } from "./tool-correction-extractor.ts";
 import type { LanguageModel } from "ai";
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 const MODEL = "fake-model" as unknown as LanguageModel;
 

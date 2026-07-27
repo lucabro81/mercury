@@ -8,7 +8,7 @@
  * (see `src/router/confirm-flow.ts`): each provider owns its own addressing
  * model completely, nothing above this layer ever parses these values.
  */
-import type { StepInfo } from "../session/agent-turn.ts";
+import type { StepInfo } from "../session/step-info.ts";
 
 /** One inbound message, already resolved by its own provider into the shape the shared layer needs. */
 export type InboundTurn = {

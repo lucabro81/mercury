@@ -1,8 +1,22 @@
 import { describe, it, expect } from "bun:test";
-import { runTurn, buildGenerateTextParams, buildStreamTextParams, EMPTY_RESPONSE_FALLBACK } from "./agent-turn.ts";
+import { runTurn, buildGenerateTextParams, buildStreamTextParams, PENDING_CONFIRMATION_NOTE } from "./agent-turn.ts";
 import { createSessionHistory } from "./history.ts";
 import type { Message } from "./history.ts";
 import type { Tool } from "ai";
+import type { StepInfo } from "./step-info.ts";
+
+/** A step that staged a confirm-required command — see pending-confirmation.ts. */
+const PENDING_CONFIRMATION_STEP: StepInfo = {
+  toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1" } }],
+  toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { pendingConfirmation: true, token: "TOK1" } }],
+  content: [],
+};
+
+/** Mirrors the AI SDK's own `isStopConditionMet`: true if *any* condition in the array is true (confirmed against `node_modules/ai/dist/index.js`'s `.some(result => result)`). */
+async function stopConditionsMet(stopWhen: unknown, steps: unknown[]): Promise<boolean> {
+  const conditions = stopWhen as Array<(opts: { steps: unknown[] }) => Promise<boolean> | boolean>;
+  return (await Promise.all(conditions.map((c) => c({ steps })))).some(Boolean);
+}
 
 function neverSummarize(): Promise<string> {
   throw new Error("should not be called in these tests");
@@ -99,25 +113,29 @@ describe("runTurn", () => {
 
   // The terminal channel uses this to print tool calls as they happen,
   // since otherwise there's no visibility into what Mercury did before
-  // producing a final answer — see src/router/terminal.ts.
-  it("passes an onStepFinish callback through to the generation call when provided", async () => {
+  // producing a final answer — see src/router/terminal.ts. runTurn wraps
+  // the caller's callback (to track the last step for
+  // resolveEmptyText/pendingConfirmationStop), so identity isn't
+  // preserved — only that a step reaching the wrapper reaches the
+  // original too.
+  it("forwards each step to the caller's onStepFinish when provided, on the generation path", async () => {
     const history = createSessionHistory(neverSummarize);
-    let receivedOnStepFinish: unknown;
-    const generateTextFn = async (params: { onStepFinish?: unknown }) => {
-      receivedOnStepFinish = params.onStepFinish;
+    const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
+    const receivedSteps: StepInfo[] = [];
+    const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
+      params.onStepFinish?.(ordinaryStep);
       return { text: "ok" };
     };
-    const onStepFinish = () => {};
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
       tools: {},
       system: SYSTEM,
       generateTextFn,
-      onStepFinish,
+      onStepFinish: (step) => receivedSteps.push(step),
     });
 
-    expect(receivedOnStepFinish).toBe(onStepFinish);
+    expect(receivedSteps).toEqual([ordinaryStep]);
   });
 
   // The terminal channel uses onTextChunk to print Mercury's answer as it
@@ -169,15 +187,15 @@ describe("runTurn", () => {
     ]);
   });
 
-  it("passes an onStepFinish callback through to the streaming call too", async () => {
+  it("forwards each step to the caller's onStepFinish when provided, on the streaming path too", async () => {
     async function* fakeStream() {}
     const history = createSessionHistory(neverSummarize);
-    let received: unknown;
-    const streamTextFn = async (params: { onStepFinish?: unknown }) => {
-      received = params.onStepFinish;
+    const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
+    const receivedSteps: StepInfo[] = [];
+    const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
+      params.onStepFinish?.(ordinaryStep);
       return { textStream: fakeStream() };
     };
-    const onStepFinish = () => {};
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -185,10 +203,10 @@ describe("runTurn", () => {
       system: SYSTEM,
       streamTextFn,
       onTextChunk: () => {},
-      onStepFinish,
+      onStepFinish: (step) => receivedSteps.push(step),
     });
 
-    expect(received).toBe(onStepFinish);
+    expect(receivedSteps).toEqual([ordinaryStep]);
   });
 
   // The terminal channel shows this next to the prompt as a real (not
@@ -244,13 +262,11 @@ describe("runTurn", () => {
   // budget on retries (e.g. jira's required --select, guessed wrong a
   // couple of times) can reach the model's step limit with no step left
   // to actually write an answer. streamText then resolves with a
-  // textStream that yields nothing at all: no error, no chunk, and
-  // (before this fix) nothing ever reached the user — Google Chat's
-  // streamer had literally nothing to flush, leaving a "might be stuck"
-  // status line unresolved forever. A turn must never end in total
-  // silence: an empty final answer becomes an explicit fallback message
-  // instead, delivered the same way real content would have been.
-  it("delivers an explicit fallback via onTextChunk, and records it, when the streamed answer is entirely empty", async () => {
+  // textStream that yields nothing at all: no error, no chunk. Left
+  // empty on purpose (no fallback message) — silence in this genuinely-
+  // stuck case is an accepted tradeoff, not solved here (see
+  // PENDING_CONFIRMATION_NOTE's doc comment in agent-turn.ts).
+  it("leaves the streamed answer empty, and sends nothing via onTextChunk, when it's genuinely empty", async () => {
     async function* emptyStream() {
       // yields nothing — the model ran out of steps before writing text
     }
@@ -266,11 +282,11 @@ describe("runTurn", () => {
       onTextChunk: (chunk) => received.push(chunk),
     });
 
-    expect(received).toEqual([EMPTY_RESPONSE_FALLBACK]);
-    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+    expect(received).toEqual([]);
+    expect(result).toBe("");
     expect(history.getMessages()).toEqual([
       { role: "user", content: "hi" },
-      { role: "assistant", content: EMPTY_RESPONSE_FALLBACK },
+      { role: "assistant", content: "" },
     ]);
   });
 
@@ -289,7 +305,7 @@ describe("runTurn", () => {
       onTextChunk: () => {},
     });
 
-    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+    expect(result).toBe("");
   });
 
   it("does not touch a non-empty streamed answer", async () => {
@@ -313,7 +329,7 @@ describe("runTurn", () => {
   // Same regression, non-streaming path (currently unused in production —
   // both real channels always set onTextChunk — but kept correct since
   // it's still a public, directly tested code path.
-  it("substitutes the fallback when generateText returns empty text", async () => {
+  it("leaves the text empty when generateText returns empty text and the last step wasn't a pending confirmation", async () => {
     const history = createSessionHistory(neverSummarize);
     const generateTextFn = async () => ({ text: "" });
 
@@ -324,11 +340,58 @@ describe("runTurn", () => {
       generateTextFn,
     });
 
-    expect(result).toBe(EMPTY_RESPONSE_FALLBACK);
+    expect(result).toBe("");
     expect(history.getMessages()).toEqual([
       { role: "user", content: "hi" },
-      { role: "assistant", content: EMPTY_RESPONSE_FALLBACK },
+      { role: "assistant", content: "" },
     ]);
+  });
+
+  // The actual point of stopping the loop early on a pending confirmation
+  // (see buildGenerateTextParams/buildStreamTextParams below): the model
+  // never gets a step to write anything after staging the command, so
+  // there's nothing to substitute a fallback for except this fixed,
+  // non-model-generated note — never the token, never model prose.
+  it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (non-streaming)", async () => {
+    const history = createSessionHistory(neverSummarize);
+    const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
+      params.onStepFinish?.(PENDING_CONFIRMATION_STEP);
+      return { text: "" };
+    };
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      generateTextFn,
+    });
+
+    expect(result).toBe(PENDING_CONFIRMATION_NOTE);
+    expect(history.getMessages()).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: PENDING_CONFIRMATION_NOTE },
+    ]);
+  });
+
+  it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (streaming)", async () => {
+    async function* emptyStream() {}
+    const history = createSessionHistory(neverSummarize);
+    const received: string[] = [];
+    const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
+      params.onStepFinish?.(PENDING_CONFIRMATION_STEP);
+      return { textStream: emptyStream() };
+    };
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: (chunk) => received.push(chunk),
+    });
+
+    expect(received).toEqual([PENDING_CONFIRMATION_NOTE]);
+    expect(result).toBe(PENDING_CONFIRMATION_NOTE);
   });
 });
 
@@ -357,9 +420,25 @@ describe("buildGenerateTextParams", () => {
       system: SYSTEM,
     });
 
-    const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
-    expect(await stopWhen({ steps: new Array(99).fill({}) })).toBe(false);
-    expect(await stopWhen({ steps: new Array(100).fill({}) })).toBe(true);
+    const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
+    const stopped = async (n: number) => stopConditionsMet(params.stopWhen, new Array(n).fill(ordinaryStep));
+    expect(await stopped(99)).toBe(false);
+    expect(await stopped(100)).toBe(true);
+  });
+
+  // The actual reason a second stop condition exists alongside the step
+  // cap: a confirm-required command must stop the loop immediately,
+  // regardless of how many steps are left in the budget — see
+  // PENDING_CONFIRMATION_NOTE's doc comment for why.
+  it("stops immediately when the last step staged a confirm-required command, regardless of step count", async () => {
+    const params = buildGenerateTextParams({
+      model: "fake-model" as never,
+      messages: [],
+      tools: {},
+      system: SYSTEM,
+    });
+
+    expect(await stopConditionsMet(params.stopWhen, [PENDING_CONFIRMATION_STEP])).toBe(true);
   });
 });
 
@@ -373,8 +452,20 @@ describe("buildStreamTextParams", () => {
       system: SYSTEM,
     });
 
-    const stopWhen = params.stopWhen as (opts: { steps: unknown[] }) => Promise<boolean> | boolean;
-    expect(await stopWhen({ steps: new Array(99).fill({}) })).toBe(false);
-    expect(await stopWhen({ steps: new Array(100).fill({}) })).toBe(true);
+    const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
+    const stopped = async (n: number) => stopConditionsMet(params.stopWhen, new Array(n).fill(ordinaryStep));
+    expect(await stopped(99)).toBe(false);
+    expect(await stopped(100)).toBe(true);
+  });
+
+  it("stops immediately when the last step staged a confirm-required command, regardless of step count", async () => {
+    const params = buildStreamTextParams({
+      model: "fake-model" as never,
+      messages: [],
+      tools: {},
+      system: SYSTEM,
+    });
+
+    expect(await stopConditionsMet(params.stopWhen, [PENDING_CONFIRMATION_STEP])).toBe(true);
   });
 });

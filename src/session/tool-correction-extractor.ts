@@ -18,7 +18,7 @@
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
 import { parseCommand } from "../tools/command-parser.ts";
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 export const ProceduralCorrectionCandidateSchema = z.object({ topic: z.string(), value: z.string() });
 export type ProceduralCorrection = { tool: string; topic: string; value: string };

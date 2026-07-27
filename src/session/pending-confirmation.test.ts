@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { detectPendingConfirmation } from "./pending-confirmation.ts";
-import type { StepInfo } from "./agent-turn.ts";
+import type { StepInfo } from "./step-info.ts";
 
 function runCommandCall(toolCallId: string, command: string) {
   return { toolCallId, toolName: "runCommand", input: { command } };

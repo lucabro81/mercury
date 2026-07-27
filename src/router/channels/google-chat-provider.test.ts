@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createGoogleChatProvider, deriveSessionKey, parseChatEvent, type GoogleChatProviderDeps } from "./google-chat-provider.ts";
 import { createConfirmationStore } from "../../tools/confirmation-store.ts";
+import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "../provider.ts";
 
 const creds = { clientEmail: "bot@test.iam.gserviceaccount.com", privateKey: "fake" };
@@ -19,8 +20,6 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
     setIntervalFn: (() => 0) as any, // never actually fire the poll loop unless a test wants it
     clearIntervalFn: (() => {}) as any,
-    setTimeoutFn: (() => 0) as any, // never actually fire the stuck-note timer
-    clearTimeoutFn: (() => {}) as any,
     log: () => {},
     ...overrides,
   };
@@ -521,5 +520,37 @@ describe("createGoogleChatProvider — poll loop", () => {
     expect(sentCards[0]!.space).toBe("spaces/X");
     expect(JSON.stringify(sentCards[0]!.card)).toContain("jira issue delete KAN-1 --confirm");
     expect(JSON.stringify(sentCards[0]!.card)).toContain("TOK1");
+  });
+
+  // agent-turn.ts returns PENDING_CONFIRMATION_NOTE as the turn's "text"
+  // when the loop stopped for a pending confirmation (see
+  // pendingConfirmationStop) — the card (test above) already says
+  // everything a human needs. Sending this note too would be a second,
+  // redundant message for the exact thing the card just covered.
+  test("does not send PENDING_CONFIRMATION_NOTE as a message — the card already covers it", async () => {
+    const sent: string[] = [];
+    let intervalCallback: (() => void) | undefined;
+
+    const deps = baseDeps({
+      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
+      acknowledgeFn: async () => {},
+      sendMessageFn: async (_space, text) => {
+        sent.push(text);
+        return { name: "spaces/X/messages/1" };
+      },
+      setIntervalFn: ((cb: () => void) => {
+        intervalCallback = cb;
+        return 1 as any;
+      }) as any,
+    });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (_turn, sink) => {
+      await sink.finalize(PENDING_CONFIRMATION_NOTE);
+    });
+    intervalCallback!();
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sent).toEqual([]);
   });
 });

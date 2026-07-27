@@ -34,6 +34,7 @@ import {
 import { splitForSendLimit } from "./google-chat-message-buffer.ts";
 import { tryConfirm } from "../confirm-flow.ts";
 import { detectPendingConfirmation, type PendingConfirmation } from "../../session/pending-confirmation.ts";
+import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
@@ -73,9 +74,6 @@ function buildConfirmCard(pending: PendingConfirmation): ChatCard {
 /** Sentinel a model can return to mean "this message isn't addressed to me" in a shared, multi-person space — see `buildSystemPrompt`'s multiUser block in `index.ts`. Unchanged from the retired channel. */
 export const NO_REPLY = "NO_REPLY";
 
-const STUCK_NOTE_DELAY_MS = 60_000;
-const STUCK_NOTE =
-  "Non ho ancora una risposta pronta: potrebbe essersi inceppato qualcosa, ma potrebbe ripartire da sola. Non serve fare nulla.";
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_PULL_BATCH_SIZE = 20;
 
@@ -187,8 +185,6 @@ export type GoogleChatProviderDeps = {
   pollIntervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
   log?: (msg: string) => void;
 };
 
@@ -219,8 +215,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const getOrCreateDmSpaceFn = deps.getOrCreateDmSpaceFn ?? getOrCreateDmSpace;
   const setIntervalFn = deps.setIntervalFn ?? setInterval;
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
-  const setTimeoutFn = deps.setTimeoutFn ?? setTimeout;
-  const clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
   const clientDeps = { tokenSource };
   const sentMessageNames = new Set<string>();
 
@@ -258,7 +252,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
 
   /** Per-turn output sink — same responsibilities as the retired `ChatStreamer`, rebuilt against the new client. */
   function createSink(space: string): TurnSink {
-    let stuckTimer: ReturnType<typeof setTimeout> | undefined;
     let chain: Promise<void> = Promise.resolve();
 
     function enqueue(fn: () => Promise<void>): void {
@@ -277,20 +270,9 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         sentMessageNames.add(sent.name);
       });
     }
-    function stopStuckTimer(): void {
-      if (stuckTimer !== undefined) clearTimeoutFn(stuckTimer);
-    }
-    function scheduleStuckTimer(): void {
-      stopStuckTimer();
-      stuckTimer = setTimeoutFn(() => {
-        sendPlain(STUCK_NOTE);
-      }, STUCK_NOTE_DELAY_MS);
-    }
-    scheduleStuckTimer();
 
     return {
       onToolStart: (label: string) => {
-        scheduleStuckTimer();
         sendPlain(`_${label}_`);
       },
       // Deliberately absent: Google Chat only shows a message once fully
@@ -301,7 +283,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       onStep: (step) => {
         const pending = detectPendingConfirmation(step);
         if (pending) {
-          scheduleStuckTimer();
           enqueue(async () => {
             log(`[chat:${space}] [out] confirm card: ${pending.command}`);
             const sent = await sendCardFn(space, buildConfirmCard(pending), clientDeps);
@@ -310,18 +291,15 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         }
       },
       finalize: async (finalText: string) => {
-        stopStuckTimer();
         const trimmed = finalText.trim();
-        if (trimmed.length > 0 && trimmed !== NO_REPLY) {
+        if (trimmed.length > 0 && trimmed !== NO_REPLY && trimmed !== PENDING_CONFIRMATION_NOTE) {
           for (const message of splitForSendLimit(trimmed)) {
             sendPlain(message);
           }
         }
         await chain;
       },
-      dispose: () => {
-        stopStuckTimer();
-      },
+      dispose: () => {},
     };
   }
 
