@@ -325,6 +325,8 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   async function processMessageEvent(event: ParsedMessageEvent, handleTurn: HandleTurn): Promise<void> {
     if (sentMessageNames.has(event.messageName)) return;
 
+    log(`[chat:${event.space}:${event.sender}] [in] ${event.text}`);
+
     const sessionKey = deriveSessionKey(event.space, event.sender);
     const markedInput = event.senderDisplayName ? `[Da: ${event.senderDisplayName}]\n${event.text}` : event.text;
 
