@@ -15,6 +15,7 @@ import { tryConfirm } from "./confirm-flow.ts";
 import { parseDumpCommand, defaultDumpPath, writeDump, formatContextUsage } from "./tool-log.ts";
 import { getLoadedContextLength } from "../model/context-size.ts";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
+import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
@@ -82,7 +83,13 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
           const dim = (label: string) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`);
           const sink: TurnSink = {
             onToolStart: dim,
-            onTextChunk: onChunk,
+            // PENDING_CONFIRMATION_NOTE is dropped here: onStep (below)
+            // already printed the specific instruction (command + token)
+            // for the same step — the generic note would be a second,
+            // redundant line saying nothing new.
+            onTextChunk: (chunk) => {
+              if (chunk !== PENDING_CONFIRMATION_NOTE) onChunk(chunk);
+            },
             onStep: (step) => {
               lastSteps.push(step);
               // cli-tool.ts no longer tells the model to relay a token as

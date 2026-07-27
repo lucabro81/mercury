@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createTerminalProvider } from "./terminal-provider.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
+import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 
 type CapturedHandleInput = (input: string, onChunk: (chunk: string) => void) => Promise<string>;
 
@@ -185,6 +186,36 @@ describe("createTerminalProvider", () => {
     const chunks: string[] = [];
     await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
     expect(chunks).toEqual(["partial ", "answer"]);
+  });
+
+  // agent-turn.ts streams PENDING_CONFIRMATION_NOTE via onTextChunk when a
+  // turn stopped for a pending confirmation (see pendingConfirmationStop)
+  // — but the sink's own onStep already printed the specific instruction
+  // (command + token) for that same step. Printing the generic note too
+  // would be a redundant second line saying nothing new.
+  test("does not forward PENDING_CONFIRMATION_NOTE via onTextChunk — the onStep instruction already covers it", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onTextChunk?.(PENDING_CONFIRMATION_NOTE);
+      await sink.finalize(PENDING_CONFIRMATION_NOTE);
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("elimina KAN-1", (chunk) => chunks.push(chunk));
+    expect(chunks).toEqual([]);
   });
 
   test("usage reported via the sink feeds the prompt suffix", async () => {
