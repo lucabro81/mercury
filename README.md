@@ -15,13 +15,13 @@ Mercury is an agent built on a fixed orchestration loop and a pluggable tool lay
 
 ## What works today
 
-Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `runCommand` and answers with real data. Ask it to create a ticket, move one to a different status, or add a comment, and it does that directly. Ask it to delete one and it won't run that on its own: it stages the delete, hands back a one-time token, and only runs it for real once you reply with `conferma <token>` exactly. The model figures out a CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed and which ones need that confirmation step first.
+Ask Mercury a Jira question in natural language, from the terminal or from a Google Chat space it's a member of, and it queries the real Jira API through `runCommand` and answers with real data. Ask it to create a ticket, move one to a different status, or add a comment, and it does that directly. Ask it to delete one and it won't run that on its own: it stages the delete and hands back a one-time token. Confirming it never means typing a magic word — on Google Chat it's a button click on the card Mercury sends, on the terminal it's pasting that token back as-is. The model figures out a CLI's flags on its own through `--help`; Mercury only enforces which subcommands are allowed and which ones need that confirmation step first.
 
 Mercury also keeps a wiki, a git-versioned knowledge base it reads and writes through its own tools, consulted before falling back to a live CLI query or admitting it doesn't know something.
 
 Conversation history survives across turns in the same session and summarizes itself once it grows past a size threshold, instead of overflowing the model's context window. A session idle long enough gets summarized again and stored as episodic memory in Qdrant, then dropped from active memory.
 
-Google Chat works the way every channel will eventually work: Mercury discovers which spaces it's a member of and listens on each one, replying in place when someone writes to it. Ask it directly to join a space and it does so immediately, without waiting for the next discovery round.
+Google Chat works the way every channel will eventually work: Mercury is a registered Chat app with its own bot identity, replying in place wherever someone messages it. Joining a new space today still means adding it as a member yourself in Google Chat; a self-join tool exists but isn't verified against a real space yet.
 
 Both channels are verified against a real Ollama model, not just unit tests with a fake one.
 
