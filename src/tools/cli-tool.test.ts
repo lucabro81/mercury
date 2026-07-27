@@ -154,9 +154,24 @@ describe("createCliTool", () => {
   // Fresh store + sessionKey per test that doesn't care about confirmation
   // staging specifically — a real ConfirmationStore is required by
   // createCliTool's signature now, but only the confirm-required tests
-  // below actually exercise it.
+  // below actually exercise it. vaultPath/userId/writeConfirmationNoteFn
+  // are needed by every call now too (the confirm-required branch writes a
+  // note unconditionally), but a no-op fake is enough outside those tests.
   function defaultOpts() {
-    return { sessionKey: "test-session", store: createConfirmationStore() };
+    return {
+      sessionKey: "test-session",
+      store: createConfirmationStore(),
+      vaultPath: "/vault",
+      userId: "user-x",
+      writeConfirmationNoteFn: async () => {},
+    };
+  }
+
+  // Shared by the confirm-required tests below, which do care about the
+  // store/sessionKey but not usually about the note-writing side effect —
+  // tests that DO care override writeConfirmationNoteFn explicitly.
+  function confirmOpts(store: ReturnType<typeof createConfirmationStore>) {
+    return { sessionKey: "terminal", store, vaultPath: "/vault", userId: "user-x", writeConfirmationNoteFn: async () => {} };
   }
 
   it("execute parses the command and calls runCliFn with the exact binary and args for an allowed command", async () => {
@@ -223,7 +238,7 @@ describe("createCliTool", () => {
     };
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
@@ -243,6 +258,7 @@ describe("createCliTool", () => {
       kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "KAN-1", "--confirm"],
+      requestedAt: expect.any(String),
     });
   });
 
@@ -257,7 +273,7 @@ describe("createCliTool", () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete MER-19" }, {} as never);
 
@@ -265,6 +281,7 @@ describe("createCliTool", () => {
       kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "MER-19", "--confirm"],
+      requestedAt: expect.any(String),
     });
   });
 
@@ -272,7 +289,7 @@ describe("createCliTool", () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete MER-19 --confirm" }, {} as never);
 
@@ -280,6 +297,7 @@ describe("createCliTool", () => {
       kind: "cli",
       binary: "jira",
       args: ["issue", "delete", "MER-19", "--confirm"],
+      requestedAt: expect.any(String),
     });
   });
 
@@ -293,7 +311,7 @@ describe("createCliTool", () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
@@ -306,11 +324,70 @@ describe("createCliTool", () => {
     }
   });
 
+  // Regression guard for the stale-primer bug: the propose half of a
+  // confirm-required action must write a deterministic "pending" record
+  // (inferred/confirmations/<userId>/<token>.md) so a persistent memory
+  // layer never has to guess/summarize this from free-text conversation —
+  // see writeConfirmationNote in wiki-note.ts.
+  it("writes a pending confirmation note when staging a confirm-required command", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+    const writes: Array<{ vaultPath: string; userId: string; token: string; fields: unknown }> = [];
+    const writeConfirmationNoteFn = async (vaultPath: string, userId: string, token: string, fields: unknown) => {
+      writes.push({ vaultPath, userId, token, fields });
+    };
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, {
+      ...confirmOpts(store),
+      vaultPath: "/my-vault",
+      userId: "users/42",
+      writeConfirmationNoteFn,
+    });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
+
+    expect(writes).toEqual([
+      {
+        vaultPath: "/my-vault",
+        userId: "users/42",
+        token: "TOK1",
+        fields: {
+          status: "pending",
+          requestedAt: expect.any(String),
+          resolvedAt: null,
+          command: "jira issue delete KAN-1 --confirm",
+        },
+      },
+    ]);
+  });
+
+  // A wiki-write failure (disk issue, git problem) must not break the live
+  // confirmation flow itself — the user still needs to see the card/token
+  // and be able to confirm. The note is a secondary paper trail, not a
+  // precondition for staging to succeed.
+  it("still stages and returns the token even if writing the confirmation note fails", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
+    const writeConfirmationNoteFn = async () => {
+      throw new Error("disk full");
+    };
+
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...confirmOpts(store), writeConfirmationNoteFn });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await runCommand.execute(
+      { command: "jira issue delete KAN-1 --confirm" },
+      {} as never,
+    )) as CliResult & { pendingConfirmation?: true; token?: string };
+
+    expect(result.pendingConfirmation).toBe(true);
+    expect(result.token).toBe("TOK1");
+  });
+
   it("stages a confirm-required command under the tool's own sessionKey, not a different one", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { sessionKey: "terminal", store });
+    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
 

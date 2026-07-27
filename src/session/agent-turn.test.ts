@@ -351,7 +351,16 @@ describe("runTurn", () => {
   // (see buildGenerateTextParams/buildStreamTextParams below): the model
   // never gets a step to write anything after staging the command, so
   // there's nothing to substitute a fallback for except this fixed,
-  // non-model-generated note — never the token, never model prose.
+  // non-model-generated note — never the token, never model prose. The
+  // user-visible text stays this fixed note (unchanged — both channels
+  // already suppress it, showing their own UI instead: a card on Google
+  // Chat, a printed instruction on the terminal), but what actually lands
+  // in SessionHistory is the opaque `[REQ:<token>]` marker, not this
+  // sentence — see the next describe block for why: this exact sentence,
+  // once summarized into persistent memory, told a brand-new session after
+  // a restart that an action was permanently "still pending", long after it
+  // had actually been confirmed or abandoned (tokens don't survive a
+  // restart, or even 5 minutes — see confirmation-store.ts's TTL).
   it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (non-streaming)", async () => {
     const history = createSessionHistory(neverSummarize);
     const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
@@ -369,7 +378,7 @@ describe("runTurn", () => {
     expect(result).toBe(PENDING_CONFIRMATION_NOTE);
     expect(history.getMessages()).toEqual([
       { role: "user", content: "hi" },
-      { role: "assistant", content: PENDING_CONFIRMATION_NOTE },
+      { role: "assistant", content: "[REQ:TOK1]" },
     ]);
   });
 
@@ -392,6 +401,43 @@ describe("runTurn", () => {
 
     expect(received).toEqual([PENDING_CONFIRMATION_NOTE]);
     expect(result).toBe(PENDING_CONFIRMATION_NOTE);
+    expect(history.getMessages()).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "[REQ:TOK1]" },
+    ]);
+  });
+
+  // Regression guard for the stale-primer bug: the opaque marker recorded
+  // into history must be the token, not the generic sentence — it's the
+  // thing that gets fed into episodic summarization later, and a fixed
+  // sentence about "still pending" is exactly what caused the bug (an LLM
+  // summarizer had no way to know it had already been resolved by the time
+  // anyone read the summary back).
+  describe("SessionHistory records an opaque [REQ:<token>] marker, not PENDING_CONFIRMATION_NOTE", () => {
+    it("uses the real token from the step that staged the confirm-required command", async () => {
+      const history = createSessionHistory(neverSummarize);
+      const step: StepInfo = {
+        toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-9" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { pendingConfirmation: true, token: "OTHER9" } }],
+        content: [],
+      };
+      const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
+        params.onStepFinish?.(step);
+        return { text: "" };
+      };
+
+      await runTurn(history, "elimina KAN-9", {
+        model: "fake-model" as never,
+        tools: {},
+        system: SYSTEM,
+        generateTextFn,
+      });
+
+      expect(history.getMessages()).toEqual([
+        { role: "user", content: "elimina KAN-9" },
+        { role: "assistant", content: "[REQ:OTHER9]" },
+      ]);
+    });
   });
 });
 

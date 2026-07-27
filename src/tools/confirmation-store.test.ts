@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createConfirmationStore, parseConfirmCommand } from "./confirmation-store.ts";
+import { createConfirmationStore, isTokenShaped } from "./confirmation-store.ts";
 
 describe("createConfirmationStore", () => {
   it("stages a cli action and returns it on a matching take, one-shot", () => {
@@ -85,24 +85,49 @@ describe("createConfirmationStore", () => {
   });
 });
 
-describe("parseConfirmCommand", () => {
-  it("extracts the token from a well-formed confirm command", () => {
-    expect(parseConfirmCommand("conferma TOK1")).toBe("TOK1");
-  });
-
-  it("matches the conferma keyword case-insensitively, but preserves token case", () => {
-    expect(parseConfirmCommand("CONFERMA TOK1")).toBe("TOK1");
-    expect(parseConfirmCommand("Conferma tok1")).toBe("tok1");
-  });
-
-  it("returns null for input that isn't a confirm command", () => {
-    expect(parseConfirmCommand("crea un bug su KAN")).toBeNull();
-    expect(parseConfirmCommand("conferma")).toBeNull();
-    expect(parseConfirmCommand("conferma TOK1 extra")).toBeNull();
-    expect(parseConfirmCommand("")).toBeNull();
+// Replaces parseConfirmCommand's "conferma <token>" keyword parsing: the
+// real safety gate was always store.take() (must exist, right session, not
+// expired) — the "conferma " prefix added no security, just ceremony left
+// over from the pre-card text-only confirmation flow. isTokenShaped only
+// needs to tell apart "this looks like a token attempt" from "this is an
+// ordinary message", so tryConfirm (confirm-flow.ts) knows whether to
+// intercept at all — not a security boundary itself.
+//
+// The token's shape (two 4-char alphanumeric groups joined by a fixed
+// hyphen, e.g. "k9m2-x7q4") is deliberately not just "6 alphanumeric
+// characters": a bare N-character run collides with ordinary short
+// messages a human might actually send (found live — "second", used as
+// plain conversational text in an unrelated test, was indistinguishable
+// from a real token under the old 6-char-alphanumeric shape). A token is
+// always copy-pasted, never read or typed from memory, so legibility
+// (avoiding 0/O/1/l/I) was never the point — the hyphen at a fixed
+// position is: an ordinary single-word message essentially never has that
+// exact "word-word" shape with nothing else around it.
+describe("isTokenShaped", () => {
+  it("is true for two 4-char alphanumeric groups joined by a hyphen", () => {
+    expect(isTokenShaped("k9m2-x7q4")).toBe(true);
   });
 
   it("tolerates surrounding whitespace", () => {
-    expect(parseConfirmCommand("  conferma   TOK1  ")).toBe("TOK1");
+    expect(isTokenShaped("  k9m2-x7q4  ")).toBe(true);
+  });
+
+  it("is false without the hyphen, even at the right total length", () => {
+    expect(isTokenShaped("k9m2x7q4")).toBe(false);
+  });
+
+  it("is false for the wrong group length", () => {
+    expect(isTokenShaped("k9m-x7q4")).toBe(false);
+    expect(isTokenShaped("k9m2x-x7q4x")).toBe(false);
+  });
+
+  it("is false for an ordinary conversational message, including ones that happen to be a single 6-character word", () => {
+    expect(isTokenShaped("crea un bug su KAN")).toBe(false);
+    expect(isTokenShaped("second")).toBe(false);
+    expect(isTokenShaped("grazie")).toBe(false);
+  });
+
+  it("is false for an empty string", () => {
+    expect(isTokenShaped("")).toBe(false);
   });
 });

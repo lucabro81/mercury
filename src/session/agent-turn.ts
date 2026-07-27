@@ -71,6 +71,27 @@ function resolveEmptyText(lastStep: StepInfo | undefined): string {
 }
 
 /**
+ * What actually gets recorded into `SessionHistory` for this turn — `displayText`
+ * unchanged, except when `lastStep` staged a confirm-required command: then
+ * it's the opaque `[REQ:<token>]` marker instead, regardless of `displayText`.
+ * The two diverge on purpose: `displayText` (what the channel shows/streams)
+ * stays the fixed `PENDING_CONFIRMATION_NOTE` sentence — both channels
+ * already suppress that exact string and show their own UI instead (a card,
+ * a printed instruction) — but that sentence must never reach persistent
+ * memory. A confirmation token is ephemeral by design (in-memory only, a
+ * few minutes' TTL — see `confirmation-store.ts`), so any summarized record
+ * claiming an action is "still pending" goes stale almost immediately;
+ * this is the stale-primer bug's actual fix. The marker forces a reader
+ * (the model, later, via `context-primer.ts`'s "Riferimenti aperti" +
+ * `resolve_reference` in `wiki-tools.ts`) to deliberately look up what it
+ * refers to instead of absorbing a claim that may no longer be true.
+ */
+function resolveHistoryText(lastStep: StepInfo | undefined, displayText: string): string {
+  const pending = lastStep ? detectPendingConfirmation(lastStep) : null;
+  return pending ? `[REQ:${pending.token}]` : displayText;
+}
+
+/**
  * Stops the tool-calling loop immediately after a step that staged a
  * confirm-required command — the model never gets a further step to
  * write anything about it (see `PENDING_CONFIRMATION_NOTE` above for
@@ -266,7 +287,7 @@ export async function runTurn(
       if (fullText.length > 0) deps.onTextChunk(fullText);
     }
 
-    await history.addAssistantMessage(fullText);
+    await history.addAssistantMessage(resolveHistoryText(lastStep, fullText));
     return fullText;
   }
 
@@ -285,6 +306,6 @@ export async function runTurn(
   deps.onUsage?.(result.totalUsage?.inputTokens);
 
   const text = result.text.trim().length === 0 ? resolveEmptyText(lastStep) : result.text;
-  await history.addAssistantMessage(text);
+  await history.addAssistantMessage(resolveHistoryText(lastStep, text));
   return text;
 }

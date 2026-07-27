@@ -2,21 +2,21 @@
  * In-memory staging area for an action that needs explicit confirmation
  * before it executes: a CLI command that matched a `confirm:true` prefix
  * (see `matchCommand` in `cli-tool.ts`), or a request to stop notifying
- * about a specific item. Either way the model stages it here
- * and relays the returned token to the user, who must reply
- * `conferma <token>` on the same channel/session before anything actually
- * happens (see `confirm-flow.ts`). Scoped by `sessionKey` so a token
- * proposed to one session (terminal, or a given Google Chat space+sender)
- * can't be confirmed by another.
+ * about a specific item. Either way the model stages it here, and the
+ * channel gets the returned token confirmed back to it — a card button
+ * click on Google Chat, a bare token typed on the terminal — before
+ * anything actually happens (see `confirm-flow.ts`). Scoped by
+ * `sessionKey` so a token proposed to one session (terminal, or a given
+ * Google Chat space+sender) can't be confirmed by another.
  *
- * One store, one token namespace, one `conferma <token>` command surface
- * for both kinds — `take()` returns the tagged union, the caller branches
- * on `kind` only once it's time to actually execute. A second parallel
- * store per action kind would mean `confirm-flow.ts` searching multiple
- * stores for the same token, for no benefit.
+ * One store, one token namespace, one confirmation surface for both
+ * kinds — `take()` returns the tagged union, the caller branches on
+ * `kind` only once it's time to actually execute. A second parallel store
+ * per action kind would mean `confirm-flow.ts` searching multiple stores
+ * for the same token, for no benefit.
  */
 export type StagedAction =
-  | { kind: "cli"; binary: string; args: string[] }
+  | { kind: "cli"; binary: string; args: string[]; requestedAt?: string }
   | { kind: "suppress-notification"; checkType: string; itemKey: string };
 
 export type ConfirmationStore = {
@@ -28,18 +28,31 @@ export type ConfirmationStore = {
   take(sessionKey: string, token: string): StagedAction | null;
 };
 
-const TOKEN_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; // excludes 0/O, 1/l/I
-const TOKEN_LENGTH = 6;
+// Full alphanumeric — a token is only ever copy-pasted, never read or
+// typed from memory, so legibility (avoiding 0/O/1/l/I) was never the
+// actual point. What makes a token distinguishable from ordinary text is
+// its shape below (two groups joined by a fixed hyphen), not a restricted
+// character set — a restricted set doesn't help anyway: it still collides
+// with any real short word that happens to avoid the same few excluded
+// characters (found live: "second", used as plain conversational text,
+// was indistinguishable from a real token under the old bare-6-char shape).
+const TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const TOKEN_GROUP_LENGTH = 4;
 const DEFAULT_TTL_MS = 5 * 60_000;
 
-function defaultTokenFn(): string {
-  const bytes = new Uint8Array(TOKEN_LENGTH);
+function randomGroup(): string {
+  const bytes = new Uint8Array(TOKEN_GROUP_LENGTH);
   crypto.getRandomValues(bytes);
-  let token = "";
+  let group = "";
   for (const b of bytes) {
-    token += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
+    group += TOKEN_ALPHABET[b % TOKEN_ALPHABET.length];
   }
-  return token;
+  return group;
+}
+
+/** `<4 alphanumeric>-<4 alphanumeric>`, e.g. `k9m2-x7q4` — see `TOKEN_ALPHABET`'s own doc comment for why this shape, not a restricted character set, is what makes a token distinguishable from ordinary text. */
+function defaultTokenFn(): string {
+  return `${randomGroup()}-${randomGroup()}`;
 }
 
 type Entry = { action: StagedAction; sessionKey: string; expiresAt: number };
@@ -76,12 +89,16 @@ export function createConfirmationStore(
   };
 }
 
-const CONFIRM_COMMAND_RE = /^\s*conferma\s+(\S+)\s*$/i;
+const TOKEN_SHAPE_RE = new RegExp(`^[${TOKEN_ALPHABET}]{${TOKEN_GROUP_LENGTH}}-[${TOKEN_ALPHABET}]{${TOKEN_GROUP_LENGTH}}$`);
 
-/** Recognizes a `conferma <token>` command: keyword case-insensitive,
- * token preserved exactly as typed. Returns `null` for anything else,
- * including extra trailing text after the token. */
-export function parseConfirmCommand(input: string): string | null {
-  const match = CONFIRM_COMMAND_RE.exec(input);
-  return match ? (match[1] as string) : null;
+/**
+ * True if `input` (trimmed) has the exact shape of a token this store
+ * mints — same alphabet, same length. Not a security boundary itself
+ * (that's `take()`'s existence/session/expiry check) — just enough to
+ * tell apart "this looks like a confirmation attempt" from "this is an
+ * ordinary message", so a caller (`tryConfirm` in `confirm-flow.ts`) knows
+ * whether to intercept at all before ever touching the store.
+ */
+export function isTokenShaped(input: string): boolean {
+  return TOKEN_SHAPE_RE.test(input.trim());
 }

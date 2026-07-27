@@ -82,8 +82,8 @@ export type Provider = Notifier & {
   /**
    * Runs this provider's own inbound driver, calling `handleTurn` once per
    * message that actually needs the model. Deterministic pre-interception
-   * (`conferma <token>`, `/dump`) belongs to the provider, before this.
-   * Resolves when the provider stops.
+   * (a bare confirmation token, `/dump`) belongs to the provider, before
+   * this. Resolves when the provider stops.
    */
   start(handleTurn: HandleTurn): Promise<void>;
 };

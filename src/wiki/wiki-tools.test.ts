@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeCuratedNote, writeInferredNote } from "./wiki-note.ts";
+import { writeCuratedNote, writeInferredNote, writeConfirmationNote } from "./wiki-note.ts";
 import { createWikiTools } from "./wiki-tools.ts";
 import { initVault } from "./vault-init.ts";
 
@@ -121,5 +121,85 @@ describe("createWikiTools", () => {
       expect(result.matches.length).toBe(1);
       expect(result.matches[0]!.path).toBe("inferred/users/user-a/topic-x.md");
     }
+  });
+
+  // Regression guard for the stale-primer bug: a confirmation note must
+  // only ever be reachable by whoever already holds the exact token
+  // (e.g. from the primer's opaque [REQ:<token>] marker) — never by
+  // browsing, and never for another user's token.
+  describe("resolve_reference", () => {
+    it("reads the calling user's own confirmation note by token", async () => {
+      const vaultPath = await makeTempVault();
+      await writeConfirmationNote(vaultPath, "user-a", "j3h4b5", {
+        status: "pending",
+        requestedAt: "2026-07-27T12:20:00Z",
+        resolvedAt: null,
+        command: "jira issue delete KAN-1 --confirm",
+      });
+
+      const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = (await resolve_reference.execute({ token: "j3h4b5" }, {} as never)) as
+        | { ok: true; content: string }
+        | { ok: false; error: string };
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.content).toContain("jira issue delete KAN-1 --confirm");
+        expect(result.content).toContain("status: pending");
+      }
+    });
+
+    it("returns a self-correctable error for an unknown/expired token", async () => {
+      const vaultPath = await makeTempVault();
+      const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
+
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = (await resolve_reference.execute({ token: "nope00" }, {} as never)) as
+        | { ok: true; content: string }
+        | { ok: false; error: string };
+
+      expect(result.ok).toBe(false);
+    });
+
+    it("cannot resolve another user's token even if the string matches", async () => {
+      const vaultPath = await makeTempVault();
+      await writeConfirmationNote(vaultPath, "user-b", "j3h4b5", {
+        status: "pending",
+        requestedAt: "2026-07-27T12:20:00Z",
+        resolvedAt: null,
+        command: "jira issue delete KAN-1 --confirm",
+      });
+
+      const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = (await resolve_reference.execute({ token: "j3h4b5" }, {} as never)) as
+        | { ok: true; content: string }
+        | { ok: false; error: string };
+
+      expect(result.ok).toBe(false);
+    });
+
+    it("is not discoverable via list_files or grep — only resolve_reference reaches it", async () => {
+      const vaultPath = await makeTempVault();
+      await writeConfirmationNote(vaultPath, "user-a", "j3h4b5", {
+        status: "pending",
+        requestedAt: "2026-07-27T12:20:00Z",
+        resolvedAt: null,
+        command: "jira issue delete KAN-1 --confirm",
+      });
+
+      const { list_files, grep } = createWikiTools({ vaultPath, userId: "user-a" });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const files = (await list_files.execute({}, {} as never)) as { ok: true; files: string[] };
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const matches = (await grep.execute({ pattern: "jira issue delete" }, {} as never)) as {
+        ok: true;
+        matches: unknown[];
+      };
+
+      expect(files.files.some((f) => f.includes("confirmations"))).toBe(false);
+      expect(matches.matches).toEqual([]);
+    });
   });
 });

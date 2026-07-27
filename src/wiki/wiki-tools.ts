@@ -10,9 +10,10 @@
  * a rejected/invalid call is a self-correctable model turn, not a
  * crashed tool call.
  */
+import { resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
-import { listWikiFiles, readWikiFile, grepWiki } from "./wiki-read.ts";
+import { listWikiFiles, readWikiFile, grepWiki, readWikiFileInRoots } from "./wiki-read.ts";
 import { writeCuratedNote } from "./wiki-note.ts";
 
 export type WikiToolsDeps = { vaultPath: string; userId: string };
@@ -79,5 +80,30 @@ export function createWikiTools(deps: WikiToolsDeps) {
     },
   });
 
-  return { list_files, read_file, write_file, grep };
+  // Deliberately not built on listWikiFiles/readWikiFile/grepWiki's
+  // allowedRoots (curated/ + inferred/users/<userId>/) — inferred/confirmations/
+  // is a different subtree on purpose, invisible to list_files/read_file/grep
+  // (see ConfirmationFrontmatterSchema's doc comment). Scoped to the calling
+  // userId's own root only, via readWikiFileInRoots directly, so a token
+  // string that happens to collide with another user's is still unreachable.
+  const resolve_reference = tool({
+    description:
+      "Resolve an opaque [REQ:<token>] reference (e.g. one you see in your own context) into the confirmation " +
+      "request it points to — a past action that required explicit confirmation, and whether it was confirmed, " +
+      "failed, or is still pending. If it's still pending, ask the user whether they still want it done — never " +
+      "re-run the command yourself without them explicitly saying so.",
+    inputSchema: z.object({ token: z.string().min(1) }),
+    execute: async ({ token }) => {
+      try {
+        const userRoot = resolve(vaultPath, "inferred", "confirmations", encodeURIComponent(userId));
+        const relativePath = `inferred/confirmations/${encodeURIComponent(userId)}/${token}.md`;
+        const content = await readWikiFileInRoots(vaultPath, [userRoot], relativePath);
+        return { ok: true as const, content };
+      } catch (err) {
+        return { ok: false as const, error: String(err) };
+      }
+    },
+  });
+
+  return { list_files, read_file, write_file, grep, resolve_reference };
 }

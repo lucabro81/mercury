@@ -14,6 +14,10 @@ function resolvedNote(body: string): string {
   return `---\ntype: resolved\nsource: api\nresolved_at: "2026-01-01T00:00:00.000Z"\ndisplay_name: "${body}"\nemail: null\n---\n\n${body}\n`;
 }
 
+function confirmationNote(status: "pending" | "confirmed" | "failed"): string {
+  return `---\ntype: confirmation\nstatus: ${status}\nrequested_at: "2026-07-27T12:20:00.000Z"\nresolved_at: null\ncommand: "jira issue delete KAN-1 --confirm"\n---\n\n`;
+}
+
 function fakeDeps(overrides: Partial<ContextPrimerDeps> = {}): ContextPrimerDeps {
   return {
     vaultPath: "/vault",
@@ -44,6 +48,10 @@ describe("buildContextPrimer", () => {
       getLastSessionEntries: async () => [lastSessionEntry],
       listWikiFilesInRootsFn: async (vaultPath, roots) => {
         listCallArgs = { vaultPath, roots };
+        // A real listWikiFilesInRoots scopes strictly by root — this fake
+        // must too, now that buildContextPrimer also queries a second,
+        // unrelated root (inferred/confirmations/) for pending references.
+        if (roots.some((r) => r.includes("confirmations"))) return [];
         return ["inferred/users/users%2F42/role.md", "inferred/users/users%2F42/team.md", "inferred/users/users%2F42/resolved-name.md"];
       },
       readWikiFileInRootsFn: async (_vaultPath, roots, file) => {
@@ -123,5 +131,74 @@ describe("buildContextPrimer", () => {
     });
 
     expect(await buildContextPrimer("users/42", deps)).toBe("Last session:\n- Discussed KAN-1 rollout");
+  });
+
+  // Regression guard for the stale-primer bug: a pending confirmation must
+  // surface only as an opaque, non-narrative [REQ:<token>] marker — never
+  // the command or the fact it's "still waiting" as prose the model could
+  // react to on its own. Resolving it into something meaningful requires
+  // deliberately calling resolve_reference (wiki-tools.ts) with the token.
+  describe("Riferimenti aperti (pending confirmations)", () => {
+    it("includes an opaque [REQ:<token>] marker for a pending confirmation note", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [lastSessionEntry],
+        listWikiFilesInRootsFn: async (_vaultPath, roots) => {
+          if (roots.some((r) => r.includes("confirmations"))) return ["inferred/confirmations/users%2F42/j3h4b5.md"];
+          return [];
+        },
+        readWikiFileInRootsFn: async (_vaultPath, roots) => (roots.some((r) => r.includes("confirmations")) ? confirmationNote("pending") : ""),
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).toContain("Riferimenti aperti:\n- [REQ:j3h4b5]");
+      expect(primer).not.toContain("jira issue delete"); // opaque — no command text leaked into the primer
+    });
+
+    it("excludes confirmed/failed confirmation notes — only still-pending ones surface", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [lastSessionEntry],
+        listWikiFilesInRootsFn: async (_vaultPath, roots) =>
+          roots.some((r) => r.includes("confirmations"))
+            ? ["inferred/confirmations/users%2F42/tok1.md", "inferred/confirmations/users%2F42/tok2.md"]
+            : [],
+        readWikiFileInRootsFn: async (_vaultPath, roots, file) => {
+          if (!roots.some((r) => r.includes("confirmations"))) return "";
+          return file.endsWith("tok1.md") ? confirmationNote("confirmed") : confirmationNote("failed");
+        },
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).not.toContain("Riferimenti aperti");
+    });
+
+    it("surfaces pending references even when there's no last-session episodic recap at all", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [],
+        listWikiFilesInRootsFn: async (_vaultPath, roots) =>
+          roots.some((r) => r.includes("confirmations")) ? ["inferred/confirmations/users%2F42/j3h4b5.md"] : [],
+        readWikiFileInRootsFn: async () => confirmationNote("pending"),
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).toBe("Riferimenti aperti:\n- [REQ:j3h4b5]");
+    });
+
+    it("scopes the confirmations lookup to the encoded userId's own inferred/confirmations/ root", async () => {
+      let confirmationsRoots: string[] | undefined;
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [],
+        listWikiFilesInRootsFn: async (_vaultPath, roots) => {
+          if (roots.some((r) => r.includes("confirmations"))) confirmationsRoots = roots;
+          return [];
+        },
+      });
+
+      await buildContextPrimer("users/42", deps);
+
+      expect(confirmationsRoots).toEqual(["/vault/inferred/confirmations/users%2F42"]);
+    });
   });
 });

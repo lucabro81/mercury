@@ -12,6 +12,7 @@ function fakeConfirmDeps() {
     vaultPath: "/vault",
     writeSuppressionNoteFn: (async () => {}) as any,
     recordSuppressionEventFn: async () => {},
+    writeConfirmationNoteFn: (async () => {}) as any,
   };
 }
 
@@ -40,7 +41,7 @@ describe("createTerminalProvider", () => {
     expect(result).toContain("wrote 0 tool step(s)");
   });
 
-  test("conferma <token> short-circuits without calling handleTurn", async () => {
+  test("a bare confirmation token short-circuits without calling handleTurn", async () => {
     let capturedHandleInput!: CapturedHandleInput;
     let handleTurnCalled = false;
     let tryConfirmArgs: unknown[] = [];
@@ -64,10 +65,10 @@ describe("createTerminalProvider", () => {
     };
     await provider.start(handleTurn);
 
-    const result = await capturedHandleInput("conferma ABC123", () => {});
+    const result = await capturedHandleInput("ABC123", () => {});
     expect(handleTurnCalled).toBe(false);
     expect(result).toBe("Confermato ed eseguito.");
-    expect(tryConfirmArgs).toEqual(["conferma ABC123", "terminal", "terminal"]);
+    expect(tryConfirmArgs).toEqual(["ABC123", "terminal", "terminal"]);
   });
 
   test("a normal message calls handleTurn and returns the sink's finalized text", async () => {
@@ -159,7 +160,7 @@ describe("createTerminalProvider", () => {
     const chunks: string[] = [];
     await capturedHandleInput("elimina KAN-1", (chunk) => chunks.push(chunk));
     expect(chunks.join("")).toContain("jira issue delete KAN-1 --confirm");
-    expect(chunks.join("")).toContain("conferma TOK1");
+    expect(chunks.join("")).toContain("scrivi: TOK1");
   });
 
   test("the sink's onTextChunk is the terminal's real onChunk (streaming enabled)", async () => {

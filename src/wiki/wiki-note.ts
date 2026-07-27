@@ -29,10 +29,12 @@ import {
   InferredFrontmatterSchema,
   ResolvedFrontmatterSchema,
   ConfirmedFrontmatterSchema,
+  ConfirmationFrontmatterSchema,
   type CuratedFrontmatter,
   type InferredFrontmatter,
   type ResolvedFrontmatter,
   type ConfirmedFrontmatter,
+  type ConfirmationFrontmatter,
 } from "./frontmatter-schema.ts";
 
 /**
@@ -174,7 +176,7 @@ async function writeVerbatimFile(
 async function writeNoteFile(
   vaultPath: string,
   fullPath: string,
-  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter | ConfirmedFrontmatter,
+  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter | ConfirmedFrontmatter | ConfirmationFrontmatter,
   body: string,
   commitMessage: string,
 ): Promise<void> {
@@ -347,6 +349,34 @@ export async function writeSuppressionNote(
   const checkRoot = resolve(vaultPath, "inferred", "suppressed", checkType);
   const fullPath = resolveWithinRoot(checkRoot, `${encodeURIComponent(itemKey)}.md`);
   await writeNoteFile(vaultPath, fullPath, frontmatter, "", `suppress: ${checkType}/${itemKey}`);
+}
+
+/**
+ * Writes (or overwrites) the deterministic lifecycle record for one
+ * confirm-required action at `inferred/confirmations/<encoded userId>/<token>.md`
+ * — see `ConfirmationFrontmatterSchema`'s own doc comment for why this
+ * subtree, not `inferred/users/<userId>/`. Called twice per action: once
+ * at staging (`status: "pending"`, `resolvedAt: null`), once at resolution
+ * (`"confirmed"`/`"failed"`, `resolvedAt` set) — the whole-file replace
+ * every writer here already does, not a partial update.
+ */
+export async function writeConfirmationNote(
+  vaultPath: string,
+  userId: string,
+  token: string,
+  fields: { status: "pending" | "confirmed" | "failed"; requestedAt: string; resolvedAt: string | null; command: string },
+): Promise<void> {
+  assertNoPathSeparator("token", token);
+  const frontmatter = ConfirmationFrontmatterSchema.parse({
+    type: "confirmation",
+    status: fields.status,
+    requested_at: fields.requestedAt,
+    resolved_at: fields.resolvedAt,
+    command: fields.command,
+  });
+  const userRoot = resolve(vaultPath, "inferred", "confirmations", encodeURIComponent(userId));
+  const fullPath = resolveWithinRoot(userRoot, `${token}.md`);
+  await writeNoteFile(vaultPath, fullPath, frontmatter, "", `confirmation: ${userId}/${token} (${fields.status})`);
 }
 
 /** Writes a raw/ inbox entry verbatim at `raw/<relativePath>` — no

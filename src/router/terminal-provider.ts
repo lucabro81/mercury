@@ -2,8 +2,8 @@
  * The terminal channel's `Provider` implementation — wraps
  * `startTerminalRepl` (`src/router/terminal.ts`, unmodified) and owns
  * everything specific to running Mercury from a terminal: the `/dump`
- * command, `conferma <token>` interception, the dim/italic tool-status
- * rendering, and the live context-usage prompt suffix.
+ * command, bare-token confirmation interception, the dim/italic
+ * tool-status rendering, and the live context-usage prompt suffix.
  *
  * A single operator, one conversation at a time — there is no real
  * per-user identity here, so `notify`/`notifyAdmin` just write to stderr
@@ -20,7 +20,7 @@ import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { runCli } from "../tools/cli-executor.ts";
-import type { writeSuppressionNote } from "../wiki/wiki-note.ts";
+import type { writeSuppressionNote, writeConfirmationNote } from "../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 
 const TERMINAL_SESSION_KEY = "terminal";
@@ -32,6 +32,7 @@ export type TerminalProviderDeps = {
     vaultPath: string;
     writeSuppressionNoteFn: typeof writeSuppressionNote;
     recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
+    writeConfirmationNoteFn: typeof writeConfirmationNote;
     now?: () => Date;
   };
   ollamaHost: string;
@@ -97,7 +98,7 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
               // say it itself, from the structured step data.
               const pending = detectPendingConfirmation(step);
               if (pending) {
-                onChunk(`Azione in sospeso: \`${pending.command}\` — scrivi: conferma ${pending.token}\n`);
+                onChunk(`Azione in sospeso: \`${pending.command}\` — scrivi: ${pending.token}\n`);
               }
             },
             onUsage: (tokens) => {

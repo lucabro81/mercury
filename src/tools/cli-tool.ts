@@ -26,6 +26,7 @@ import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli } from "./cli-executor.ts";
 import type { ConfirmationStore } from "./confirmation-store.ts";
+import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 export type AllowedCommand = { prefix: string[]; confirm: boolean; mutating: boolean };
 export type GlobalFlag = { flag: string; takesValue: boolean };
@@ -108,7 +109,7 @@ export function formatPrefixes(prefixes: string[][]): string {
  * confirm-gated command is staged in `store` under `sessionKey` instead of
  * running, and the result carries a structured `token` — how the user is
  * actually told to confirm is channel-specific (a card button on Google
- * Chat, a typed `conferma <token>` on the terminal), not dictated here or
+ * Chat, a bare token typed on the terminal), not dictated here or
  * by the model (see `confirm-flow.ts` for the other half — actually
  * running it once that token comes back). Staging is inherently
  * per-session, so callers must build a fresh tool per turn, scoped to
@@ -118,8 +119,21 @@ export function formatPrefixes(prefixes: string[][]): string {
 export function createCliTool(
   runCliFn: typeof runCli,
   configs: Record<string, CliConfig>,
-  opts: { sessionKey: string; store: ConfirmationStore },
+  opts: {
+    sessionKey: string;
+    store: ConfirmationStore;
+    /** Where/who to write the confirm-required lifecycle note for — see `writeConfirmationNoteFn` below. */
+    vaultPath: string;
+    userId: string;
+    /** Test seam; defaults to the real `writeConfirmationNote`. */
+    writeConfirmationNoteFn?: typeof writeConfirmationNote;
+    /** Test seam; defaults to `() => new Date()`. */
+    nowFn?: () => Date;
+  },
 ) {
+  const writeConfirmationNoteFn = opts.writeConfirmationNoteFn ?? writeConfirmationNote;
+  const nowFn = opts.nowFn ?? (() => new Date());
+
   const runCommand = tool({
     description:
       "Run a CLI command. Write the whole invocation as one string, exactly as you would type it in a terminal, " +
@@ -159,7 +173,27 @@ export function createCliTool(
         // include it on the first attempt (observed live: it usually
         // doesn't).
         const argsToStage = parsed.args.includes("--confirm") ? parsed.args : [...parsed.args, "--confirm"];
-        const token = opts.store.stage(opts.sessionKey, { kind: "cli", binary: parsed.binary, args: argsToStage });
+        const requestedAt = nowFn().toISOString();
+        const token = opts.store.stage(opts.sessionKey, {
+          kind: "cli",
+          binary: parsed.binary,
+          args: argsToStage,
+          requestedAt,
+        });
+        // Deterministic paper trail, not a precondition for staging: a
+        // wiki-write failure (disk, git) must never block the user from
+        // actually seeing/confirming the action — see writeConfirmationNote's
+        // own doc comment for why this lives outside inferred/users/<userId>/.
+        try {
+          await writeConfirmationNoteFn(opts.vaultPath, opts.userId, token, {
+            status: "pending",
+            requestedAt,
+            resolvedAt: null,
+            command: [parsed.binary, ...argsToStage].join(" "),
+          });
+        } catch (err) {
+          console.error(`[cli-tool] failed to write confirmation note: ${String(err)}`);
+        }
         return {
           ok: false,
           pendingConfirmation: true,

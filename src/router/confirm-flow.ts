@@ -7,17 +7,22 @@
  * — running a previously-approved mutation must never depend on the
  * model's own tool-calling judgment.
  */
-import { parseConfirmCommand, type ConfirmationStore } from "../tools/confirmation-store.ts";
+import { isTokenShaped, type ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { runCli } from "../tools/cli-executor.ts";
-import type { writeSuppressionNote } from "../wiki/wiki-note.ts";
+import type { writeSuppressionNote, writeConfirmationNote } from "../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
 
 /**
- * Returns `null` if `input` isn't a `conferma <token>` command — the
- * caller should proceed with its normal flow (`runTurn`, etc.). Otherwise
- * always returns a user-facing string, resolved without ever invoking the
- * model: an unknown/expired/wrong-session token gets a canned message, a
- * valid one actually executes the staged action and reports the outcome.
+ * Returns `null` if `input` doesn't look like a bare confirmation token —
+ * the caller should proceed with its normal flow (`runTurn`, etc.).
+ * Otherwise always returns a user-facing string, resolved without ever
+ * invoking the model: an unknown/expired/wrong-session token gets a
+ * canned message, a valid one actually executes the staged action and
+ * reports the outcome. No `conferma ` keyword to type or match — the
+ * real gate was always `store.take()`'s existence/session/expiry check,
+ * not that prefix (see `isTokenShaped`'s own doc comment). A card button
+ * click on Google Chat and a bare token typed on the terminal both resolve
+ * through this exact same path.
  *
  * The suppress-notification branch writes two things on confirm, not
  * one: `writeSuppressionNoteFn` is the hard, deterministic gate a cron
@@ -37,11 +42,12 @@ export async function tryConfirm(
     vaultPath: string;
     writeSuppressionNoteFn: typeof writeSuppressionNote;
     recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
+    writeConfirmationNoteFn: typeof writeConfirmationNote;
     now?: () => Date;
   },
 ): Promise<string | null> {
-  const token = parseConfirmCommand(input);
-  if (!token) {
+  const token = input.trim();
+  if (!isTokenShaped(token)) {
     return null;
   }
 
@@ -63,6 +69,22 @@ export async function tryConfirm(
   }
 
   const result = await deps.runCliFn(staged.binary, staged.args);
+  const resolvedAt = (deps.now?.() ?? new Date()).toISOString();
+  // Overwrites the same note the propose half wrote (writeConfirmationNoteFn
+  // in cli-tool.ts) so the persistent record reflects what actually
+  // happened, never stuck saying "pending" — see the stale-primer bug this
+  // guards against. Same resilience tradeoff as the propose side: a
+  // wiki-write failure must not stop the user from getting their result.
+  try {
+    await deps.writeConfirmationNoteFn(deps.vaultPath, deps.userId, token, {
+      status: result.ok ? "confirmed" : "failed",
+      requestedAt: staged.requestedAt ?? resolvedAt,
+      resolvedAt,
+      command: [staged.binary, ...staged.args].join(" "),
+    });
+  } catch (err) {
+    console.error(`[confirm-flow] failed to write confirmation note: ${String(err)}`);
+  }
   if (!result.ok) {
     return `Confermato, ma l'esecuzione è fallita: ${result.error}`;
   }

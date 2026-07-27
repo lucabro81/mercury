@@ -41,6 +41,7 @@ import {
   writeJiraUserResolvedNote,
   writeInferredNote,
   writeToolCorrectionNote,
+  writeConfirmationNote,
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { recordStep } from "./session/tool-log-buffer.ts";
@@ -102,12 +103,11 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
         '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.',
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
         "- issue create/transition/comment run immediately, no confirmation needed — tell the user what you did (e.g. the new issue's key) after it succeeds.",
-        '- issue delete is irreversible: runCommand won\'t execute it directly. Instead you\'ll get back a `token` and a `pendingConfirmation` result — relay that exact token to the user verbatim and ask them to reply exactly `conferma <token>` to proceed. Never invent a token, never claim the deletion already happened.',
+        "- issue delete is irreversible: runCommand won't execute it directly. Instead you'll get back a `token` and a `pendingConfirmation` result — you have no role in confirming it: the channel shows the user its own confirmation UI and handles the token entirely on its own. Just tell the user the action is staged and awaiting their confirmation. Never mention the token value in your reply, in any form.",
         "",
         "DON'T:",
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
         "- DON'T describe a command you're about to run as your entire response — if the question needs runCommand, call it in this same turn before replying; a sentence saying what you're about to look up, with no tool call attached, leaves the user with nothing.",
-        "- DON'T alter, abbreviate, or make up a confirmation token — copy it exactly as returned.",
         '- DON\'T treat a bare `{}` as "confirmed zero matching issues" — it usually means your `--select` path was wrong, not that the search found nothing. A genuine empty result looks like `{"issues": []}`. On `{}`, check curated/standards/jira-cli.md for the correct `--select` syntax, or retry with `--select-all`, before telling the user there\'s no data.',
       ].join("\n"),
     );
@@ -117,10 +117,11 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
   // block doesn't need its own opts flag.
   lines.push(
     [
-      "You have access to wiki tools: list_files, read_file, grep, write_file — Mercury's own knowledge base. " +
+      "You have access to wiki tools: list_files, read_file, grep, write_file, resolve_reference — Mercury's own knowledge base. " +
         "curated/ is team knowledge (conventions, docs, project status) — written by maintainers, and by you. " +
         "inferred/ is private per-user notes managed automatically by a separate process, not by you directly.",
       "DO:",
+      "- If your context contains an opaque `[REQ:<token>]` marker, that's a reference to a past confirm-required request — call resolve_reference with that token to see what it was, don't guess at what it means.",
       "- For a CLI's own syntax/flags, rely on --help first. Only check the wiki if --help doesn't cover something specific to how this team uses that tool (a convention, a naming pattern, a policy).",
       "- When a command's --select flag description is generic/shared across multiple subcommands, don't take its inline example at face value — check that command's own \"Examples\" section at the bottom of its --help output for the syntax that actually works with it.",
       "- For anything else — documentation, project status, how some tool or process is used, team conventions — consult the wiki FIRST (grep/read_file/list_files), before trying a CLI or answering from general knowledge.",
@@ -474,7 +475,12 @@ function buildTools(
   if (Object.keys(activeCliConfigs).length > 0) {
     Object.assign(
       sessionTools,
-      createCliTool(runCli, activeCliConfigs, { sessionKey, store: confirmationStore }),
+      createCliTool(runCli, activeCliConfigs, {
+        sessionKey,
+        store: confirmationStore,
+        vaultPath: wikiVaultPath,
+        userId: wikiUserId,
+      }),
     );
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
@@ -567,6 +573,7 @@ if (googleChatSubscription) {
     runCliFn: runCli,
     writeSuppressionNoteFn: writeSuppressionNote,
     recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+    writeConfirmationNoteFn: writeConfirmationNote,
     adminSpace: mercuryAdminSpace ?? "",
   });
   await chatProvider.start(handleTurn);
@@ -664,6 +671,7 @@ await createTerminalProvider({
     vaultPath: wikiVaultPath,
     writeSuppressionNoteFn: writeSuppressionNote,
     recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
+    writeConfirmationNoteFn: writeConfirmationNote,
   },
   ollamaHost,
   ollamaModel,
