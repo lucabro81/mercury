@@ -5,8 +5,6 @@ import {
   sendMessage,
   sendCard,
   updateMessage,
-  pullEvents,
-  acknowledge,
   getOrCreateDmSpace,
   type FetchFn,
 } from "./google-chat-app-client.ts";
@@ -152,28 +150,6 @@ describe("updateMessage", () => {
   });
 });
 
-describe("pullEvents", () => {
-  test("decodes base64 Pub/Sub payloads into parsed JSON, pairing each with its ackId", async () => {
-    const payload = { type: "MESSAGE", message: { text: "hi" } };
-    const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
-    const fetchFn: FetchFn = (async () =>
-      new Response(
-        JSON.stringify({ receivedMessages: [{ ackId: "ack-1", message: { data: encoded } }] }),
-        { status: 200 },
-      )) as any;
-
-    const events = await pullEvents("projects/p/subscriptions/s", 10, { tokenSource: fakeTokenSource(), fetchFn });
-
-    expect(events).toEqual([{ ackId: "ack-1", data: payload }]);
-  });
-
-  test("returns an empty array when nothing is waiting (no receivedMessages key at all)", async () => {
-    const fetchFn: FetchFn = (async () => new Response(JSON.stringify({}), { status: 200 })) as any;
-    const events = await pullEvents("projects/p/subscriptions/s", 10, { tokenSource: fakeTokenSource(), fetchFn });
-    expect(events).toEqual([]);
-  });
-});
-
 describe("getOrCreateDmSpace", () => {
   test("returns the existing DM space's name when findDirectMessage finds one", async () => {
     const urls: string[] = [];
@@ -206,29 +182,5 @@ describe("getOrCreateDmSpace", () => {
     expect(bodies).toEqual([
       { space: { spaceType: "DIRECT_MESSAGE" }, memberships: [{ member: { name: "users/42", type: "HUMAN" } }] },
     ]);
-  });
-});
-
-describe("acknowledge", () => {
-  test("POSTs the given ackIds to :acknowledge", async () => {
-    let capturedBody: any;
-    const fetchFn: FetchFn = (async (_url: any, init: any) => {
-      capturedBody = JSON.parse(init.body);
-      return new Response("{}", { status: 200 });
-    }) as any;
-
-    await acknowledge("projects/p/subscriptions/s", ["a", "b"], { tokenSource: fakeTokenSource(), fetchFn });
-    expect(capturedBody).toEqual({ ackIds: ["a", "b"] });
-  });
-
-  test("is a no-op (no network call) when ackIds is empty", async () => {
-    let called = false;
-    const fetchFn: FetchFn = (async () => {
-      called = true;
-      return new Response("{}", { status: 200 });
-    }) as any;
-
-    await acknowledge("projects/p/subscriptions/s", [], { tokenSource: fakeTokenSource(), fetchFn });
-    expect(called).toBe(false);
   });
 });

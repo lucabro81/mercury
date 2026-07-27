@@ -7,8 +7,10 @@
  *
  * Auth: a service-account JWT-bearer flow (RFC 7523), signed with Node's
  * built-in `crypto` — no new OAuth/Google API client dependency needed for
- * this. One token, two scopes (`chat.bot` for the Chat API, `pubsub` for
- * pulling/acking events), re-minted lazily once it's within a minute of
+ * this. Scoped to `chat.bot` only — event delivery now goes through
+ * `google-chat-pubsub-stream.ts` (`@google-cloud/pubsub`'s StreamingPull),
+ * which mints its own token internally from the same credentials, not
+ * through this token source. Re-minted lazily once it's within a minute of
  * expiring. Verified live against the real APIs earlier in this project's
  * history (a throwaway service account, JWT-bearer flow, `chat.bot` scope,
  * `spaces.messages.create` → HTTP 200, delivered as the app's own `BOT`
@@ -21,8 +23,7 @@ export type ServiceAccountCredentials = { clientEmail: string; privateKey: strin
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CHAT_API_BASE = "https://chat.googleapis.com/v1";
-const PUBSUB_API_BASE = "https://pubsub.googleapis.com/v1";
-const SCOPES = "https://www.googleapis.com/auth/chat.bot https://www.googleapis.com/auth/pubsub";
+const SCOPES = "https://www.googleapis.com/auth/chat.bot";
 /** Re-mint this long before real expiry — a token that expires mid-request is worse than one wasted early. */
 const REFRESH_MARGIN_SECONDS = 60;
 
@@ -183,64 +184,3 @@ export async function updateMessage(
   return { name: data.name };
 }
 
-/** One event delivered on the app's Pub/Sub subscription — the envelope Chat's Cloud Pub/Sub deployment publishes (confirmed live earlier this session against a real test app). */
-export type ChatPubSubMessage = { ackId: string; data: unknown };
-
-/**
- * Synchronously pulls up to `maxMessages` waiting events, decoding the
- * base64 Pub/Sub payload into its parsed JSON body. Returns `[]` if
- * nothing is waiting — a normal, frequent case for a poll loop, not an
- * error.
- */
-export async function pullEvents(
-  subscription: string,
-  maxMessages: number,
-  deps: { tokenSource: TokenSource; fetchFn?: FetchFn },
-): Promise<ChatPubSubMessage[]> {
-  const fetchFn = deps.fetchFn ?? fetch;
-  const token = await deps.tokenSource.getToken();
-  const response = await fetchFn(`${PUBSUB_API_BASE}/${subscription}:pull`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ maxMessages }),
-  });
-  if (!response.ok) {
-    throw new Error(`Pub/Sub pull failed: HTTP ${response.status} ${await response.text()}`);
-  }
-  const body = (await response.json()) as {
-    receivedMessages?: Array<{ ackId: string; message: { data: string } }>;
-  };
-  return (body.receivedMessages ?? []).map((m) => ({
-    ackId: m.ackId,
-    data: JSON.parse(Buffer.from(m.message.data, "base64").toString("utf-8")),
-  }));
-}
-
-/**
- * Acknowledges delivered events so Pub/Sub doesn't redeliver them. A
- * failure here is logged by the caller, not thrown over, but is not
- * actually harmless: unlike Mercury's own outbound messages (deduped via
- * `sentMessageNames` to stop reply-to-self loops), a genuine inbound user
- * message has no such idempotency net — if this call fails, Pub/Sub will
- * redeliver it and the caller (`pollOnce`, `google-chat-provider.ts`) will
- * process it a second time from scratch. Best-effort because there's
- * nothing more useful to do with the failure, not because a redelivery is
- * actually safe to ignore.
- */
-export async function acknowledge(
-  subscription: string,
-  ackIds: string[],
-  deps: { tokenSource: TokenSource; fetchFn?: FetchFn },
-): Promise<void> {
-  if (ackIds.length === 0) return;
-  const fetchFn = deps.fetchFn ?? fetch;
-  const token = await deps.tokenSource.getToken();
-  const response = await fetchFn(`${PUBSUB_API_BASE}/${subscription}:acknowledge`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ ackIds }),
-  });
-  if (!response.ok) {
-    throw new Error(`Pub/Sub acknowledge failed: HTTP ${response.status} ${await response.text()}`);
-  }
-}

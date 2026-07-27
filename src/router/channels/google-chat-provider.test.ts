@@ -6,6 +6,35 @@ import type { HandleTurn, InboundTurn, TurnSink } from "../provider.ts";
 
 const creds = { clientEmail: "bot@test.iam.gserviceaccount.com", privateKey: "fake" };
 
+/** A fake `PubSubSubscription` — lets a test register the provider's real listeners, then trigger a "message"/"error" event directly, without any real gRPC. */
+function fakeSubscription() {
+  const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+  let closed = false;
+  return {
+    on(event: string, cb: (...args: any[]) => void) {
+      (listeners[event] ??= []).push(cb);
+    },
+    close: async () => {
+      closed = true;
+    },
+    emit(event: string, ...args: any[]) {
+      for (const cb of listeners[event] ?? []) cb(...args);
+    },
+    get isClosed() {
+      return closed;
+    },
+  };
+}
+
+/** A fake incoming Pub/Sub message — `ack` records into the given array so tests can assert ack ordering/timing without a real `ackId` concept (the SDK acks per-message, not by id). */
+function fakeMessage(data: unknown, acked: string[], ackId = "a1") {
+  return {
+    data: Buffer.from(JSON.stringify(data)),
+    ack: () => acked.push(ackId),
+    nack: () => {},
+  };
+}
+
 function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatProviderDeps {
   return {
     credentials: creds,
@@ -15,11 +44,11 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
     writeSuppressionNoteFn: (async () => {}) as any,
     recordSuppressionEventFn: async () => {},
+    writeConfirmationNoteFn: (async () => {}) as any,
     adminSpace: "spaces/ADMIN",
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
-    setIntervalFn: (() => 0) as any, // never actually fire the poll loop unless a test wants it
-    clearIntervalFn: (() => {}) as any,
+    subscriptionFn: () => fakeSubscription() as any, // default: a subscription no test drives, only used by tests not centered on message dispatch
     log: () => {},
     ...overrides,
   };
@@ -134,23 +163,14 @@ describe("createGoogleChatProvider — notify/notifyAdmin", () => {
   });
 });
 
-describe("createGoogleChatProvider — poll loop", () => {
+describe("createGoogleChatProvider — StreamingPull", () => {
   test("dispatches a MESSAGE event to handleTurn, with a sink that never defines onTextChunk", async () => {
     let capturedTurn: InboundTurn | undefined;
     let capturedSink: TurnSink | undefined;
-    const acked: string[][] = [];
-    let intervalCallback: (() => void) | undefined;
+    const acked: string[] = [];
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
-      acknowledgeFn: async (_sub, ackIds) => {
-        acked.push(ackIds);
-      },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     const handleTurn: HandleTurn = async (turn, sink) => {
@@ -160,10 +180,9 @@ describe("createGoogleChatProvider — poll loop", () => {
     };
 
     await provider.start(handleTurn);
-    expect(intervalCallback).toBeDefined();
-    intervalCallback!();
-    // pollOnce is async and fire-and-forgotten by the interval callback —
-    // give its promise chain a tick to resolve.
+    sub.emit("message", fakeMessage(messageEvent(), acked));
+    // handleMessage is async, dispatched fire-and-forget from the "message"
+    // listener — give its promise chain a tick to resolve.
     await new Promise((r) => setTimeout(r, 20));
 
     expect(capturedTurn).toMatchObject({
@@ -175,60 +194,48 @@ describe("createGoogleChatProvider — poll loop", () => {
       wikiUserId: encodeURIComponent("users/42"),
     });
     expect(capturedSink!.onTextChunk).toBeUndefined();
-    expect(acked).toEqual([["a1"]]);
+    expect(acked).toEqual(["a1"]);
   });
 
   test("omits the [Da: X] marker when the event has no sender displayName", async () => {
     let capturedTurn: InboundTurn | undefined;
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: { ...messageEvent(), message: { ...messageEvent().message, sender: { name: "users/42" } } } }],
-      acknowledgeFn: async () => {},
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (turn, sink) => {
       capturedTurn = turn;
       await sink.finalize("ok");
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage({ ...messageEvent(), message: { ...messageEvent().message, sender: { name: "users/42" } } }, []));
     await new Promise((r) => setTimeout(r, 20));
 
     expect(capturedTurn?.text).toBe("hello");
   });
 
-  test("a conferma <token> message is intercepted before handleTurn, and never reaches it", async () => {
+  test("a bare confirmation token message is intercepted before handleTurn, and never reaches it", async () => {
     const store = createConfirmationStore();
     const token = store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
     let handleTurnCalled = false;
-    let intervalCallback: (() => void) | undefined;
     const sent: string[] = [];
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
       store,
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent({ text: `conferma ${token}` }) }],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       runCliFn: (async () => ({ ok: true as const, data: { deleted: true } })) as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async () => {
       handleTurnCalled = true;
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ text: token }), []));
     await new Promise((r) => setTimeout(r, 20));
 
     expect(handleTurnCalled).toBe(false);
@@ -237,16 +244,11 @@ describe("createGoogleChatProvider — poll loop", () => {
 
   test("an event whose messageName was already sent by this provider is skipped (loop prevention)", async () => {
     let handleTurnCalled = false;
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/self" }) }],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       sendMessageFn: async () => ({ name: "spaces/X/messages/self" }),
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
@@ -255,7 +257,7 @@ describe("createGoogleChatProvider — poll loop", () => {
     await provider.start(async () => {
       handleTurnCalled = true;
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/self" }), []));
     await new Promise((r) => setTimeout(r, 20));
 
     expect(handleTurnCalled).toBe(false);
@@ -264,35 +266,26 @@ describe("createGoogleChatProvider — poll loop", () => {
   test("dispatches a CARD_CLICKED event to the onCardClick handler, not to handleTurn", async () => {
     let cardClickArgs: unknown[] = [];
     let handleTurnCalled = false;
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
-      pullEventsFn: async () => [
-        {
-          ackId: "a1",
-          data: {
-            type: "CARD_CLICKED",
-            space: { name: "spaces/X" },
-            user: { name: "users/42" },
-            action: { parameters: [{ key: "token", value: "TOK" }] },
-          },
-        },
-      ],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       onCardClick: async (params, space, sender) => {
         cardClickArgs = [params, space, sender];
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async () => {
       handleTurnCalled = true;
     });
-    intervalCallback!();
+    sub.emit(
+      "message",
+      fakeMessage(
+        { type: "CARD_CLICKED", space: { name: "spaces/X" }, user: { name: "users/42" }, action: { parameters: [{ key: "token", value: "TOK" }] } },
+        [],
+      ),
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(handleTurnCalled).toBe(false);
@@ -306,60 +299,40 @@ describe("createGoogleChatProvider — poll loop", () => {
   test("clicking the confirm button with a valid token executes the staged command", async () => {
     const store = createConfirmationStore();
     const token = store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
-    let intervalCallback: (() => void) | undefined;
     const sent: string[] = [];
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
       store,
-      pullEventsFn: async () => [
-        {
-          ackId: "a1",
-          data: {
-            type: "CARD_CLICKED",
-            space: { name: "spaces/X" },
-            user: { name: "users/42" },
-            action: { parameters: [{ key: "token", value: token }] },
-          },
-        },
-      ],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       runCliFn: (async () => ({ ok: true as const, data: { deleted: true } })) as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async () => {});
-    intervalCallback!();
+    sub.emit(
+      "message",
+      fakeMessage(
+        { type: "CARD_CLICKED", space: { name: "spaces/X" }, user: { name: "users/42" }, action: { parameters: [{ key: "token", value: token }] } },
+        [],
+      ),
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(sent).toEqual(['Confermato ed eseguito: {"deleted":true}']);
   });
 
   test("clicking the confirm button with an unknown/expired token gets a clean error, nothing executes", async () => {
-    let intervalCallback: (() => void) | undefined;
     const sent: string[] = [];
     let runCliCalled = false;
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
-      pullEventsFn: async () => [
-        {
-          ackId: "a1",
-          data: {
-            type: "CARD_CLICKED",
-            space: { name: "spaces/X" },
-            user: { name: "users/42" },
-            action: { parameters: [{ key: "token", value: "NOPE" }] },
-          },
-        },
-      ],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       runCliFn: (async () => {
         runCliCalled = true;
         return { ok: true as const, data: {} };
@@ -368,46 +341,37 @@ describe("createGoogleChatProvider — poll loop", () => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async () => {});
-    intervalCallback!();
+    sub.emit(
+      "message",
+      fakeMessage(
+        { type: "CARD_CLICKED", space: { name: "spaces/X" }, user: { name: "users/42" }, action: { parameters: [{ key: "token", value: "ABCD-EFGH" }] } },
+        [],
+      ),
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(runCliCalled).toBe(false);
     expect(sent).toEqual(["Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita."]);
   });
 
-  // Regression test for the redelivery/duplicate-processing bug: pollOnce
-  // used to ack the whole batch only after every event's handleTurn call
-  // had resolved, so any turn slower than the subscription's ack deadline
-  // (Google's default is 10s; a real multi-step tool-calling turn routinely
-  // takes longer) caused Pub/Sub to redeliver the same message while it was
-  // still being processed, running a second, duplicate handleTurn for it.
-  // The fix (same pattern the open-source Hermes agent's own Google Chat
-  // adapter uses: ack in the Pub/Sub callback, before the actual agent
-  // processing runs) acks each event immediately after it's pulled and
-  // parsed, decoupling "message confirmed" from "turn finished" entirely —
-  // no turn duration can ever trigger a redelivery again.
+  // Regression test for the redelivery/duplicate-processing bug (fixed
+  // pre-StreamingPull, still applies): a message must be acked before
+  // handleTurn runs, not after it resolves — a real multi-step tool-calling
+  // turn routinely takes longer than the subscription's ack deadline
+  // (Google's default is 10s), so acking only once processing completes
+  // would leave the message open to redelivery — and reprocessing — while
+  // still being worked on. Same pattern the open-source Hermes agent's own
+  // Google Chat adapter uses: ack in the Pub/Sub callback, before the
+  // actual agent processing runs.
   test("acks a message before calling handleTurn, not after it resolves", async () => {
     const order: string[] = [];
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
-      acknowledgeFn: async (_sub, ackIds) => {
-        order.push(`ack:${ackIds.join(",")}`);
-      },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (_turn, sink) => {
@@ -415,70 +379,66 @@ describe("createGoogleChatProvider — poll loop", () => {
       await sink.finalize("risposta");
       order.push("handleTurn:end");
     });
-    intervalCallback!();
+    sub.emit("message", {
+      data: Buffer.from(JSON.stringify(messageEvent())),
+      ack: () => order.push("ack"),
+      nack: () => {},
+    });
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(order).toEqual(["ack:a1", "handleTurn:start", "handleTurn:end"]);
+    expect(order).toEqual(["ack", "handleTurn:start", "handleTurn:end"]);
   });
 
   // A turn that throws must not leave the message unacked — mirrors
   // Hermes' own tradeoff (ack first, process after): a crash mid-turn loses
   // that one message rather than risking it looping forever via redelivery.
   test("acks a message even when handleTurn throws", async () => {
-    const acked: string[][] = [];
-    let intervalCallback: (() => void) | undefined;
+    const acked: string[] = [];
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
-      acknowledgeFn: async (_sub, ackIds) => {
-        acked.push(ackIds);
-      },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async () => {
       throw new Error("boom");
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent(), acked));
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(acked).toEqual([["a1"]]);
+    expect(acked).toEqual(["a1"]);
   });
 
-  // Two events in the same pulled batch: each is acked on its own, right
-  // after it's parsed — a slow first event no longer holds up the ack of a
-  // fast second one (previously both waited for one batched ack at the end
-  // of the whole for-loop).
-  test("acks two events in the same batch independently, not as one bundled call", async () => {
-    const acked: string[][] = [];
-    let intervalCallback: (() => void) | undefined;
+  // Two messages arriving independently on the stream: each is acked and
+  // dispatched on its own as soon as it arrives — no batching, unlike the
+  // retired poll loop.
+  test("acks two independently-arriving messages independently, not as one bundled call", async () => {
+    const acked: string[] = [];
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => [
-        { ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1" }) },
-        { ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2" }) },
-      ],
-      acknowledgeFn: async (_sub, ackIds) => {
-        acked.push(ackIds);
-      },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (_turn, sink) => {
       await sink.finalize("ok");
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/1" }), acked, "a1"));
+    await new Promise((r) => setTimeout(r, 20));
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/2" }), acked, "a2"));
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(acked).toEqual([["a1"], ["a2"]]);
+    expect(acked).toEqual(["a1", "a2"]);
+  });
+
+  test("stop() closes the underlying subscription", async () => {
+    const sub = fakeSubscription();
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async () => {});
+    expect(sub.isClosed).toBe(false);
+    await provider.stop();
+
+    expect(sub.isClosed).toBe(true);
   });
 
   // Since cli-tool.ts stopped dictating "reply `conferma <token>`" to the
@@ -489,19 +449,14 @@ describe("createGoogleChatProvider — poll loop", () => {
   // seeing or handling the token themselves.
   test("a confirm-required step sends a card with the staged command and a token-carrying button, instead of plain text", async () => {
     const sentCards: Array<{ space: string; card: unknown }> = [];
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       sendCardFn: async (space, card) => {
         sentCards.push({ space, card });
         return { name: "spaces/X/messages/card1" };
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
@@ -513,7 +468,7 @@ describe("createGoogleChatProvider — poll loop", () => {
       });
       await sink.finalize("Questa azione richiede conferma.");
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent(), []));
     await new Promise((r) => setTimeout(r, 20));
 
     expect(sentCards).toHaveLength(1);
@@ -529,60 +484,44 @@ describe("createGoogleChatProvider — poll loop", () => {
   // redundant message for the exact thing the card just covered.
   test("does not send PENDING_CONFIRMATION_NOTE as a message — the card already covers it", async () => {
     const sent: string[] = [];
-    let intervalCallback: (() => void) | undefined;
+    const sub = fakeSubscription();
 
     const deps = baseDeps({
-      pullEventsFn: async () => [{ ackId: "a1", data: messageEvent() }],
-      acknowledgeFn: async () => {},
+      subscriptionFn: () => sub as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/1" };
       },
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
     });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (_turn, sink) => {
       await sink.finalize(PENDING_CONFIRMATION_NOTE);
     });
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent(), []));
     await new Promise((r) => setTimeout(r, 20));
 
     expect(sent).toEqual([]);
   });
 
-  // Regression test: pollOnce's setInterval fires on a fixed clock,
-  // regardless of whether the previous tick's turn finished — two
-  // overlapping ticks pulling two different messages for the SAME session
-  // used to both call handleTurn concurrently, both reading/writing the
-  // same SessionHistory at once (observed live: confusing, stale-looking
+  // Regression test: messages arrive on the stream independently of
+  // whether a previous message's turn finished — two messages for the SAME
+  // session arriving close together used to both call handleTurn
+  // concurrently (back when delivery was a fixed-clock poll; the same race
+  // is just as reachable with a stream, since nothing about StreamingPull
+  // itself serializes handler invocations), both reading/writing the same
+  // SessionHistory at once (observed live: confusing, stale-looking
   // replies mixing content from two different turns). A session must
   // finish its current turn before starting another one.
-  test("serializes two messages for the same session across overlapping poll ticks", async () => {
+  test("serializes two messages for the same session arriving close together", async () => {
     const started: string[] = [];
     let resolveFirst!: () => void;
     const firstGate = new Promise<void>((r) => {
       resolveFirst = r;
     });
-    let intervalCallback: (() => void) | undefined;
-    let pullCount = 0;
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => {
-        pullCount++;
-        if (pullCount === 1) return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first" }) }];
-        if (pullCount === 2) return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second" }) }];
-        return [];
-      },
-      acknowledgeFn: async () => {},
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (turn, sink) => {
@@ -591,9 +530,9 @@ describe("createGoogleChatProvider — poll loop", () => {
       await sink.finalize("ok");
     });
 
-    intervalCallback!(); // tick 1: starts "first", blocks on firstGate
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/1", text: "first" }), [], "a1")); // starts "first", blocks on firstGate
     await new Promise((r) => setTimeout(r, 10));
-    intervalCallback!(); // tick 2 (overlapping): pulls "second" for the same session
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/2", text: "second" }), [], "a2")); // arrives while "first" is still in flight, same session
     await new Promise((r) => setTimeout(r, 10));
 
     expect(started).toEqual(["first"]); // "second" must be queued, not started yet
@@ -612,26 +551,9 @@ describe("createGoogleChatProvider — poll loop", () => {
     const firstGate = new Promise<void>((r) => {
       resolveFirst = r;
     });
-    let intervalCallback: (() => void) | undefined;
-    let pullCount = 0;
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => {
-        pullCount++;
-        if (pullCount === 1) {
-          return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first", sender: "users/1" }) }];
-        }
-        if (pullCount === 2) {
-          return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second", sender: "users/2" }) }];
-        }
-        return [];
-      },
-      acknowledgeFn: async () => {},
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (turn, sink) => {
@@ -640,9 +562,9 @@ describe("createGoogleChatProvider — poll loop", () => {
       await sink.finalize("ok");
     });
 
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/1", text: "first", sender: "users/1" }), [], "a1"));
     await new Promise((r) => setTimeout(r, 10));
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/2", text: "second", sender: "users/2" }), [], "a2"));
     await new Promise((r) => setTimeout(r, 10));
 
     expect(started).toEqual(["first", "second"]);
@@ -658,23 +580,9 @@ describe("createGoogleChatProvider — poll loop", () => {
     const firstGate = new Promise<void>((r) => {
       resolveFirst = r;
     });
-    let intervalCallback: (() => void) | undefined;
-    let pullCount = 0;
+    const sub = fakeSubscription();
 
-    const deps = baseDeps({
-      pullEventsFn: async () => {
-        pullCount++;
-        if (pullCount === 1) return [{ ackId: "a1", data: messageEvent({ messageName: "spaces/X/messages/1", text: "first" }) }];
-        if (pullCount === 2) return [{ ackId: "a2", data: messageEvent({ messageName: "spaces/X/messages/2", text: "second" }) }];
-        if (pullCount === 3) return [{ ackId: "a3", data: messageEvent({ messageName: "spaces/X/messages/3", text: "third" }) }];
-        return [];
-      },
-      acknowledgeFn: async () => {},
-      setIntervalFn: ((cb: () => void) => {
-        intervalCallback = cb;
-        return 1 as any;
-      }) as any,
-    });
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
     const provider = createGoogleChatProvider(deps);
 
     await provider.start(async (turn, sink) => {
@@ -683,11 +591,11 @@ describe("createGoogleChatProvider — poll loop", () => {
       await sink.finalize("ok");
     });
 
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/1", text: "first" }), [], "a1"));
     await new Promise((r) => setTimeout(r, 10));
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/2", text: "second" }), [], "a2"));
     await new Promise((r) => setTimeout(r, 10));
-    intervalCallback!();
+    sub.emit("message", fakeMessage(messageEvent({ messageName: "spaces/X/messages/3", text: "third" }), [], "a3"));
     await new Promise((r) => setTimeout(r, 10));
 
     expect(started).toEqual(["first"]);

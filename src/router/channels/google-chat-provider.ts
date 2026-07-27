@@ -24,13 +24,12 @@ import {
   sendMessage,
   sendCard,
   updateMessage,
-  pullEvents,
-  acknowledge,
   getOrCreateDmSpace,
   type ServiceAccountCredentials,
   type TokenSource,
   type ChatCard,
 } from "./google-chat-app-client.ts";
+import { openSubscription, type PubSubSubscription, type StreamMessage } from "./google-chat-pubsub-stream.ts";
 import { splitForSendLimit } from "./google-chat-message-buffer.ts";
 import { tryConfirm } from "../confirm-flow.ts";
 import { detectPendingConfirmation, type PendingConfirmation } from "../../session/pending-confirmation.ts";
@@ -38,15 +37,15 @@ import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
-import type { writeSuppressionNote } from "../../wiki/wiki-note.ts";
+import type { writeSuppressionNote, writeConfirmationNote } from "../../wiki/wiki-note.ts";
 import type { EpisodicSummary } from "../../memory/episodic-store.ts";
 
 /**
  * Builds the confirmation card sent when a step stages an irreversible
  * command (see `pending-confirmation.ts`). The button's parameters carry
- * the token, so a click routes straight into the same execution path a
- * typed `conferma <token>` uses (see `onCardClick`'s `confirm` case,
- * below) — the user never has to see or type the token themselves.
+ * the token, so a click routes straight into the same `tryConfirm` path
+ * a bare token typed on the terminal uses (see `onCardClick`'s `confirm`
+ * case, below) — the user never has to see or type the token themselves.
  */
 function buildConfirmCard(pending: PendingConfirmation): ChatCard {
   return {
@@ -73,9 +72,6 @@ function buildConfirmCard(pending: PendingConfirmation): ChatCard {
 
 /** Sentinel a model can return to mean "this message isn't addressed to me" in a shared, multi-person space — see `buildSystemPrompt`'s multiUser block in `index.ts`. Unchanged from the retired channel. */
 export const NO_REPLY = "NO_REPLY";
-
-const DEFAULT_POLL_INTERVAL_MS = 2_000;
-const DEFAULT_PULL_BATCH_SIZE = 20;
 
 /**
  * Composite session key: space + sender. Deliberately does NOT include
@@ -163,11 +159,12 @@ export type GoogleChatProviderDeps = {
   runCliFn: typeof runCli;
   writeSuppressionNoteFn: typeof writeSuppressionNote;
   recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
+  writeConfirmationNoteFn: typeof writeConfirmationNote;
   adminSpace: string;
   /**
    * Handles a `CARD_CLICKED` event's action parameters. Defaults to
    * resolving the confirm-required button's token through the same
-   * `tryConfirm` path a typed `conferma <token>` message uses (see
+   * `tryConfirm` path a bare token typed on the terminal uses (see
    * `createGoogleChatProvider`'s default below) — override only to
    * handle a different card's click shape (e.g. a future `notify-user`
    * disambiguation token, see `notify-user.ts`), not to change how
@@ -179,12 +176,9 @@ export type GoogleChatProviderDeps = {
   sendMessageFn?: typeof sendMessage;
   sendCardFn?: typeof sendCard;
   updateMessageFn?: typeof updateMessage;
-  pullEventsFn?: typeof pullEvents;
-  acknowledgeFn?: typeof acknowledge;
   getOrCreateDmSpaceFn?: typeof getOrCreateDmSpace;
-  pollIntervalMs?: number;
-  setIntervalFn?: typeof setInterval;
-  clearIntervalFn?: typeof clearInterval;
+  /** Test seam — defaults to `openSubscription` (real StreamingPull); tests inject a fake `PubSubSubscription`. */
+  subscriptionFn?: (creds: ServiceAccountCredentials, subscription: string) => PubSubSubscription;
   log?: (msg: string) => void;
 };
 
@@ -210,11 +204,8 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const sendMessageFn = deps.sendMessageFn ?? sendMessage;
   const sendCardFn = deps.sendCardFn ?? sendCard;
   const updateMessageFn = deps.updateMessageFn ?? updateMessage;
-  const pullEventsFn = deps.pullEventsFn ?? pullEvents;
-  const acknowledgeFn = deps.acknowledgeFn ?? acknowledge;
   const getOrCreateDmSpaceFn = deps.getOrCreateDmSpaceFn ?? getOrCreateDmSpace;
-  const setIntervalFn = deps.setIntervalFn ?? setInterval;
-  const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
+  const subscriptionFn = deps.subscriptionFn ?? openSubscription;
   const clientDeps = { tokenSource };
   const sentMessageNames = new Set<string>();
   // Per-session serialization: pollOnce's setInterval fires on a fixed
@@ -228,10 +219,9 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
 
   /**
    * Default `onCardClick`: the confirm button's token routes through the
-   * exact same `tryConfirm` logic a typed `conferma <token>` message
-   * uses, synthesizing the text it would have parsed — one execution
-   * path, one set of valid/expired/wrong-session-token behaviors,
-   * regardless of how the token got here.
+   * exact same `tryConfirm` logic a bare token typed on the terminal
+   * does — one execution path, one set of valid/expired/wrong-session-
+   * token behaviors, regardless of how the token got here.
    */
   const onCardClick: CardClickHandler =
     deps.onCardClick ??
@@ -241,13 +231,14 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         log(`[chat] card click with no token parameter`);
         return;
       }
-      const reply = await tryConfirm(`conferma ${token}`, deriveSessionKey(space, sender), {
+      const reply = await tryConfirm(token, deriveSessionKey(space, sender), {
         store: deps.store,
         runCliFn: deps.runCliFn,
         userId: sender,
         vaultPath: deps.vaultPath,
         writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
         recordSuppressionEventFn: deps.recordSuppressionEventFn,
+        writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
       });
       if (reply !== null) {
         log(`[chat:${space}] [out] ${reply}`);
@@ -255,8 +246,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         sentMessageNames.add(sent.name);
       }
     });
-  let stopped = false;
-  let pollTimer: ReturnType<typeof setInterval> | undefined;
+  let activeSubscription: PubSubSubscription | undefined;
 
   /** Per-turn output sink — same responsibilities as the retired `ChatStreamer`, rebuilt against the new client. */
   function createSink(space: string): TurnSink {
@@ -326,6 +316,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       vaultPath: deps.vaultPath,
       writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
       recordSuppressionEventFn: deps.recordSuppressionEventFn,
+      writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
     });
     if (confirmReply !== null) {
       log(`[chat:${event.space}] [out] ${confirmReply}`);
@@ -371,45 +362,53 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   }
 
   /**
-   * Acks each event right after it's pulled and parsed — before
-   * `handleTurn` (or `onCardClick`) ever runs, not after the whole batch
-   * finishes. Same pattern the open-source Hermes agent's Google Chat
-   * adapter uses (ack in the Pub/Sub callback, agent processing dispatched
-   * separately): a real multi-step turn routinely takes longer than the
-   * subscription's ack deadline (Google's default is 10s), so acking only
-   * once processing completes left every message in a batch open to being
-   * redelivered — and reprocessed a second time, concurrently — while
-   * still being worked on. Acking first decouples "message confirmed" from
-   * "turn finished" entirely, so no turn duration can trigger a
-   * redelivery. Accepted tradeoff, same one Hermes makes: a hard crash
-   * mid-turn loses that one message rather than risking an endless
-   * redelivery loop.
+   * Acks each message immediately on arrival — before `handleTurn` (or
+   * `onCardClick`) ever runs, not after it resolves. Same pattern the
+   * open-source Hermes agent's Google Chat adapter uses (ack in the Pub/Sub
+   * callback, agent processing dispatched separately): a real multi-step
+   * turn routinely takes longer than the subscription's ack deadline
+   * (Google's default is 10s), so acking only once processing completes
+   * would leave a message open to being redelivered — and reprocessed a
+   * second time, concurrently — while still being worked on. Acking first
+   * decouples "message confirmed" from "turn finished" entirely, so no
+   * turn duration can trigger a redelivery. Accepted tradeoff, same one
+   * Hermes makes: a hard crash mid-turn loses that one message rather than
+   * risking an endless redelivery loop.
    */
-  async function pollOnce(handleTurn: HandleTurn): Promise<void> {
-    const messages = await pullEventsFn(deps.subscription, DEFAULT_PULL_BATCH_SIZE, clientDeps);
-    for (const m of messages) {
-      await acknowledgeFn(deps.subscription, [m.ackId], clientDeps).catch((err) => log(`[chat] ack failed: ${String(err)}`));
-      const parsed = parseChatEvent(m.data);
-      if (!parsed) continue;
-      try {
-        if (parsed.kind === "message") {
-          await processMessageEvent(parsed, handleTurn);
-        } else {
-          await onCardClick(parsed.parameters, parsed.space, parsed.sender);
-        }
-      } catch (err) {
-        log(`[chat] event handling failed: ${String(err)}`);
+  async function handleMessage(message: StreamMessage, handleTurn: HandleTurn): Promise<void> {
+    message.ack();
+    let parsed: ParsedMessageEvent | ParsedCardClickEvent | null;
+    try {
+      parsed = parseChatEvent(JSON.parse(message.data.toString("utf-8")));
+    } catch (err) {
+      log(`[chat] failed to parse Pub/Sub message: ${String(err)}`);
+      return;
+    }
+    if (!parsed) return;
+    try {
+      if (parsed.kind === "message") {
+        await processMessageEvent(parsed, handleTurn);
+      } else {
+        await onCardClick(parsed.parameters, parsed.space, parsed.sender);
       }
+    } catch (err) {
+      log(`[chat] event handling failed: ${String(err)}`);
     }
   }
 
   return {
     async start(handleTurn: HandleTurn): Promise<void> {
-      const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-      pollTimer = setIntervalFn(() => {
-        if (stopped) return;
-        pollOnce(handleTurn).catch((err) => log(`[chat] poll failed: ${String(err)}`));
-      }, pollIntervalMs);
+      const sub = subscriptionFn(deps.credentials, deps.subscription);
+      activeSubscription = sub;
+      sub.on("message", (message) => {
+        handleMessage(message, handleTurn).catch((err) => log(`[chat] event handling failed: ${String(err)}`));
+      });
+      // The SDK retries transient stream errors internally — this only
+      // fires for something it gave up on. Logged, not thrown: one bad
+      // stream event must never take down the rest of Mercury (same
+      // convention every other channel/poller loop in this project
+      // follows).
+      sub.on("error", (err) => log(`[chat] pubsub stream error: ${String(err)}`));
     },
 
     async ensureChannel(space: string): Promise<void> {
@@ -422,8 +421,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     },
 
     async stop(): Promise<void> {
-      stopped = true;
-      if (pollTimer !== undefined) clearIntervalFn(pollTimer);
+      await activeSubscription?.close();
     },
 
     async notify(userId: string, text: string): Promise<{ sessionKey: string }> {
