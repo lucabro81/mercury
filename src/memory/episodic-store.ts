@@ -34,19 +34,32 @@ export type QdrantClientLike = {
     name: string,
     params: { filter: Record<string, unknown>; order_by: { key: string; direction: "asc" | "desc" }; limit: number },
   ): Promise<{ points: Array<{ id: string | number; payload?: Record<string, unknown> | null }> }>;
+  /** Optional — same reasoning as `scroll` above: only `ensureEpisodicCollection` needs it. */
+  createPayloadIndex?(name: string, params: { field_name: string; field_schema: "datetime" | "keyword" }): Promise<unknown>;
 };
 
-/** Creates `collectionName` (cosine distance, `vectorSize`-dim) if it doesn't already exist — safe to call on every startup. */
+/**
+ * Creates `collectionName` (cosine distance, `vectorSize`-dim) if it
+ * doesn't already exist, then ensures the `timestamp`/`userId` payload
+ * indexes exist regardless — `getLastSessionEpisodicSummaries`'s
+ * `order_by`/filter scroll queries fail with an HTTP 400 without them.
+ * Idempotent either way (Qdrant no-ops re-creating an existing index), so
+ * safe to call on every startup, including against a collection that
+ * predates this fix.
+ */
 export async function ensureEpisodicCollection(
   client: QdrantClientLike,
   collectionName: string,
   vectorSize: number,
 ): Promise<void> {
   const { collections } = await client.getCollections();
-  if (collections.some((c) => c.name === collectionName)) {
-    return;
+  if (!collections.some((c) => c.name === collectionName)) {
+    await client.createCollection(collectionName, { vectors: { size: vectorSize, distance: "Cosine" } });
   }
-  await client.createCollection(collectionName, { vectors: { size: vectorSize, distance: "Cosine" } });
+  if (client.createPayloadIndex) {
+    await client.createPayloadIndex(collectionName, { field_name: "timestamp", field_schema: "datetime" });
+    await client.createPayloadIndex(collectionName, { field_name: "userId", field_schema: "keyword" });
+  }
 }
 
 export type EpisodicSummary = {

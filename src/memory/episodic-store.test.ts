@@ -44,6 +44,68 @@ describe("ensureEpisodicCollection", () => {
 
     expect(createCalls).toBe(0);
   });
+
+  // Regression test: a fresh episodic_memory collection with no payload
+  // indexes made getLastSessionEpisodicSummaries's order_by/filter scroll
+  // queries fail with an HTTP 400 the first time a brand-new deployment's
+  // context primer ran — Qdrant requires an index for both. Observed live
+  // twice (once per fresh Qdrant volume) before this fix; previously
+  // worked around by hand via the REST API instead of in code.
+  it("creates the timestamp and userId payload indexes when creating a new collection", async () => {
+    const indexCalls: Array<{ name: string; params: unknown }> = [];
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      createPayloadIndex: async (name, params) => {
+        indexCalls.push({ name, params });
+        return {};
+      },
+    };
+
+    await ensureEpisodicCollection(client, "episodic_memory", 768);
+
+    expect(indexCalls).toEqual([
+      { name: "episodic_memory", params: { field_name: "timestamp", field_schema: "datetime" } },
+      { name: "episodic_memory", params: { field_name: "userId", field_schema: "keyword" } },
+    ]);
+  });
+
+  // The self-healing case: a collection created before this fix existed
+  // (or by any other means) never got its indexes — ensuring them must
+  // not be conditional on "did we just create the collection".
+  it("creates the payload indexes even when the collection already exists", async () => {
+    const indexCalls: Array<{ name: string; params: unknown }> = [];
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [{ name: "episodic_memory" }] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+      createPayloadIndex: async (name, params) => {
+        indexCalls.push({ name, params });
+        return {};
+      },
+    };
+
+    await ensureEpisodicCollection(client, "episodic_memory", 768);
+
+    expect(indexCalls).toHaveLength(2);
+  });
+
+  // createPayloadIndex is optional on QdrantClientLike (same reasoning as
+  // `scroll`) — a minimal test double for a caller that doesn't care about
+  // indexes must not be forced to stub it.
+  it("does not throw when the client doesn't support createPayloadIndex", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      search: async () => [],
+    };
+
+    await expect(ensureEpisodicCollection(client, "episodic_memory", 768)).resolves.toBeUndefined();
+  });
 });
 
 describe("storeEpisodicSummary", () => {
