@@ -1,5 +1,23 @@
 # mercury
 
+## 0.10.0
+
+### Minor Changes
+
+- dbf9e74: Add a tool letting Mercury send a Google Chat message to a specific person by email address mid-conversation, e.g. to loop someone else in on request.
+- dbf9e74: Introduce a shared Provider interface so every communication channel (terminal, Google Chat, and any future one) runs through the same turn-handling and proactive-notification logic instead of each channel duplicating it.
+- 5bb3479: Confirming an irreversible action (like deleting a Jira issue) on Google Chat now shows a card with a confirm button instead of asking you to type a token back. The terminal still uses a typed token.
+- dbf9e74: Rebuild the Google Chat integration as a registered Chat app with its own bot identity, replacing the previous connection that acted as a regular Workspace user. Mercury's replies now come from "Mercury" rather than from the person who set it up, and no Workspace admin action is required to connect it to a space.
+- b43a256: Removed the "might be stuck" notice on Google Chat for slow replies — it added noise without adding useful information.
+
+### Patch Changes
+
+- 96ef41f: Simplify confirming an action: a confirmation token is now enough on its own — no need to type "conferma" in front of it anymore.
+- 4543909: Fix a first-run error on a brand-new deployment: seeding a new conversation with context from your last session could fail with a database error because the episodic memory collection was missing indexes it needed.
+- 96ef41f: Fix: after a restart, Mercury could bring up an old, already-resolved confirmation request out of nowhere — sometimes even inventing a confirmation token that was never real. Resolved and abandoned confirmations are now tracked properly and never resurface as if still pending.
+- b43a256: Fix: after staging an irreversible action for confirmation, Mercury could still generate a follow-up reply that repeated the confirmation token back to you. It no longer gets the chance to.
+- Google Chat messages and confirmation-card clicks now arrive over a persistent push connection instead of being polled every couple of seconds, so replies start noticeably sooner after you send something.
+
 ## 0.9.0
 
 ### Minor Changes
