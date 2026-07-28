@@ -20,7 +20,12 @@ export type TurnRunnerDeps = {
   model: LanguageModel;
   /** Both variants, precomposed by the composition root; selected per turn by `turn.multiUser`. */
   systemPrompts: { singleUser: string; multiUser: string };
-  buildTools: (sessionKey: string, wikiUserId: string, onToolStart?: (label: string) => void) => Record<string, Tool>;
+  buildTools: (
+    sessionKey: string,
+    wikiUserId: string,
+    onToolStart?: TurnSink["onToolStart"],
+    onToolFinish?: TurnSink["onToolFinish"],
+  ) => Record<string, Tool>;
   /**
    * `userId` is forwarded (not interpreted here) so a provider's own
    * closure can decide whether to seed a first-ever session with a
@@ -30,11 +35,11 @@ export type TurnRunnerDeps = {
   getOrCreateHistory: (sessionKey: string, trackForCapture: boolean, userId: string | undefined) => Promise<SessionHistory> | SessionHistory;
   /** Layer-3 session tracking (sessionUsers map + idle scanner touch). Only for turns that carry a userId. */
   trackSession: (sessionKey: string, userId: string, at: number) => void;
-  /** Refreshes this turn's tool-status callback for out-of-band capture messages. */
-  registerCaptureCallback: (sessionKey: string, onToolStart: (label: string) => void) => void;
+  /** Refreshes this turn's tool-status callbacks for out-of-band capture messages. */
+  registerCaptureCallback: (sessionKey: string, onToolStart: TurnSink["onToolStart"], onToolFinish: TurnSink["onToolFinish"]) => void;
   /** Mid-conversation Layer-3 capture threshold check. Only for turns that carry a userId. */
   maybeCapture: (sessionKey: string, history: SessionHistory) => Promise<void>;
-  processToolCorrections: (steps: StepInfo[], onToolStart: (label: string) => void) => Promise<void>;
+  processToolCorrections: (steps: StepInfo[], onToolStart: TurnSink["onToolStart"], onToolFinish: TurnSink["onToolFinish"]) => Promise<void>;
   logStep: (prefix: string, step: StepInfo) => void;
   /** Test seam; defaults to the real `recordStep`. */
   recordStepFn?: typeof recordStep;
@@ -50,7 +55,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
     const tracked = turn.userId !== undefined;
     if (tracked) {
       deps.trackSession(turn.sessionKey, turn.userId as string, (deps.now ?? Date.now)());
-      deps.registerCaptureCallback(turn.sessionKey, sink.onToolStart);
+      deps.registerCaptureCallback(turn.sessionKey, sink.onToolStart, sink.onToolFinish);
     }
 
     const steps: StepInfo[] = [];
@@ -66,9 +71,11 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
       history = await deps.getOrCreateHistory(turn.sessionKey, tracked, turn.userId);
       const text = await (deps.runTurnFn ?? runTurn)(history, turn.text, {
         model: deps.model,
-        tools: deps.buildTools(turn.sessionKey, turn.wikiUserId, sink.onToolStart),
+        tools: deps.buildTools(turn.sessionKey, turn.wikiUserId, sink.onToolStart, sink.onToolFinish),
         system: turn.multiUser ? deps.systemPrompts.multiUser : deps.systemPrompts.singleUser,
         onTextChunk: sink.onTextChunk,
+        onReasoningChunk: sink.onReasoningChunk,
+        onReasoningEnd: sink.onReasoningEnd,
         onStepFinish: (step) => {
           steps.push(step);
           deps.logStep(turn.logPrefix, step);
@@ -85,6 +92,6 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
     if (tracked) {
       await deps.maybeCapture(turn.sessionKey, history);
     }
-    await deps.processToolCorrections(steps, sink.onToolStart);
+    await deps.processToolCorrections(steps, sink.onToolStart, sink.onToolFinish);
   };
 }

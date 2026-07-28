@@ -5,6 +5,7 @@ import {
   sendMessage,
   sendCard,
   updateMessage,
+  updateCard,
   getOrCreateDmSpace,
   type FetchFn,
 } from "./google-chat-app-client.ts";
@@ -147,6 +148,36 @@ describe("updateMessage", () => {
 
     expect(capturedMethod).toBe("PATCH");
     expect(capturedUrl).toBe("https://chat.googleapis.com/v1/spaces/X/messages/1?updateMask=text");
+  });
+});
+
+describe("updateCard", () => {
+  test("PATCHes the given message name with updateMask=cardsV2 and the card body", async () => {
+    let capturedUrl = "";
+    let capturedMethod = "";
+    let capturedBody: any;
+    const fetchFn: FetchFn = (async (url: any, init: any) => {
+      capturedUrl = String(url);
+      capturedMethod = init.method;
+      capturedBody = JSON.parse(init.body);
+      return new Response(JSON.stringify({ name: "spaces/X/messages/1" }), { status: 200 });
+    }) as any;
+
+    const card = { sections: [{ header: "Sto usando jira…", collapsible: true, uncollapsibleWidgetsCount: 0, widgets: [] }] };
+    const result = await updateCard("spaces/X/messages/1", card, { tokenSource: fakeTokenSource(), fetchFn });
+
+    expect(result).toEqual({ name: "spaces/X/messages/1" });
+    expect(capturedMethod).toBe("PATCH");
+    expect(capturedUrl).toBe("https://chat.googleapis.com/v1/spaces/X/messages/1?updateMask=cardsV2");
+    expect(capturedBody).toEqual({ cardsV2: [{ cardId: "card", card }] });
+  });
+
+  test("throws with the response body on a non-2xx response", async () => {
+    const fetchFn: FetchFn = (async () => new Response("permission denied", { status: 403 })) as any;
+    const card = { sections: [{ widgets: [] }] };
+    await expect(updateCard("spaces/X/messages/1", card, { tokenSource: fakeTokenSource(), fetchFn })).rejects.toThrow(
+      /HTTP 403/,
+    );
   });
 });
 

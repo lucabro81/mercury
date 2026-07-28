@@ -155,8 +155,22 @@ export async function sendMessage(
   return { name: data.name };
 }
 
-/** A single Cards v2 message — one call, `cardsV2` is an array because the API supports multiple cards per message, but every caller here sends exactly one. */
-export type ChatCard = { header?: { title: string }; sections: Array<{ widgets: unknown[] }> };
+/**
+ * A single Cards v2 message — one call, `cardsV2` is an array because the
+ * API supports multiple cards per message, but every caller here sends
+ * exactly one. A section's `header` (distinct from the card-level
+ * `header.title`) plus `collapsible`/`uncollapsibleWidgetsCount` is Google
+ * Chat's own native accordion primitive: `header` stays visible regardless
+ * of collapse state, and widgets beyond `uncollapsibleWidgetsCount` fold
+ * behind a "Show more" toggle.
+ */
+export type ChatCardSection = {
+  widgets: unknown[];
+  header?: string;
+  collapsible?: boolean;
+  uncollapsibleWidgetsCount?: number;
+};
+export type ChatCard = { header?: { title: string }; sections: ChatCardSection[] };
 
 /** Posts `card` as a Cards v2 message to `space`. Returns the created message's `name`, same shape as `sendMessage`. */
 export async function sendCard(
@@ -184,3 +198,16 @@ export async function updateMessage(
   return { name: data.name };
 }
 
+/** Edits an already-sent card message's `cardsV2` in place (PATCH, `updateMask=cardsV2`) — used to patch a tool-call status card from loading to its final outcome without sending a new message. */
+export async function updateCard(
+  name: string,
+  card: ChatCard,
+  deps: { tokenSource: TokenSource; fetchFn?: FetchFn },
+): Promise<{ name: string }> {
+  const data = (await callChatApi(
+    `${name}?updateMask=cardsV2`,
+    { method: "PATCH", body: { cardsV2: [{ cardId: "card", card }] } },
+    deps,
+  )) as { name: string };
+  return { name: data.name };
+}

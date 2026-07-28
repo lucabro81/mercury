@@ -27,6 +27,7 @@ import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.t
 import { buildContextPrimer } from "./session/context-primer.ts";
 import { runTurn } from "./session/agent-turn.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
+import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
 import {
   truncateForDisplay,
@@ -231,7 +232,13 @@ const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolea
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
 const ollamaModel = requireEnv("OLLAMA_MODEL");
-const model = provider(ollamaModel);
+// think: true enables Ollama's native extended-thinking tokens (only takes
+// effect on models that actually support it — see agent-turn.ts's
+// reasoning-delta handling, and google-chat-provider.ts/terminal-provider.ts
+// for where the resulting stream gets displayed). Model-construction-time
+// setting only, no per-call override exists in ai-sdk-ollama, so it's set
+// once here for the one shared model instance used by every channel.
+const model = provider(ollamaModel, { think: true });
 const summarize = createSummarizer(model);
 
 const histories = new Map<string, SessionHistory>();
@@ -282,11 +289,15 @@ const sessionUsers = new Map<string, string>(); // session key -> Google Chat se
 // it has been captured yet. Discarded along with everything else on
 // idle-timeout close, same as sessionUsers.
 const sessionCaptureMarkers = new Map<string, number>();
-// The current turn's tool-status callback (ChatStreamer.onToolStart),
-// refreshed each turn since a fresh streamer is created per turn — looked
-// up lazily by captureIncrement/onBeforeCompress rather than captured once,
-// same reason sessionUsers is looked up lazily instead of closed over.
-const sessionOnCaptureCallbacks = new Map<string, (label: string) => void>();
+// The current turn's tool-status callbacks (the sink's onToolStart/
+// onToolFinish), refreshed each turn since a fresh sink is created per turn
+// — looked up lazily by captureIncrement/onBeforeCompress rather than
+// captured once, same reason sessionUsers is looked up lazily instead of
+// closed over.
+const sessionOnCaptureCallbacks = new Map<
+  string,
+  { onToolStart: TurnSink["onToolStart"]; onToolFinish: TurnSink["onToolFinish"] }
+>();
 const idleScanner = createIdleSessionScanner();
 const episodicSummarize = createEpisodicSummarizer(model);
 const embeddingModel = provider.textEmbeddingModel(process.env.OLLAMA_EMBEDDING_MODEL ?? "nomic-embed-text");
@@ -370,13 +381,15 @@ const MESSAGE_COUNT_CAPTURE_THRESHOLD = Number(process.env.SESSION_CAPTURE_MESSA
  * new. Shared by both mid-conversation triggers (message-count threshold,
  * Layer 1 compression); the idle-timeout trigger uses
  * `runIdleSessionSweep`/`captureSessionToMemory` directly instead, since it
- * also closes the session. Looks up that turn's tool-status callback
+ * also closes the session. Looks up that turn's tool-status callbacks
  * (`sessionOnCaptureCallbacks`, refreshed per turn) and, when present,
- * calls it once with a status label right before the capture starts —
- * reuses the same mechanism already wired for tool-call status messages
- * (`ChatStreamer.onToolStart` on Google Chat, the dim/italic terminal
+ * drives them exactly like a real tool call (start with a label + detail
+ * naming what's being written and to which Qdrant collection, finish with
+ * the outcome) — reuses the same mechanism already wired for tool-call
+ * status messages (Google Chat's status card, the dim/italic terminal
  * callback), so a live conversation shows this happening instead of it
- * running invisibly.
+ * running invisibly. The generated id only needs to be unique for this one
+ * start/finish pair, not stable across calls.
  */
 async function captureIncrement(sessionKey: string, messages: Message[]): Promise<void> {
   const userId = sessionUsers.get(sessionKey);
@@ -386,12 +399,20 @@ async function captureIncrement(sessionKey: string, messages: Message[]): Promis
   const pending = messages.slice(alreadyCaptured);
   if (pending.length === 0) return;
 
-  sessionOnCaptureCallbacks.get(sessionKey)?.("Mi sto segnando un'informazione importante…");
+  const callbacks = sessionOnCaptureCallbacks.get(sessionKey);
+  const captureId = crypto.randomUUID();
+  callbacks?.onToolStart(
+    "Mi sto segnando un'informazione importante…",
+    `Conversazione recente (${pending.length} messaggi) → memoria episodica (Qdrant, collection "${episodicCollection}")`,
+    captureId,
+  );
   try {
     await captureSessionToMemory(userId, sessionKey, pending, Date.now(), captureDeps);
     sessionCaptureMarkers.set(sessionKey, messages.length);
+    callbacks?.onToolFinish?.(captureId, "success");
   } catch (err) {
     console.error(`[capture] failed for ${sessionKey}, will retry next trigger: ${String(err)}`);
+    callbacks?.onToolFinish?.(captureId, "failed");
   }
 }
 
@@ -422,20 +443,32 @@ const toolCorrectionConsolidationDeps: ToolCorrectionConsolidationDeps = {
 
 /**
  * Extracts and consolidates any procedural corrections found in one turn's
- * `steps` — a no-op if none are found. `onCapture`, when given, gets the
- * same status label used by `captureIncrement` (reused, not a new one),
- * right before each correction is stored.
+ * `steps` — a no-op if none are found. `onToolStart`/`onToolFinish`, when
+ * given, get the same status label used by `captureIncrement` (reused, not
+ * a new one) plus a detail naming the tool/topic and the Qdrant collection,
+ * driven once per correction exactly like a real tool call.
  */
-async function processToolCorrections(steps: StepInfo[], onCapture?: (label: string) => void): Promise<void> {
+async function processToolCorrections(
+  steps: StepInfo[],
+  onToolStart?: TurnSink["onToolStart"],
+  onToolFinish?: TurnSink["onToolFinish"],
+): Promise<void> {
   const corrections = await extractToolCorrections(steps);
   for (const correction of corrections) {
-    onCapture?.("Mi sto segnando un'informazione importante…");
+    const correctionId = crypto.randomUUID();
+    onToolStart?.(
+      "Mi sto segnando un'informazione importante…",
+      `Correzione per lo strumento "${correction.tool}" (argomento: "${correction.topic}") → memoria delle correzioni (Qdrant, collection "${toolCorrectionsCollection}") + nota curata nel wiki`,
+      correctionId,
+    );
     try {
       const timestamp = new Date().toISOString();
       await storeToolCorrection(qdrant, toolCorrectionsCollection, embed, { ...correction, timestamp });
       await consolidateToolCorrection(correction.tool, correction.topic, toolCorrectionConsolidationDeps);
+      onToolFinish?.(correctionId, "success");
     } catch (err) {
       console.error(`[capture] procedural correction failed for ${correction.tool}/${correction.topic}: ${String(err)}`);
+      onToolFinish?.(correctionId, "failed");
     }
   }
 }
@@ -469,7 +502,8 @@ const staticTools: Record<string, Tool> = {};
 function buildTools(
   sessionKey: string,
   wikiUserId: string,
-  onToolStart?: (label: string) => void,
+  onToolStart?: TurnSink["onToolStart"],
+  onToolFinish?: TurnSink["onToolFinish"],
 ): Record<string, Tool> {
   const sessionTools: Record<string, Tool> = { ...staticTools };
   if (Object.keys(activeCliConfigs).length > 0) {
@@ -485,7 +519,7 @@ function buildTools(
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
-  return onToolStart ? withToolStartHook(sessionTools, onToolStart, activeCliConfigs) : sessionTools;
+  return onToolStart ? withToolStartHook(sessionTools, onToolStart, activeCliConfigs, onToolFinish) : sessionTools;
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
@@ -539,7 +573,7 @@ const handleTurn = createTurnRunner({
     sessionUsers.set(key, userId);
     idleScanner.touch(key, at);
   },
-  registerCaptureCallback: (key, cb) => sessionOnCaptureCallbacks.set(key, cb),
+  registerCaptureCallback: (key, onToolStart, onToolFinish) => sessionOnCaptureCallbacks.set(key, { onToolStart, onToolFinish }),
   maybeCapture: async (key, history) => {
     const messages = history.getMessages();
     const alreadyCaptured = sessionCaptureMarkers.get(key) ?? 0;

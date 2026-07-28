@@ -22,6 +22,13 @@ function neverSummarize(): Promise<string> {
   throw new Error("should not be called in these tests");
 }
 
+/** Wraps plain text chunks as a fake `fullStream`'s `text-delta` parts — the shape `runTurn` actually reads today (it no longer consumes `textStream`). */
+async function* textDeltaStream(chunks: string[]) {
+  for (const chunk of chunks) {
+    yield { type: "text-delta" as const, id: "1", delta: chunk };
+  }
+}
+
 const SYSTEM = "you are a test assistant";
 
 describe("runTurn", () => {
@@ -143,14 +150,9 @@ describe("runTurn", () => {
   // src/router/terminal.ts. Google Chat never sets onTextChunk, so it
   // keeps using the generateTextFn path above unchanged.
   it("streams chunks via onTextChunk and returns the full joined text, when onTextChunk is provided", async () => {
-    async function* fakeStream(chunks: string[]) {
-      for (const chunk of chunks) {
-        yield chunk;
-      }
-    }
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
-    const streamTextFn = async () => ({ textStream: fakeStream(["Hel", "lo, ", "world"]) });
+    const streamTextFn = async () => ({ fullStream: textDeltaStream(["Hel", "lo, ", "world"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -165,13 +167,8 @@ describe("runTurn", () => {
   });
 
   it("records the full joined streamed text as the assistant's message", async () => {
-    async function* fakeStream(chunks: string[]) {
-      for (const chunk of chunks) {
-        yield chunk;
-      }
-    }
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ textStream: fakeStream(["foo", "bar"]) });
+    const streamTextFn = async () => ({ fullStream: textDeltaStream(["foo", "bar"]) });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -188,13 +185,12 @@ describe("runTurn", () => {
   });
 
   it("forwards each step to the caller's onStepFinish when provided, on the streaming path too", async () => {
-    async function* fakeStream() {}
     const history = createSessionHistory(neverSummarize);
     const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
     const receivedSteps: StepInfo[] = [];
     const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
       params.onStepFinish?.(ordinaryStep);
-      return { textStream: fakeStream() };
+      return { fullStream: textDeltaStream([]) };
     };
 
     await runTurn(history, "hi", {
@@ -207,6 +203,245 @@ describe("runTurn", () => {
     });
 
     expect(receivedSteps).toEqual([ordinaryStep]);
+  });
+
+  it("calls onReasoningChunk once per reasoning-delta part, in order, with the right delta and the SDK's own reasoning-block id", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "block-1", delta: "Let me " };
+      yield { type: "reasoning-delta", id: "block-1", delta: "think." };
+      yield { type: "reasoning-end", id: "block-1" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const received: Array<[string, string]> = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onReasoningChunk: (chunk, id) => received.push([chunk, id]),
+    });
+
+    expect(received).toEqual([
+      ["Let me ", "block-1"],
+      ["think.", "block-1"],
+    ]);
+  });
+
+  // The hard requirement: reasoning is a live UI-only surface, never fed
+  // back to the model on a later turn. Asserted by searching for absence,
+  // not just equality against an expected value — guards against a future
+  // refactor accidentally merging the two accumulators.
+  it("never lets reasoning content reach the returned text or the recorded history entry", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "1", delta: "secret reasoning" };
+      yield { type: "reasoning-end", id: "1" };
+      yield { type: "text-delta", id: "2", delta: "the real answer" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onReasoningChunk: () => {},
+    });
+
+    expect(result).toBe("the real answer");
+    expect(result).not.toContain("secret reasoning");
+    const historyText = history.getMessages().map((m) => m.content).join("\n");
+    expect(historyText).not.toContain("secret reasoning");
+  });
+
+  it("calls onReasoningEnd exactly once, with the block's id and failed:false, when a reasoning-end part arrives normally", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "block-1", delta: "x" };
+      yield { type: "reasoning-end", id: "block-1" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const calls: Array<[string, boolean]> = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onReasoningChunk: () => {},
+      onReasoningEnd: (id, failed) => calls.push([id, failed]),
+    });
+
+    expect(calls).toEqual([["block-1", false]]);
+  });
+
+  it("still calls onReasoningEnd exactly once, with the block's id and failed:true, and still propagates the error, when the stream throws right after a reasoning-delta with no reasoning-end", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "block-1", delta: "x" };
+      throw new Error("stream broke");
+    }
+    const history = createSessionHistory(neverSummarize);
+    const calls: Array<[string, boolean]> = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    await expect(
+      runTurn(history, "hi", {
+        model: "fake-model" as never,
+        tools: {},
+        system: SYSTEM,
+        streamTextFn,
+        onReasoningChunk: () => {},
+        onReasoningEnd: (id, failed) => calls.push([id, failed]),
+      }),
+    ).rejects.toThrow("stream broke");
+
+    expect(calls).toEqual([["block-1", true]]);
+  });
+
+  // The user's actual reported scenario: a tool-calling turn can reason,
+  // call a tool, then reason again about the result before answering — two
+  // independent reasoning blocks with two different SDK ids, not one
+  // continuous burst. Each must close on its own; the second must not be
+  // mistaken for a continuation of the first.
+  it("closes each reasoning block independently when the model reasons twice in one turn (e.g. around a tool call)", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "block-1", delta: "first thought" };
+      yield { type: "reasoning-end", id: "block-1" };
+      yield { type: "reasoning-delta", id: "block-2", delta: "second thought" };
+      yield { type: "reasoning-end", id: "block-2" };
+      yield { type: "text-delta", id: "t", delta: "answer" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const chunks: Array<[string, string]> = [];
+    const ends: Array<[string, boolean]> = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onReasoningChunk: (chunk, id) => chunks.push([chunk, id]),
+      onReasoningEnd: (id, failed) => ends.push([id, failed]),
+    });
+
+    expect(chunks).toEqual([
+      ["first thought", "block-1"],
+      ["second thought", "block-2"],
+    ]);
+    expect(ends).toEqual([
+      ["block-1", false],
+      ["block-2", false],
+    ]);
+  });
+
+  it("never calls onReasoningEnd when no reasoning-delta ever arrived", async () => {
+    const history = createSessionHistory(neverSummarize);
+    let calls = 0;
+    const streamTextFn = async () => ({ fullStream: textDeltaStream(["just an answer"]) });
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onReasoningEnd: () => {
+        calls++;
+      },
+    });
+
+    expect(calls).toBe(0);
+  });
+
+  it("selects the streaming path when only onReasoningChunk is provided (no onTextChunk)", async () => {
+    const history = createSessionHistory(neverSummarize);
+    let streamTextFnCalled = false;
+    const streamTextFn = async () => {
+      streamTextFnCalled = true;
+      return { fullStream: textDeltaStream(["answer"]) };
+    };
+    const generateTextFn = async () => {
+      throw new Error("should not take the generateText path");
+    };
+
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      generateTextFn,
+      onReasoningChunk: () => {},
+    });
+
+    expect(streamTextFnCalled).toBe(true);
+  });
+
+  // Mirrors the real Ollama sequencing guarantee: reasoning always fully
+  // completes before any answer text begins.
+  it("delivers reasoning chunks and onReasoningEnd strictly before the first onTextChunk, on an interleaved stream", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "1", delta: "r1" };
+      yield { type: "reasoning-delta", id: "1", delta: "r2" };
+      yield { type: "reasoning-end", id: "1" };
+      yield { type: "text-delta", id: "2", delta: "t1" };
+      yield { type: "text-delta", id: "2", delta: "t2" };
+      yield { type: "text-end", id: "2" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const events: string[] = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: (c) => events.push(`text:${c}`),
+      onReasoningChunk: (c) => events.push(`reasoning:${c}`),
+      onReasoningEnd: () => events.push("reasoning-end"),
+    });
+
+    expect(events).toEqual(["reasoning:r1", "reasoning:r2", "reasoning-end", "text:t1", "text:t2"]);
+    expect(result).toBe("t1t2");
+  });
+
+  // Regression: `ai`'s own .d.ts declares text-delta/reasoning-delta parts
+  // twice with different field names for the same `type` value (`delta`
+  // in one place, `text` in another — node_modules/ai/dist/index.d.ts:
+  // 2103-2107 vs 2555-2558). The installed ai-sdk-ollama version actually
+  // emits `text`, confirmed live: the real reasoning/answer content came
+  // through as `{"type":"reasoning-delta","id":"...","text":"The"}`, not
+  // `delta`. Reading only `part.delta` (the original implementation)
+  // silently extracted `undefined` for every chunk, so both the reasoning
+  // card and the final answer itself stayed empty for the whole turn —
+  // this is the bug behind "il modello sembra non rispondere" reported
+  // live: the answer wasn't missing, it was being read as "" every time.
+  it("still extracts chunk content when the real part shape uses 'text' instead of 'delta' (both text-delta and reasoning-delta)", async () => {
+    async function* fakeStream() {
+      yield { type: "reasoning-delta", id: "1", text: "sto pensando" };
+      yield { type: "reasoning-end", id: "1" };
+      yield { type: "text-delta", id: "2", text: "la risposta vera" };
+    }
+    const history = createSessionHistory(neverSummarize);
+    const reasoningChunks: string[] = [];
+    const streamTextFn = async () => ({ fullStream: fakeStream() });
+
+    const result = await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      onReasoningChunk: (c) => reasoningChunks.push(c),
+    });
+
+    expect(reasoningChunks).toEqual(["sto pensando"]);
+    expect(result).toBe("la risposta vera");
   });
 
   // The terminal channel shows this next to the prompt as a real (not
@@ -234,13 +469,10 @@ describe("runTurn", () => {
   });
 
   it("passes the real inputTokens from totalUsage to onUsage, on the streaming path", async () => {
-    async function* fakeStream() {
-      yield "ok";
-    }
     const history = createSessionHistory(neverSummarize);
     let receivedInputTokens: number | undefined;
     const streamTextFn = async () => ({
-      textStream: fakeStream(),
+      fullStream: textDeltaStream(["ok"]),
       totalUsage: Promise.resolve({ inputTokens: 5678 }),
     });
 
@@ -262,17 +494,15 @@ describe("runTurn", () => {
   // budget on retries (e.g. jira's required --select, guessed wrong a
   // couple of times) can reach the model's step limit with no step left
   // to actually write an answer. streamText then resolves with a
-  // textStream that yields nothing at all: no error, no chunk. Left
+  // fullStream that yields nothing at all: no error, no chunk. Left
   // empty on purpose (no fallback message) — silence in this genuinely-
   // stuck case is an accepted tradeoff, not solved here (see
   // PENDING_CONFIRMATION_NOTE's doc comment in agent-turn.ts).
   it("leaves the streamed answer empty, and sends nothing via onTextChunk, when it's genuinely empty", async () => {
-    async function* emptyStream() {
-      // yields nothing — the model ran out of steps before writing text
-    }
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
-    const streamTextFn = async () => ({ textStream: emptyStream() });
+    // yields nothing — the model ran out of steps before writing text
+    const streamTextFn = async () => ({ fullStream: textDeltaStream([]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -291,11 +521,8 @@ describe("runTurn", () => {
   });
 
   it("treats a whitespace-only streamed answer the same as an empty one", async () => {
-    async function* whitespaceStream() {
-      yield "   \n";
-    }
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ textStream: whitespaceStream() });
+    const streamTextFn = async () => ({ fullStream: textDeltaStream(["   \n"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -309,11 +536,8 @@ describe("runTurn", () => {
   });
 
   it("does not touch a non-empty streamed answer", async () => {
-    async function* fakeStream() {
-      yield "a real answer";
-    }
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ textStream: fakeStream() });
+    const streamTextFn = async () => ({ fullStream: textDeltaStream(["a real answer"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -383,12 +607,11 @@ describe("runTurn", () => {
   });
 
   it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (streaming)", async () => {
-    async function* emptyStream() {}
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
     const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
       params.onStepFinish?.(PENDING_CONFIRMATION_STEP);
-      return { textStream: emptyStream() };
+      return { fullStream: textDeltaStream([]) };
     };
 
     const result = await runTurn(history, "hi", {
