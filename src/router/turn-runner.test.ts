@@ -93,6 +93,64 @@ describe("createTurnRunner", () => {
     expect(receivedOnTextChunk).toBeUndefined();
   });
 
+  test("forwards sink.onReasoningChunk/onReasoningEnd into runTurn's deps when the sink defines them", async () => {
+    let receivedOnReasoningChunk: unknown;
+    let receivedOnReasoningEnd: unknown;
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "single", multiUser: "multi" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async (_history, _input, deps) => {
+        receivedOnReasoningChunk = deps.onReasoningChunk;
+        receivedOnReasoningEnd = deps.onReasoningEnd;
+        return "reply";
+      },
+    });
+
+    const onReasoningChunk = () => {};
+    const onReasoningEnd = () => {};
+    await runner(baseTurn(), baseSink({ onReasoningChunk, onReasoningEnd }));
+
+    expect(receivedOnReasoningChunk).toBe(onReasoningChunk);
+    expect(receivedOnReasoningEnd).toBe(onReasoningEnd);
+  });
+
+  // Regression: must stay undefined, not default to a no-op — a no-op
+  // would make agent-turn.ts's `if (deps.onTextChunk || deps.onReasoningChunk)`
+  // branch condition true for every caller, even one that never asked for
+  // reasoning display, silently switching them onto the streaming path.
+  test("leaves onReasoningChunk/onReasoningEnd undefined when the sink omits them", async () => {
+    let receivedOnReasoningChunk: unknown = "not-yet-set";
+    let receivedOnReasoningEnd: unknown = "not-yet-set";
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "single", multiUser: "multi" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async (_history, _input, deps) => {
+        receivedOnReasoningChunk = deps.onReasoningChunk;
+        receivedOnReasoningEnd = deps.onReasoningEnd;
+        return "reply";
+      },
+    });
+
+    await runner(baseTurn(), baseSink());
+
+    expect(receivedOnReasoningChunk).toBeUndefined();
+    expect(receivedOnReasoningEnd).toBeUndefined();
+  });
+
   test("selects the multi-user system prompt iff turn.multiUser is true", async () => {
     const systems: string[] = [];
     const runner = createTurnRunner({
@@ -117,14 +175,15 @@ describe("createTurnRunner", () => {
     expect(systems).toEqual(["SINGLE", "MULTI"]);
   });
 
-  test("calls buildTools with the turn's sessionKey, wikiUserId, and the sink's onToolStart", async () => {
-    const calls: Array<[string, string, unknown]> = [];
+  test("calls buildTools with the turn's sessionKey, wikiUserId, and the sink's onToolStart/onToolFinish", async () => {
+    const calls: Array<[string, string, unknown, unknown]> = [];
     const onToolStart = () => {};
+    const onToolFinish = () => {};
     const runner = createTurnRunner({
       model: {} as any,
       systemPrompts: { singleUser: "s", multiUser: "m" },
-      buildTools: (sessionKey, wikiUserId, cb) => {
-        calls.push([sessionKey, wikiUserId, cb]);
+      buildTools: (sessionKey, wikiUserId, cb, finishCb) => {
+        calls.push([sessionKey, wikiUserId, cb, finishCb]);
         return {};
       },
       getOrCreateHistory: () => fakeHistory(),
@@ -136,9 +195,9 @@ describe("createTurnRunner", () => {
       runTurnFn: async () => "reply",
     });
 
-    await runner(baseTurn({ sessionKey: "sk", wikiUserId: "wu" }), baseSink({ onToolStart }));
+    await runner(baseTurn({ sessionKey: "sk", wikiUserId: "wu" }), baseSink({ onToolStart, onToolFinish }));
 
-    expect(calls).toEqual([["sk", "wu", onToolStart]]);
+    expect(calls).toEqual([["sk", "wu", onToolStart, onToolFinish]]);
   });
 
   test("onStepFinish fans out to logStep, recordStepFn, and sink.onStep", async () => {
@@ -324,6 +383,54 @@ describe("createTurnRunner", () => {
     expect(registered).toEqual(["sk"]);
     expect(captured).toEqual(["sk"]);
     expect(historyTrackForCapture).toBe(true);
+  });
+
+  test("registerCaptureCallback receives both the sink's onToolStart and onToolFinish, so a capture-ping can also patch a status card", async () => {
+    const registered: Array<[string, unknown, unknown]> = [];
+    const onToolStart = () => {};
+    const onToolFinish = () => {};
+
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: (sessionKey, cb, finishCb) => registered.push([sessionKey, cb, finishCb]),
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async () => "reply",
+    });
+
+    await runner(baseTurn({ sessionKey: "sk", userId: "u1" }), baseSink({ onToolStart, onToolFinish }));
+
+    expect(registered).toEqual([["sk", onToolStart, onToolFinish]]);
+  });
+
+  test("processToolCorrections receives both the sink's onToolStart and onToolFinish", async () => {
+    const received: Array<[unknown, unknown]> = [];
+    const onToolStart = () => {};
+    const onToolFinish = () => {};
+
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async (_steps, cb, finishCb) => {
+        received.push([cb, finishCb]);
+      },
+      logStep: () => {},
+      runTurnFn: async () => "reply",
+    });
+
+    await runner(baseTurn(), baseSink({ onToolStart, onToolFinish }));
+
+    expect(received).toEqual([[onToolStart, onToolFinish]]);
   });
 
   test("getOrCreateHistory receives turn.userId as its third argument (present or undefined), so a provider can decide whether to seed a context primer", async () => {

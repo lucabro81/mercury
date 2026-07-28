@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createGoogleChatProvider, deriveSessionKey, parseChatEvent, type GoogleChatProviderDeps } from "./google-chat-provider.ts";
+import {
+  createGoogleChatProvider,
+  deriveSessionKey,
+  parseChatEvent,
+  type GoogleChatProviderDeps,
+} from "./google-chat-provider.ts";
 import { createConfirmationStore } from "../../tools/confirmation-store.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "../provider.ts";
@@ -604,5 +609,388 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(started).toEqual(["first", "second", "third"]);
+  });
+});
+
+describe("createSink — tool-call cards", () => {
+  /** Dispatches one MESSAGE event and captures the sink handleTurn receives, without finalizing the turn (so tests can drive onToolStart/onToolFinish on it directly, exactly as turn-runner.ts would mid-turn). */
+  async function captureSink(overrides: Partial<GoogleChatProviderDeps> = {}): Promise<TurnSink> {
+    let capturedSink: TurnSink | undefined;
+    const sub = fakeSubscription();
+    const provider = createGoogleChatProvider(baseDeps({ subscriptionFn: () => sub as any, ...overrides }));
+
+    await provider.start(async (_turn, sink) => {
+      capturedSink = sink;
+    });
+    sub.emit("message", fakeMessage(messageEvent(), []));
+    await new Promise((r) => setTimeout(r, 20));
+
+    return capturedSink!;
+  }
+
+  test("onToolStart with a toolCallId sends a loading card via sendCardFn, not sendMessageFn", async () => {
+    const sentCards: Array<{ space: string; card: any }> = [];
+    const sentMessages: string[] = [];
+    const sink = await captureSink({
+      sendCardFn: async (space, card) => {
+        sentCards.push({ space, card });
+        return { name: "spaces/X/messages/card1" };
+      },
+      sendMessageFn: async (_space, text) => {
+        sentMessages.push(text);
+        return { name: "spaces/X/messages/plain1" };
+      },
+    });
+
+    sink.onToolStart("Sto leggendo dati con jira…", "`jira issue search --jql X`", "tc-1");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sentMessages).toEqual([]);
+    expect(sentCards).toHaveLength(1);
+    expect(sentCards[0]!.space).toBe("spaces/X");
+    const section = sentCards[0]!.card.sections[0];
+    expect(section.header).toBe("Sto leggendo dati con jira…");
+    expect(section.collapsible).toBe(true);
+    expect(section.uncollapsibleWidgetsCount).toBe(0);
+    expect(JSON.stringify(section.widgets)).toContain("jira issue search --jql X");
+    expect(JSON.stringify(section.widgets)).toContain("In corso…");
+  });
+
+  test("onToolStart with no toolCallId still sends plain text via sendMessageFn (capture-ping path unchanged)", async () => {
+    const sentCards: unknown[] = [];
+    const sentMessages: string[] = [];
+    const sink = await captureSink({
+      sendCardFn: async (_space, card) => {
+        sentCards.push(card);
+        return { name: "spaces/X/messages/card1" };
+      },
+      sendMessageFn: async (_space, text) => {
+        sentMessages.push(text);
+        return { name: "spaces/X/messages/plain1" };
+      },
+    });
+
+    sink.onToolStart("Mi sto segnando un'informazione importante…");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sentMessages).toEqual(["_Mi sto segnando un'informazione importante…_"]);
+    expect(sentCards).toEqual([]);
+  });
+
+  test("onToolFinish patches the exact message name onToolStart created, with the outcome's status line", async () => {
+    const patched: Array<{ name: string; card: any }> = [];
+    const sink = await captureSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/card1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ name, card });
+        return { name };
+      },
+    });
+
+    sink.onToolStart("Sto leggendo dati con jira…", "`jira issue search --jql X`", "tc-1");
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolFinish?.("tc-1", "success");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(patched).toHaveLength(1);
+    expect(patched[0]!.name).toBe("spaces/X/messages/card1");
+    const section = patched[0]!.card.sections[0];
+    // The title itself must also reflect completion, not just the collapsed
+    // body — a card whose header still reads "Sto leggendo..." forever
+    // (present progressive) looked stuck-in-progress even once patched.
+    expect(section.header).toBe("Sto leggendo dati con jira… Fatto.");
+    expect(JSON.stringify(section.widgets)).toContain("Fatto.");
+  });
+
+  test.each([
+    ["failed", "Non riuscito."],
+    ["pending", "In attesa di conferma."],
+  ] as const)("onToolFinish for '%s' renders the corresponding status line in both the title and the body", async (outcome, statusText) => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/card1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+    });
+
+    sink.onToolStart("Sto scrivendo dati con jira…", "`jira issue delete KAN-1`", "tc-1");
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolFinish?.("tc-1", outcome);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(patched[0]!.card.sections[0].header).toBe(`Sto scrivendo dati con jira… ${statusText}`);
+    expect(JSON.stringify(patched[0]!.card.sections[0].widgets)).toContain(statusText);
+  });
+
+  test("onToolFinish for an unknown toolCallId doesn't call updateCardFn", async () => {
+    let updateCardCalled = false;
+    const sink = await captureSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/card1" }),
+      updateCardFn: async (name, card) => {
+        updateCardCalled = true;
+        return { name };
+      },
+    });
+
+    sink.onToolFinish?.("unknown-tc", "success");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(updateCardCalled).toBe(false);
+  });
+
+  test("two sequential tool calls in the same turn each get their own card (independent message names)", async () => {
+    const sent: Array<{ card: any }> = [];
+    const patched: Array<{ name: string; card: any }> = [];
+    let cardCount = 0;
+    const sink = await captureSink({
+      sendCardFn: async (_space, card) => {
+        cardCount++;
+        sent.push({ card });
+        return { name: `spaces/X/messages/card${cardCount}` };
+      },
+      updateCardFn: async (name, card) => {
+        patched.push({ name, card });
+        return { name };
+      },
+    });
+
+    sink.onToolStart("Sto leggendo dati con jira…", "`jira issue search --jql X`", "tc-1");
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolFinish?.("tc-1", "success");
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolStart("Sto scrivendo sul wiki…", '`{"path":"x"}`', "tc-2");
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolFinish?.("tc-2", "success");
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sent).toHaveLength(2);
+    expect(patched).toHaveLength(2);
+    expect(patched[0]!.name).toBe("spaces/X/messages/card1");
+    expect(patched[1]!.name).toBe("spaces/X/messages/card2");
+    expect(patched[0]!.name).not.toBe(patched[1]!.name);
+  });
+});
+
+describe("createSink — reasoning card", () => {
+  async function captureReasoningSink(overrides: Partial<GoogleChatProviderDeps> = {}): Promise<TurnSink> {
+    let capturedSink: TurnSink | undefined;
+    const sub = fakeSubscription();
+    const provider = createGoogleChatProvider(
+      baseDeps({ subscriptionFn: () => sub as any, reasoningPatchIntervalMs: 5, ...overrides }),
+    );
+
+    await provider.start(async (_turn, sink) => {
+      capturedSink = sink;
+    });
+    sub.emit("message", fakeMessage(messageEvent(), []));
+    await new Promise((r) => setTimeout(r, 20));
+
+    return capturedSink!;
+  }
+
+  test("no card is sent when onReasoningChunk never fires", async () => {
+    const sentCards: unknown[] = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async (_space, card) => {
+        sentCards.push(card);
+        return { name: "spaces/X/messages/r1" };
+      },
+    });
+
+    sink.onReasoningEnd?.("block-1", false);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sentCards).toEqual([]);
+  });
+
+  test("the first onReasoningChunk sends a card immediately with loading status, titled 'Sto pensando…', always expanded (not collapsible)", async () => {
+    const sentCards: Array<{ space: string; card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async (space, card) => {
+        sentCards.push({ space, card });
+        return { name: "spaces/X/messages/r1" };
+      },
+    });
+
+    sink.onReasoningChunk?.("primo pezzo", "block-1");
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sentCards).toHaveLength(1);
+    const section = sentCards[0]!.card.sections[0];
+    expect(section.header).toBe("Sto pensando…");
+    expect(section.collapsible).toBe(false);
+    expect(JSON.stringify(section.widgets)).toContain("primo pezzo");
+    expect(JSON.stringify(section.widgets)).toContain("In corso…");
+  });
+
+  test("a burst of chunks within one throttle window results in exactly one further patch, not one per chunk", async () => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+    });
+
+    sink.onReasoningChunk?.("uno ", "block-1"); // sent immediately, not a patch
+    sink.onReasoningChunk?.("due ", "block-1");
+    sink.onReasoningChunk?.("tre ", "block-1");
+    sink.onReasoningChunk?.("quattro", "block-1");
+    await new Promise((r) => setTimeout(r, 30)); // past the 5ms injected throttle interval
+
+    expect(patched).toHaveLength(1);
+    expect(JSON.stringify(patched[0]!.card.sections[0].widgets)).toContain("uno due tre quattro");
+  });
+
+  test("onReasoningEnd always sends a final patch covering everything accumulated, with success status", async () => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+      // interval longer than the test's own waits, so only onReasoningEnd's
+      // own (unthrottled) final patch can possibly fire
+      reasoningPatchIntervalMs: 10_000,
+    });
+
+    sink.onReasoningChunk?.("ragionamento completo", "block-1");
+    sink.onReasoningEnd?.("block-1", false);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(patched).toHaveLength(1);
+    const section = patched[0]!.card.sections[0];
+    expect(section.header).toBe("Sto pensando… Fatto.");
+    expect(JSON.stringify(section.widgets)).toContain("ragionamento completo");
+  });
+
+  test("onReasoningEnd(id, true) patches that card to the failed status", async () => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+      reasoningPatchIntervalMs: 10_000,
+    });
+
+    sink.onReasoningChunk?.("qualcosa", "block-1");
+    sink.onReasoningEnd?.("block-1", true);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(patched).toHaveLength(1);
+    expect(patched[0]!.card.sections[0].header).toBe("Sto pensando… Non riuscito.");
+  });
+
+  test("onReasoningEnd cancels a still-pending scheduled patch, so it never fires a stray extra update", async () => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+      reasoningPatchIntervalMs: 30, // long enough that onReasoningEnd below fires first
+    });
+
+    sink.onReasoningChunk?.("uno", "block-1"); // immediate send
+    sink.onReasoningChunk?.("due", "block-1"); // schedules a throttled patch 30ms out
+    sink.onReasoningEnd?.("block-1", false); // should cancel it and send its own final patch instead
+    await new Promise((r) => setTimeout(r, 60)); // well past the 30ms window
+
+    expect(patched).toHaveLength(1);
+  });
+
+  test("tail-truncation shows the buffer's actual end, prefixed with '…', not its start", async () => {
+    const patched: Array<{ card: any }> = [];
+    const sink = await captureReasoningSink({
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ card });
+        return { name };
+      },
+    });
+
+    const longText = "a".repeat(3990) + "TAIL-MARKER";
+    sink.onReasoningChunk?.(longText, "block-1");
+    sink.onReasoningEnd?.("block-1", false);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const body = JSON.stringify(patched[0]!.card.sections[0].widgets);
+    expect(body).toContain("TAIL-MARKER");
+    expect(body).toContain("…");
+    expect(body).not.toContain("a".repeat(4000)); // the untruncated head is gone
+  });
+
+  // The user's reported scenario: reasoning, a tool call, then reasoning
+  // again — two SDK ids, not a continuation of the first card. Each must
+  // get its own independent card.
+  test("a second reasoning block (different id) after a tool call gets its own independent card", async () => {
+    const sent: Array<{ card: any }> = [];
+    const patched: Array<{ name: string; card: any }> = [];
+    let cardCount = 0;
+    const sink = await captureReasoningSink({
+      sendCardFn: async (_space, card) => {
+        cardCount++;
+        sent.push({ card });
+        return { name: `spaces/X/messages/r${cardCount}` };
+      },
+      updateCardFn: async (name, card) => {
+        patched.push({ name, card });
+        return { name };
+      },
+      reasoningPatchIntervalMs: 10_000,
+    });
+
+    sink.onReasoningChunk?.("primo pensiero", "block-1");
+    sink.onReasoningEnd?.("block-1", false);
+    sink.onToolStart("Sto leggendo dati con jira…", "jira issue search", "tc-1");
+    sink.onToolFinish?.("tc-1", "success");
+    sink.onReasoningChunk?.("secondo pensiero", "block-2");
+    sink.onReasoningEnd?.("block-2", false);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const reasoningSends = sent.filter((s) => (s.card.sections[0].header as string).startsWith("Sto pensando…"));
+    expect(reasoningSends).toHaveLength(2); // two independent cards, not one reused
+    expect(patched[0]!.name).not.toBe(patched[2]!.name); // block-1's and block-2's patches hit different messages
+    expect(JSON.stringify(reasoningSends[0]!.card.sections[0].widgets)).toContain("primo pensiero");
+    expect(JSON.stringify(reasoningSends[1]!.card.sections[0].widgets)).toContain("secondo pensiero");
+  });
+
+  test("reasoning calls interleaved with tool-call cards stay correctly ordered on the shared chain", async () => {
+    const events: string[] = [];
+    let cardCount = 0;
+    const sink = await captureReasoningSink({
+      sendCardFn: async (_space, card) => {
+        cardCount++;
+        const label = card.sections[0]!.header as string;
+        events.push(`send:${label}`);
+        return { name: `spaces/X/messages/c${cardCount}` };
+      },
+      updateCardFn: async (name, card) => {
+        const label = card.sections[0]!.header as string;
+        events.push(`patch:${label}`);
+        return { name };
+      },
+      reasoningPatchIntervalMs: 10_000,
+    });
+
+    sink.onReasoningChunk?.("pensando", "block-1");
+    sink.onToolStart("Sto leggendo dati con jira…", "jira issue search", "tc-1");
+    sink.onReasoningEnd?.("block-1", false);
+    sink.onToolFinish?.("tc-1", "success");
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events).toEqual([
+      "send:Sto pensando…",
+      "send:Sto leggendo dati con jira…",
+      "patch:Sto pensando… Fatto.",
+      "patch:Sto leggendo dati con jira… Fatto.",
+    ]);
   });
 });

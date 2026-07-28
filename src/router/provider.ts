@@ -9,6 +9,7 @@
  * model completely, nothing above this layer ever parses these values.
  */
 import type { StepInfo } from "../session/step-info.ts";
+import type { ToolOutcome } from "../session/tool-start-hook.ts";
 
 /** One inbound message, already resolved by its own provider into the shape the shared layer needs. */
 export type InboundTurn = {
@@ -38,15 +39,51 @@ export type InboundTurn = {
  * A provider's output for one turn — what it does with the model's
  * activity and final answer. Every optional member maps 1:1 onto an
  * optional `runTurn` dep, which is what lets Google Chat opt out of
- * streaming (leaving `onTextChunk` undefined keeps `runTurn` on its
- * `generateText` path) while the terminal opts in, with no branch anywhere
- * above this type.
+ * *answer* streaming (leaving `onTextChunk` undefined) while still opting
+ * into *reasoning* streaming (`onReasoningChunk`) — either one alone is
+ * enough to put `runTurn` on its `streamText` path instead of
+ * `generateText`, with no branch anywhere above this type.
  */
 export type TurnSink = {
-  /** Passed to `buildTools` as `onToolStart`. */
-  onToolStart: (label: string) => void;
-  /** Present ⇒ `runTurn` uses `streamText`. MUST stay undefined for Google Chat. */
+  /**
+   * Passed to `buildTools` as `onToolStart`. `detail`/`toolCallId` are
+   * present for a real tool call (via `withToolStartHook`) and for a
+   * capture-ping (Layer-3 write) that supplies its own generated id;
+   * `detail`/`toolCallId` undefined means a caller with no correlation id
+   * at all — kept optional rather than a required 3-arg signature so any
+   * such caller stays valid without change.
+   */
+  onToolStart: (label: string, detail?: string, toolCallId?: string) => void;
+  /**
+   * Paired with `onToolStart` via `toolCallId` once that call settles.
+   * Optional — only Google Chat implements it today (to patch its status
+   * card in place); terminal has no equivalent to update.
+   */
+  onToolFinish?: (toolCallId: string, outcome: ToolOutcome) => void;
+  /** Present ⇒ `runTurn` uses `streamText`. MUST stay undefined for Google Chat's own *answer* delivery. */
   onTextChunk?: (chunk: string) => void;
+  /**
+   * Live reasoning-token delta as it streams (Ollama's native extended
+   * thinking, gated behind `think: true` at model-construction time — see
+   * `src/index.ts`). Present ⇒ `runTurn` uses `streamText`, same as
+   * `onTextChunk`. UI-only: never reaches `SessionHistory` (see
+   * `agent-turn.ts`'s `fullText`/reasoning split) — never fires at all for
+   * a model that doesn't support thinking. `id` is the SDK's own id for
+   * that reasoning block — a single turn can reason more than once (e.g.
+   * before a tool call, then again after seeing its result), each burst
+   * with its own id, so a caller can treat them as independent (e.g. one
+   * status card per id) instead of one continuous stream.
+   */
+  onReasoningChunk?: (chunk: string, id: string) => void;
+  /**
+   * Fires once per reasoning block that actually started — including if
+   * the turn aborts while a block is still open (see `agent-turn.ts`'s
+   * abrupt-failure guard) — so a caller holding a live display open (a
+   * status card, a printed block) doesn't get stuck. Never fires for an
+   * id `onReasoningChunk` never reported. `failed` is `true` only for the
+   * abrupt-abort case, `false` on a normal end.
+   */
+  onReasoningEnd?: (id: string, failed: boolean) => void;
   /** Provider-local per-step bookkeeping (the terminal's `/dump` buffer). */
   onStep?: (step: StepInfo) => void;
   /** Provider-local usage handling (the terminal's prompt indicator, Chat's stderr line). */

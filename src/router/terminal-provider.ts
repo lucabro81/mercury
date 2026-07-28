@@ -81,6 +81,11 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
 
           lastSteps = [];
           let finalText = "";
+          // Keyed by the SDK's own reasoning-block id: a tool-calling turn
+          // can reason more than once (before a tool call, again after
+          // seeing its result), each burst getting its own header/close
+          // rather than being mistaken for a continuation of the first.
+          const reasoningIdsStarted = new Set<string>();
           const dim = (label: string) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`);
           const sink: TurnSink = {
             onToolStart: dim,
@@ -90,6 +95,20 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
             // redundant line saying nothing new.
             onTextChunk: (chunk) => {
               if (chunk !== PENDING_CONFIRMATION_NOTE) onChunk(chunk);
+            },
+            // Only ever fires for a model that actually supports Ollama's
+            // extended thinking (see src/index.ts's think: true) — a
+            // non-reasoning model means this is simply never called, so
+            // there's no header and no output at all for that turn.
+            onReasoningChunk: (chunk, id) => {
+              if (!reasoningIdsStarted.has(id)) {
+                reasoningIdsStarted.add(id);
+                dim("Sto pensando…");
+              }
+              onChunk(`\x1b[2m\x1b[3m${chunk}\x1b[0m`);
+            },
+            onReasoningEnd: (id) => {
+              if (reasoningIdsStarted.has(id)) onChunk("\n");
             },
             onStep: (step) => {
               lastSteps.push(step);

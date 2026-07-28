@@ -219,6 +219,185 @@ describe("createTerminalProvider", () => {
     expect(chunks).toEqual([]);
   });
 
+  test("the first onReasoningChunk prints a dim 'Sto pensando…' header before the chunk itself", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("primo pezzo", "block-1");
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
+    expect(chunks).toEqual(["\x1b[2m\x1b[3mSto pensando…\x1b[0m\n", "\x1b[2m\x1b[3mprimo pezzo\x1b[0m"]);
+  });
+
+  test("subsequent onReasoningChunk calls in the same turn don't reprint the header", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("uno", "block-1");
+      sink.onReasoningChunk?.("due", "block-1");
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
+    expect(chunks).toEqual([
+      "\x1b[2m\x1b[3mSto pensando…\x1b[0m\n",
+      "\x1b[2m\x1b[3muno\x1b[0m",
+      "\x1b[2m\x1b[3mdue\x1b[0m",
+    ]);
+  });
+
+  // The reported scenario: reasoning, a tool call, then reasoning again in
+  // the same turn — two distinct SDK ids, not a continuation of the first.
+  test("a second reasoning block (different id) in the same turn gets its own header", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("primo", "block-1");
+      sink.onReasoningEnd?.("block-1", false);
+      sink.onToolStart("Sto leggendo dati con jira…");
+      sink.onReasoningChunk?.("secondo", "block-2");
+      sink.onReasoningEnd?.("block-2", false);
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
+    expect(chunks).toEqual([
+      "\x1b[2m\x1b[3mSto pensando…\x1b[0m\n",
+      "\x1b[2m\x1b[3mprimo\x1b[0m",
+      "\n",
+      "\x1b[2m\x1b[3mSto leggendo dati con jira…\x1b[0m\n",
+      "\x1b[2m\x1b[3mSto pensando…\x1b[0m\n",
+      "\x1b[2m\x1b[3msecondo\x1b[0m",
+      "\n",
+    ]);
+  });
+
+  test("onReasoningEnd prints a trailing newline once reasoning happened this turn", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("x", "block-1");
+      sink.onReasoningEnd?.("block-1", false);
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
+    expect(chunks.at(-1)).toBe("\n");
+  });
+
+  // Covers the non-reasoning-model case for the terminal specifically: if
+  // the model never produced any reasoning this turn, onReasoningEnd must
+  // still be safe to call (agent-turn.ts never actually calls it in that
+  // case, but the sink shouldn't assume that invariant either) and must
+  // print nothing at all.
+  test("onReasoningEnd with no prior onReasoningChunk this turn prints nothing", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningEnd?.("block-1", false);
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => chunks.push(chunk));
+    expect(chunks).toEqual([]);
+  });
+
+  test("a fresh turn's sink reprints the header, even if a previous turn already printed it", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("x", "block-1");
+      await sink.finalize("done");
+    };
+    await provider.start(handleTurn);
+
+    const firstTurnChunks: string[] = [];
+    await capturedHandleInput("hi", (chunk) => firstTurnChunks.push(chunk));
+    const secondTurnChunks: string[] = [];
+    await capturedHandleInput("hi again", (chunk) => secondTurnChunks.push(chunk));
+
+    expect(firstTurnChunks[0]).toBe("\x1b[2m\x1b[3mSto pensando…\x1b[0m\n");
+    expect(secondTurnChunks[0]).toBe("\x1b[2m\x1b[3mSto pensando…\x1b[0m\n");
+  });
+
   test("usage reported via the sink feeds the prompt suffix", async () => {
     let capturedPromptSuffix!: () => string;
     let capturedHandleInput!: CapturedHandleInput;

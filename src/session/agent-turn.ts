@@ -30,18 +30,23 @@
  * know or care which provider a given conversation came from.
  *
  * Streaming (see `buildStreamTextParams`/`runTurn`'s `onTextChunk`) is
- * opt-in: providing `onTextChunk` switches this call to `streamText`, so
- * a caller sees the answer arrive incrementally instead of waiting in
+ * opt-in: providing `onTextChunk` *or* `onReasoningChunk` switches this
+ * call to `streamText`, reading its `fullStream` instead of waiting in
  * silence for a full response — which can take several seconds on the
- * local development model. Only the terminal provider supplies it (writes
- * chunks straight to stdout, via its `TurnSink.onTextChunk`); Google Chat's
- * `TurnSink` leaves it undefined, so this runs the plain `generateText`
- * path instead and the provider sends the returned text as one message —
- * incremental delivery never actually reached a human faster there, since
- * Chat only shows a message once it's fully sent, unlike a terminal's
- * live-updating stdout. Either way this function still returns the full
- * text and records it as one assistant history entry, same as the plain
- * `generateText` path below.
+ * local development model. The terminal provider supplies both (prints
+ * the answer and the model's live reasoning to stdout); Google Chat's
+ * `TurnSink` supplies only `onReasoningChunk` (a live-patched status card
+ * for the model's reasoning) and deliberately never `onTextChunk` — Chat
+ * only shows a message once it's fully sent, so incremental *answer*
+ * delivery never actually reaches a human faster there, unlike a
+ * terminal's live-updating stdout; the reasoning card is a different,
+ * already-patchable surface (see `google-chat-provider.ts`'s `createSink`).
+ * Either way this function still returns the full answer text and records
+ * it as one assistant history entry, same as the plain `generateText` path
+ * below — reasoning content is never part of `fullText` or the recorded
+ * history entry, it only ever reaches `onReasoningChunk`/`onReasoningEnd`,
+ * since it's a live UI-only surface, not something the model should ever
+ * see reflected back at it on a later turn.
  */
 import { stepCountIs, type LanguageModel, type StopCondition, type Tool } from "ai";
 import { generateText, streamText } from "ai-sdk-ollama";
@@ -116,6 +121,26 @@ type GenerateTextFn = (params: {
   onStepFinish?: (step: StepInfo) => void;
 }) => Promise<{ text: string; totalUsage?: { inputTokens: number | undefined } }>;
 
+/**
+ * Minimal shape this file reads off a `fullStream` part — deliberately a
+ * loose supertype of the real (much larger) `TextStreamPart` union `ai`
+ * actually emits (`node_modules/ai/dist/index.d.ts:2484`: `start`,
+ * `text-start`, `tool-call`, `finish`, etc.), not a closed enumeration of
+ * it: a closed union here would reject every part type this file doesn't
+ * care about, which the real stream emits plenty of. `delta`/`text` are
+ * both optional for the same reason — only present on the part types this
+ * file actually reads (`text-delta`/`reasoning-delta`), and the *name* of
+ * that field is itself unstable: `ai`'s own `.d.ts` declares this part
+ * shape twice with different field names for the same `type` value
+ * (`node_modules/ai/dist/index.d.ts:2103-2107` uses `delta`, `2555-2558`
+ * uses `text`) — confirmed live against the real `ai-sdk-ollama` stream
+ * that the installed version actually emits `text`, not `delta`. Reading
+ * both defensively (see the loop below) survives either shape rather than
+ * silently reading `undefined` and going empty if a future upgrade flips
+ * it back.
+ */
+type StreamPart = { type: string; delta?: string; text?: string; id?: string };
+
 /** The shape of the AI SDK streaming call this module needs, injectable for tests. */
 type StreamTextFn = (params: {
   model: LanguageModel;
@@ -124,7 +149,7 @@ type StreamTextFn = (params: {
   system: string;
   onStepFinish?: (step: StepInfo) => void;
 }) => Promise<{
-  textStream: AsyncIterable<string>;
+  fullStream: AsyncIterable<StreamPart>;
   totalUsage?: PromiseLike<{ inputTokens: number | undefined }>;
 }>;
 
@@ -224,18 +249,37 @@ const defaultStreamTextFn: StreamTextFn = (params) => streamText(buildStreamText
  *   doesn't define `onStep` at all, showing raw tool calls to a chat
  *   audience isn't the same call as showing them to whoever's debugging at
  *   a terminal), but the wiring itself is no longer channel-specific.
- * @param deps.onTextChunk - Optional. When provided, this turn uses
- *   `streamText` instead of `generateText`, calling this once per text
- *   chunk as it arrives — see the file header for why this is terminal-
- *   only. The returned string and the recorded history entry are the
- *   same either way: the full text, joined from every chunk.
+ * @param deps.onTextChunk - Optional. When provided (alongside or instead
+ *   of `onReasoningChunk`), this turn uses `streamText` instead of
+ *   `generateText`, calling this once per answer-text chunk as it arrives
+ *   — see the file header for why Google Chat never sets this one. The
+ *   returned string and the recorded history entry are the same either
+ *   way: the full answer text, joined from every `text-delta` chunk only.
+ * @param deps.onReasoningChunk - Optional. Also switches this turn onto
+ *   `streamText` (see `onTextChunk`). Called once per reasoning-token
+ *   delta as it streams, tagged with the SDK's own id for that reasoning
+ *   block — only ever fires for a model that actually supports Ollama's
+ *   native extended thinking (see `src/index.ts`'s `think: true`);
+ *   otherwise no reasoning parts ever arrive and this is simply never
+ *   called. This content is UI-only: it never touches the returned text
+ *   or `SessionHistory`. A single turn can reason more than once (e.g.
+ *   once before a tool call, again after seeing its result) — each burst
+ *   carries its own id, letting a caller (e.g. a status card per id)
+ *   treat them as independent rather than one continuous stream.
+ * @param deps.onReasoningEnd - Optional. Fires once per reasoning block
+ *   that actually started (i.e. once per distinct id `onReasoningChunk`
+ *   reported) — including if the stream aborts while a block is still
+ *   open, so a caller building a live display (a status card, a printed
+ *   block) can't be left stuck open forever. `failed` is `true` only for
+ *   that abrupt-abort case, `false` on a normal reasoning-end.
  * @param deps.generateTextFn - Test seam for the non-streaming path;
  *   defaults to the real AI SDK call. Injecting a fake here only tests
  *   this function's own sequencing — it does not exercise the real model
  *   or the real AI SDK integration, which can only be verified by an
  *   actual end-to-end run.
  * @param deps.streamTextFn - Test seam for the streaming path (used when
- *   `onTextChunk` is provided), same caveat as `generateTextFn`.
+ *   `onTextChunk`/`onReasoningChunk` is provided), same caveat as
+ *   `generateTextFn`.
  * @param deps.onUsage - Optional, called once per turn with the real
  *   `inputTokens` count the model actually consumed (summed across every
  *   step, including tool calls) — not an estimate. The terminal channel
@@ -254,6 +298,8 @@ export async function runTurn(
     system: string;
     onStepFinish?: (step: StepInfo) => void;
     onTextChunk?: (chunk: string) => void;
+    onReasoningChunk?: (chunk: string, id: string) => void;
+    onReasoningEnd?: (id: string, failed: boolean) => void;
     onUsage?: (inputTokens: number | undefined) => void;
     generateTextFn?: GenerateTextFn;
     streamTextFn?: StreamTextFn;
@@ -261,7 +307,7 @@ export async function runTurn(
 ): Promise<string> {
   await history.addUserMessage(userInput);
 
-  if (deps.onTextChunk) {
+  if (deps.onTextChunk || deps.onReasoningChunk) {
     const stream = deps.streamTextFn ?? defaultStreamTextFn;
     let lastStep: StepInfo | undefined;
     const result = await stream({
@@ -276,15 +322,49 @@ export async function runTurn(
     });
 
     let fullText = "";
-    for await (const chunk of result.textStream) {
-      fullText += chunk;
-      deps.onTextChunk(chunk);
+    // The id of the reasoning block currently open, if any — a tool-
+    // calling turn can reason multiple times (before a tool call, again
+    // after seeing its result, ...), each burst carrying its own id from
+    // the SDK. Tracking only the *current* one (not a set of all-ever-seen
+    // ids) is enough: it's `undefined` whenever no block is open, which is
+    // exactly when the abrupt-failure guard below must stay silent.
+    let currentReasoningId: string | undefined;
+    try {
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          const delta = part.text ?? part.delta ?? "";
+          fullText += delta;
+          deps.onTextChunk?.(delta);
+        } else if (part.type === "reasoning-delta") {
+          const id = part.id ?? "";
+          currentReasoningId = id;
+          deps.onReasoningChunk?.(part.text ?? part.delta ?? "", id);
+        } else if (part.type === "reasoning-end") {
+          const id = part.id ?? "";
+          currentReasoningId = undefined;
+          deps.onReasoningEnd?.(id, false);
+        }
+      }
+    } finally {
+      // Guarantees onReasoningEnd fires even if the stream throws
+      // mid-reasoning (no reasoning-end part arrives on an abrupt
+      // failure) — a caller building a live display (a status card, a
+      // printed block) can't be left stuck open forever. Only fires for
+      // whichever block was actually open when the failure happened
+      // (`currentReasoningId` is cleared by a normal reasoning-end, so
+      // this is a no-op outside an open block). `failed: true` here (vs.
+      // `false` on a normal reasoning-end above) is what lets a caller
+      // like Google Chat's status card show the right outcome — without
+      // it, every abrupt failure would look identical to a clean finish.
+      if (currentReasoningId !== undefined) {
+        deps.onReasoningEnd?.(currentReasoningId, true);
+      }
     }
     deps.onUsage?.((await result.totalUsage)?.inputTokens);
 
     if (fullText.trim().length === 0) {
       fullText = resolveEmptyText(lastStep);
-      if (fullText.length > 0) deps.onTextChunk(fullText);
+      if (fullText.length > 0) deps.onTextChunk?.(fullText);
     }
 
     await history.addAssistantMessage(resolveHistoryText(lastStep, fullText));
