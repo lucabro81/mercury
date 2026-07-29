@@ -47,8 +47,6 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     store: createConfirmationStore(),
     vaultPath: "/vault",
     runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
-    writeSuppressionNoteFn: (async () => {}) as any,
-    recordSuppressionEventFn: async () => {},
     writeConfirmationNoteFn: (async () => {}) as any,
     adminSpace: "spaces/ADMIN",
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),

@@ -37,7 +37,6 @@ import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {
-  writeSuppressionNote,
   writeCuratedNote,
   writeInferredNote,
   writeToolCorrectionNote,
@@ -607,8 +606,6 @@ if (googleChatSubscription) {
     store: confirmationStore,
     vaultPath: wikiVaultPath,
     runCliFn: runCli,
-    writeSuppressionNoteFn: writeSuppressionNote,
-    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     writeConfirmationNoteFn: writeConfirmationNote,
     adminSpace: mercuryAdminSpace ?? "",
   });
@@ -647,8 +644,6 @@ await createTerminalProvider({
     store: confirmationStore,
     runCliFn: runCli,
     vaultPath: wikiVaultPath,
-    writeSuppressionNoteFn: writeSuppressionNote,
-    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     writeConfirmationNoteFn: writeConfirmationNote,
   },
   ollamaHost,

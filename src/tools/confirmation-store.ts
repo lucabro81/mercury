@@ -1,23 +1,14 @@
 /**
- * In-memory staging area for an action that needs explicit confirmation
- * before it executes: a CLI command that matched a `confirm:true` prefix
- * (see `matchCommand` in `cli-tool.ts`), or a request to stop notifying
- * about a specific item. Either way the model stages it here, and the
+ * In-memory staging area for a CLI command that matched a `confirm:true`
+ * prefix (see `matchCommand` in `cli-tool.ts`) and needs explicit
+ * confirmation before it executes. The model stages it here, and the
  * channel gets the returned token confirmed back to it — a card button
  * click on Google Chat, a bare token typed on the terminal — before
  * anything actually happens (see `confirm-flow.ts`). Scoped by
  * `sessionKey` so a token proposed to one session (terminal, or a given
  * Google Chat space+sender) can't be confirmed by another.
- *
- * One store, one token namespace, one confirmation surface for both
- * kinds — `take()` returns the tagged union, the caller branches on
- * `kind` only once it's time to actually execute. A second parallel store
- * per action kind would mean `confirm-flow.ts` searching multiple stores
- * for the same token, for no benefit.
  */
-export type StagedAction =
-  | { kind: "cli"; binary: string; args: string[]; requestedAt?: string }
-  | { kind: "suppress-notification"; checkType: string; itemKey: string };
+export type StagedAction = { kind: "cli"; binary: string; args: string[]; requestedAt?: string };
 
 export type ConfirmationStore = {
   /** Stages `action` for `sessionKey` and returns a fresh token. */

@@ -10,8 +10,6 @@ function fakeConfirmDeps() {
     store: {} as any,
     runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
     vaultPath: "/vault",
-    writeSuppressionNoteFn: (async () => {}) as any,
-    recordSuppressionEventFn: async () => {},
     writeConfirmationNoteFn: (async () => {}) as any,
   };
 }

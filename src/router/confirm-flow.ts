@@ -9,8 +9,7 @@
  */
 import { isTokenShaped, type ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { runCli } from "../tools/cli-executor.ts";
-import type { writeSuppressionNote, writeConfirmationNote } from "../wiki/wiki-note.ts";
-import type { EpisodicSummary } from "../memory/episodic-store.ts";
+import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 /**
  * Returns `null` if `input` doesn't look like a bare confirmation token —
@@ -23,14 +22,6 @@ import type { EpisodicSummary } from "../memory/episodic-store.ts";
  * not that prefix (see `isTokenShaped`'s own doc comment). A card button
  * click on Google Chat and a bare token typed on the terminal both resolve
  * through this exact same path.
- *
- * The suppress-notification branch writes two things on confirm, not
- * one: `writeSuppressionNoteFn` is the hard, deterministic gate a cron
- * check reads before re-notifying (never an LLM judgment call);
- * `recordSuppressionEventFn` is a soft episodic signal (the same
- * `storeEpisodicSummary` history a notification-composing LLM call can
- * read back later) that lets Mercury notice a pattern and *propose*
- * something broader — never decide it alone.
  */
 export async function tryConfirm(
   input: string,
@@ -40,8 +31,6 @@ export async function tryConfirm(
     runCliFn: typeof runCli;
     userId: string;
     vaultPath: string;
-    writeSuppressionNoteFn: typeof writeSuppressionNote;
-    recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
     writeConfirmationNoteFn: typeof writeConfirmationNote;
     now?: () => Date;
   },
@@ -54,18 +43,6 @@ export async function tryConfirm(
   const staged = deps.store.take(sessionKey, token);
   if (!staged) {
     return "Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita.";
-  }
-
-  if (staged.kind === "suppress-notification") {
-    const timestamp = (deps.now?.() ?? new Date()).toISOString();
-    await deps.writeSuppressionNoteFn(deps.vaultPath, staged.checkType, staged.itemKey, { confirmedAt: timestamp });
-    await deps.recordSuppressionEventFn({
-      userId: deps.userId,
-      sessionKey,
-      summary: `L'utente ha chiesto di non essere più notificato per "${staged.itemKey}" (${staged.checkType}).`,
-      timestamp,
-    });
-    return `Confermato: non ti segnalerò più "${staged.itemKey}".`;
   }
 
   const result = await deps.runCliFn(staged.binary, staged.args);

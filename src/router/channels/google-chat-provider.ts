@@ -39,8 +39,7 @@ import type { ToolOutcome } from "../../session/tool-start-hook.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
-import type { writeSuppressionNote, writeConfirmationNote } from "../../wiki/wiki-note.ts";
-import type { EpisodicSummary } from "../../memory/episodic-store.ts";
+import type { writeConfirmationNote } from "../../wiki/wiki-note.ts";
 
 /**
  * Builds the confirmation card sent when a step stages an irreversible
@@ -247,8 +246,6 @@ export type GoogleChatProviderDeps = {
   store: ConfirmationStore;
   vaultPath: string;
   runCliFn: typeof runCli;
-  writeSuppressionNoteFn: typeof writeSuppressionNote;
-  recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
   writeConfirmationNoteFn: typeof writeConfirmationNote;
   adminSpace: string;
   /**
@@ -328,8 +325,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         runCliFn: deps.runCliFn,
         userId: sender,
         vaultPath: deps.vaultPath,
-        writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
-        recordSuppressionEventFn: deps.recordSuppressionEventFn,
         writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
       });
       if (reply !== null) {
@@ -499,8 +494,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       runCliFn: deps.runCliFn,
       userId: event.sender,
       vaultPath: deps.vaultPath,
-      writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
-      recordSuppressionEventFn: deps.recordSuppressionEventFn,
       writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
     });
     if (confirmReply !== null) {

@@ -15,21 +15,6 @@ describe("createConfirmationStore", () => {
     expect(second).toBeNull();
   });
 
-  // Same store, same token mechanism as an irreversible CLI action —
-  // just a different action kind, discriminated at take() time, not a
-  // second parallel store to look tokens up in.
-  it("stages a suppress-notification action and returns it on a matching take", () => {
-    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    const token = store.stage("terminal", { kind: "suppress-notification", checkType: "stale-ticket", itemKey: "KAN-123" });
-    expect(token).toBe("TOK1");
-
-    expect(store.take("terminal", "TOK1")).toEqual({
-      kind: "suppress-notification",
-      checkType: "stale-ticket",
-      itemKey: "KAN-123",
-    });
-  });
-
   it("does not return a staged action for the wrong sessionKey, and doesn't consume it", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
     store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });

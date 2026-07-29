@@ -2,11 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { tryConfirm } from "./confirm-flow.ts";
 import { createConfirmationStore } from "../tools/confirmation-store.ts";
 import type { CliResult } from "../tools/cli-executor.ts";
-import type { writeSuppressionNote, writeConfirmationNote } from "../wiki/wiki-note.ts";
-import type { EpisodicSummary } from "../memory/episodic-store.ts";
+import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
-const noopWriteSuppressionNoteFn: typeof writeSuppressionNote = async () => {};
-const noopRecordSuppressionEventFn = async (_entry: EpisodicSummary): Promise<void> => {};
 const noopWriteConfirmationNoteFn: typeof writeConfirmationNote = async () => {};
 
 function baseDeps(overrides: Partial<Parameters<typeof tryConfirm>[2]> = {}): Parameters<typeof tryConfirm>[2] {
@@ -15,8 +12,6 @@ function baseDeps(overrides: Partial<Parameters<typeof tryConfirm>[2]> = {}): Pa
     runCliFn: async (): Promise<CliResult> => ({ ok: true, data: {} }),
     userId: "users/42",
     vaultPath: "/vault",
-    writeSuppressionNoteFn: noopWriteSuppressionNoteFn,
-    recordSuppressionEventFn: noopRecordSuppressionEventFn,
     writeConfirmationNoteFn: noopWriteConfirmationNoteFn,
     ...overrides,
   };
@@ -167,69 +162,6 @@ describe("tryConfirm", () => {
       const result = await tryConfirm(token, "terminal", baseDeps({ store, runCliFn, writeConfirmationNoteFn }));
 
       expect(result).toContain("KAN-1");
-    });
-  });
-
-  // The suppress-notification branch — writes the hard Wiki gate
-  // AND records a soft episodic event (for future tone/frequency
-  // reasoning when composing notifications), never runs a CLI command.
-  describe("suppress-notification", () => {
-    it("writes the suppression note and reports success, without calling runCliFn", async () => {
-      const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", { kind: "suppress-notification", checkType: "stale-ticket", itemKey: "KAN-123" });
-
-      let cliCalled = false;
-      const runCliFn = async (): Promise<CliResult> => {
-        cliCalled = true;
-        return { ok: true, data: {} };
-      };
-      let writtenArgs: unknown[] | undefined;
-      const writeSuppressionNoteFn: typeof writeSuppressionNote = async (...args) => {
-        writtenArgs = args;
-      };
-
-      const result = await tryConfirm(
-        token,
-        "terminal",
-        baseDeps({ store, runCliFn, writeSuppressionNoteFn, now: () => new Date("2026-07-21T00:00:00Z") }),
-      );
-
-      expect(cliCalled).toBe(false);
-      expect(writtenArgs).toEqual(["/vault", "stale-ticket", "KAN-123", { confirmedAt: "2026-07-21T00:00:00.000Z" }]);
-      expect(result).toContain("KAN-123");
-    });
-
-    it("records a soft episodic event for the same suppression", async () => {
-      const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", { kind: "suppress-notification", checkType: "stale-ticket", itemKey: "KAN-123" });
-
-      let recorded: EpisodicSummary | undefined;
-      const recordSuppressionEventFn = async (entry: EpisodicSummary): Promise<void> => {
-        recorded = entry;
-      };
-
-      await tryConfirm(
-        token,
-        "terminal",
-        baseDeps({ store, userId: "users/42", recordSuppressionEventFn, now: () => new Date("2026-07-21T00:00:00Z") }),
-      );
-
-      expect(recorded).toEqual({
-        userId: "users/42",
-        sessionKey: "terminal",
-        summary: expect.stringContaining("KAN-123"),
-        timestamp: "2026-07-21T00:00:00.000Z",
-      });
-    });
-
-    it("one-shot regardless of kind: a suppress-notification token can't be reused either", async () => {
-      const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", { kind: "suppress-notification", checkType: "stale-ticket", itemKey: "KAN-123" });
-
-      await tryConfirm(token, "terminal", baseDeps({ store }));
-      const retry = await tryConfirm(token, "terminal", baseDeps({ store }));
-
-      expect(retry?.toLowerCase()).toContain("nessuna conferma");
     });
   });
 });

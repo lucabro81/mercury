@@ -44,30 +44,16 @@ export const ResolvedFrontmatterSchema = z.object({
 });
 
 /**
- * A fourth category: a deterministic instruction the user explicitly
- * approved via the same confirmation-token mechanism as an irreversible
- * CLI action — never an autonomous LLM judgment call. `check_type`/
- * `item_key` scope the suppression to a specific check
- * ("stale-ticket") and item ("KAN-123"), not a blanket opt-out.
- */
-export const ConfirmedFrontmatterSchema = z.object({
-  type: z.literal("confirmed"),
-  confirmed_at: z.string(),
-  check_type: z.string(),
-  item_key: z.string(),
-});
-
-/**
- * A fifth category: the lifecycle of one confirm-required action, from
- * staging through its eventual resolution. Distinct from `ConfirmedFrontmatterSchema`
- * (a suppress-notification opt-out, a standing gate a cron check reads) —
- * this instead tracks a specific CLI action's own token, written once when
- * staged (`status: "pending"`) and overwritten in place once resolved
- * (`"confirmed"`/`"failed"`). Lives outside `inferred/users/<userId>/`
- * (see `wiki-read.ts`'s `allowedRoots`) so it's structurally invisible to
- * the model's own `list_files`/`grep` — reachable only via the narrow
- * `resolve_reference` tool given the exact token (see `wiki-tools.ts`),
- * never by browsing.
+ * A fourth category: the lifecycle of one confirm-required action, from
+ * staging through its eventual resolution — a deterministic instruction
+ * the user explicitly approved via the confirmation-token mechanism,
+ * never an autonomous LLM judgment call. Tracks a specific CLI action's
+ * own token, written once when staged (`status: "pending"`) and
+ * overwritten in place once resolved (`"confirmed"`/`"failed"`). Lives
+ * outside `inferred/users/<userId>/` (see `wiki-read.ts`'s
+ * `allowedRoots`) so it's structurally invisible to the model's own
+ * `list_files`/`grep` — reachable only via the narrow `resolve_reference`
+ * tool given the exact token (see `wiki-tools.ts`), never by browsing.
  */
 export const ConfirmationFrontmatterSchema = z.object({
   type: z.literal("confirmation"),
@@ -81,13 +67,11 @@ export const WikiFrontmatterSchema = z.discriminatedUnion("type", [
   CuratedFrontmatterSchema,
   InferredFrontmatterSchema,
   ResolvedFrontmatterSchema,
-  ConfirmedFrontmatterSchema,
   ConfirmationFrontmatterSchema,
 ]);
 
 export type CuratedFrontmatter = z.infer<typeof CuratedFrontmatterSchema>;
 export type InferredFrontmatter = z.infer<typeof InferredFrontmatterSchema>;
 export type ResolvedFrontmatter = z.infer<typeof ResolvedFrontmatterSchema>;
-export type ConfirmedFrontmatter = z.infer<typeof ConfirmedFrontmatterSchema>;
 export type ConfirmationFrontmatter = z.infer<typeof ConfirmationFrontmatterSchema>;
 export type WikiFrontmatter = z.infer<typeof WikiFrontmatterSchema>;
