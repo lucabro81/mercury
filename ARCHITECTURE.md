@@ -81,6 +81,10 @@ Mercury tracks the names of messages it sent during the current process and skip
 
 A stream error the SDK gives up retrying gets logged and doesn't take the rest of Mercury down with it, same convention every other channel/poller loop in this project follows.
 
+Tool calls and reasoning rounds show up as Cards v2 status cards (`google-chat-provider.ts`), not plain text: sent once as "loading", patched in place to a final state, never a second message for the same event. Google Chat's own collapsible section state is client-side only and resets to collapsed on every PATCH, which only matters for a card patched more than once. A tool card is patched exactly twice, loading then done, so the native accordion works fine there. A reasoning card used to patch every second or so while the model streamed, and expanding it mid-stream just snapped it shut again on the next patch; now it patches only once, at the end, revealing everything accumulated with the accordion collapsed by default, so nothing patches it again afterward and there's nothing left to reset.
+
+A turn also sends an acknowledgement card the instant it starts, before the model has produced anything, covering Ollama's own prompt-prefill or model-load time (confirmed live, on the order of ten seconds, with no way to observe it more precisely: neither `/api/generate` nor `/api/chat` expose an intermediate loading event, only a final response object carrying `load_duration`/`prompt_eval_duration`/`eval_duration` after the fact). If the turn ends up reasoning, the first chunk replaces that card in place instead of sending a second one; if it never reasons, the card is simply left as the last status before the real answer.
+
 ## Container and deploy
 
 Single Docker container, Debian base (`oven/bun:1`). It's a stable, well-known image with everything a normal dynamically linked binary expects, which is exactly what the CLI binaries are.

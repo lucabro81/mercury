@@ -23,6 +23,8 @@ Conversation history survives across turns in the same session and summarizes it
 
 Google Chat works the way every channel will eventually work: Mercury is a registered Chat app with its own bot identity, replying in place wherever someone messages it. Joining a new space today still means adding it as a member yourself in Google Chat; a self-join tool exists but isn't verified against a real space yet.
 
+On Google Chat, a tool call or a round of reasoning shows up as its own status card instead of silence: sent the moment it starts, patched in place once it finishes. A reasoning card stays closed until that round is actually done, since Google Chat resets a card's own expand state on every patch, and one patched every second while streaming would keep snapping shut. An acknowledgement card covers the gap before any of that, while Ollama is still loading the model or working through the prompt.
+
 Both channels are verified against a real Ollama model, not just unit tests with a fake one.
 
 ## Installation
