@@ -375,6 +375,17 @@ void idleCron; // kept alive for the process lifetime; no shutdown hook exists y
 // wrote nothing to Qdrant until it finally went idle.
 const MESSAGE_COUNT_CAPTURE_THRESHOLD = Number(process.env.SESSION_CAPTURE_MESSAGE_THRESHOLD ?? "6");
 
+// How much of the pending messages' actual text shows up in a capture
+// status card's detail — enough to recognize which exchange is being
+// saved, not the full conversation.
+const MESSAGE_PREVIEW_CHARS = 200;
+
+/** Joins `messages`' content and head-truncates to `maxChars`, "…"-suffixed when cut. */
+function previewMessages(messages: Message[], maxChars: number): string {
+  const joined = messages.map((m) => m.content).join(" ");
+  return joined.length <= maxChars ? joined : `${joined.slice(0, maxChars)}…`;
+}
+
 /**
  * Captures whatever's new in `messages` since the last capture for
  * `sessionKey` (tracked via `sessionCaptureMarkers`) — a no-op if nothing
@@ -403,7 +414,7 @@ async function captureIncrement(sessionKey: string, messages: Message[]): Promis
   const captureId = crypto.randomUUID();
   callbacks?.onToolStart(
     "Mi sto segnando un'informazione importante…",
-    `Conversazione recente (${pending.length} messaggi) → memoria episodica (Qdrant, collection "${episodicCollection}")`,
+    `Conversazione recente (${pending.length} messaggi: "${previewMessages(pending, MESSAGE_PREVIEW_CHARS)}"), collection "${episodicCollection}"`,
     captureId,
   );
   try {
@@ -458,7 +469,7 @@ async function processToolCorrections(
     const correctionId = crypto.randomUUID();
     onToolStart?.(
       "Mi sto segnando un'informazione importante…",
-      `Correzione per lo strumento "${correction.tool}" (argomento: "${correction.topic}") → memoria delle correzioni (Qdrant, collection "${toolCorrectionsCollection}") + nota curata nel wiki`,
+      `Correzione per lo strumento "${correction.tool}" (argomento: "${correction.topic}", collection: "${toolCorrectionsCollection}")`,
       correctionId,
     );
     try {
