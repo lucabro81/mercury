@@ -1,5 +1,15 @@
 # mercury
 
+## 0.12.0
+
+### Minor Changes
+
+- 465fa61: Mercury no longer proactively watches Jira tickets or Bitbucket pull requests for staleness and reaching out about them — the whole detection-and-notify flow has been removed while it gets redesigned. If you were relying on those DMs or admin-space notices, they won't appear until the feature comes back in a future release.
+
+### Patch Changes
+
+- ab43866: Fix: a plain greeting or short message sent to Mercury in a Google Chat direct message could get silently dropped. The "only reply if this message is clearly directed at you" caution meant for shared multi-person spaces was being applied to every conversation, DMs included — where by definition everything you send is directed at Mercury. DMs are now recognized as such and always get a reply.
+
 ## 0.11.0
 
 ### Minor Changes
