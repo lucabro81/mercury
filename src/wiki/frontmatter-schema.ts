@@ -63,15 +63,7 @@ export const ConfirmationFrontmatterSchema = z.object({
   command: z.string(),
 });
 
-export const WikiFrontmatterSchema = z.discriminatedUnion("type", [
-  CuratedFrontmatterSchema,
-  InferredFrontmatterSchema,
-  ResolvedFrontmatterSchema,
-  ConfirmationFrontmatterSchema,
-]);
-
 export type CuratedFrontmatter = z.infer<typeof CuratedFrontmatterSchema>;
 export type InferredFrontmatter = z.infer<typeof InferredFrontmatterSchema>;
 export type ResolvedFrontmatter = z.infer<typeof ResolvedFrontmatterSchema>;
 export type ConfirmationFrontmatter = z.infer<typeof ConfirmationFrontmatterSchema>;
-export type WikiFrontmatter = z.infer<typeof WikiFrontmatterSchema>;

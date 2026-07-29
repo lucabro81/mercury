@@ -23,7 +23,6 @@ import {
   createTokenSource,
   sendMessage,
   sendCard,
-  updateMessage,
   updateCard,
   getOrCreateDmSpace,
   type ServiceAccountCredentials,
@@ -262,7 +261,6 @@ export type GoogleChatProviderDeps = {
   tokenSourceFn?: (creds: ServiceAccountCredentials) => TokenSource;
   sendMessageFn?: typeof sendMessage;
   sendCardFn?: typeof sendCard;
-  updateMessageFn?: typeof updateMessage;
   updateCardFn?: typeof updateCard;
   getOrCreateDmSpaceFn?: typeof getOrCreateDmSpace;
   /** Test seam — defaults to `openSubscription` (real StreamingPull); tests inject a fake `PubSubSubscription`. */
@@ -291,7 +289,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const tokenSource = (deps.tokenSourceFn ?? createTokenSource)(deps.credentials);
   const sendMessageFn = deps.sendMessageFn ?? sendMessage;
   const sendCardFn = deps.sendCardFn ?? sendCard;
-  const updateMessageFn = deps.updateMessageFn ?? updateMessage;
   const updateCardFn = deps.updateCardFn ?? updateCard;
   const getOrCreateDmSpaceFn = deps.getOrCreateDmSpaceFn ?? getOrCreateDmSpace;
   const subscriptionFn = deps.subscriptionFn ?? openSubscription;
@@ -620,5 +617,3 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     },
   };
 }
-
-export type { ChatCard };

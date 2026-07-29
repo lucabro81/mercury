@@ -25,7 +25,6 @@ import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
-import { runTurn } from "./session/agent-turn.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
@@ -37,20 +36,17 @@ import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {
-  writeCuratedNote,
   writeInferredNote,
   writeToolCorrectionNote,
   writeConfirmationNote,
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
-import { recordStep } from "./session/tool-log-buffer.ts";
 import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron, captureSessionToMemory, type CaptureDeps } from "./cron/idle-session-cron.ts";
 import {
   ensureEpisodicCollection,
   storeEpisodicSummary,
-  searchEpisodicMemory,
   getLastSessionEpisodicSummaries,
 } from "./memory/episodic-store.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createTerminalProvider } from "./terminal-provider.ts";
-import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
+import type { HandleTurn, InboundTurn } from "./provider.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 
 type CapturedHandleInput = (input: string, onChunk: (chunk: string) => void) => Promise<string>;

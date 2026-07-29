@@ -4,7 +4,6 @@ import {
   createTokenSource,
   sendMessage,
   sendCard,
-  updateMessage,
   updateCard,
   getOrCreateDmSpace,
   type FetchFn,
@@ -131,23 +130,6 @@ describe("sendCard", () => {
 
     expect(result).toEqual({ name: "spaces/X/messages/2" });
     expect(capturedBody).toEqual({ cardsV2: [{ cardId: "card", card }] });
-  });
-});
-
-describe("updateMessage", () => {
-  test("PATCHes the given message name with updateMask=text", async () => {
-    let capturedUrl = "";
-    let capturedMethod = "";
-    const fetchFn: FetchFn = (async (url: any, init: any) => {
-      capturedUrl = String(url);
-      capturedMethod = init.method;
-      return new Response(JSON.stringify({ name: "spaces/X/messages/1" }), { status: 200 });
-    }) as any;
-
-    await updateMessage("spaces/X/messages/1", "updated text", { tokenSource: fakeTokenSource(), fetchFn });
-
-    expect(capturedMethod).toBe("PATCH");
-    expect(capturedUrl).toBe("https://chat.googleapis.com/v1/spaces/X/messages/1?updateMask=text");
   });
 });
 

@@ -186,18 +186,6 @@ export async function sendCard(
   return { name: data.name };
 }
 
-/** Edits an already-sent message's text (PATCH, `updateMask=text`). Used only to rewrite a one-shot "might be stuck" note once real content arrives. */
-export async function updateMessage(
-  name: string,
-  text: string,
-  deps: { tokenSource: TokenSource; fetchFn?: FetchFn },
-): Promise<{ name: string }> {
-  const data = (await callChatApi(`${name}?updateMask=text`, { method: "PATCH", body: { text } }, deps)) as {
-    name: string;
-  };
-  return { name: data.name };
-}
-
 /** Edits an already-sent card message's `cardsV2` in place (PATCH, `updateMask=cardsV2`) — used to patch a tool-call status card from loading to its final outcome without sending a new message. */
 export async function updateCard(
   name: string,
