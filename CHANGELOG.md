@@ -1,5 +1,17 @@
 # mercury
 
+## 0.11.0
+
+### Minor Changes
+
+- e3030f1: Tool activity and memory-capture writes on Google Chat now show as a live status card instead of a static one-line message: a collapsed title while the action is running, patched in place to success/failure once it's done — including which file or Qdrant collection a memory write went to. Previously you'd see a single "doing X..." line with no way to tell if or how it finished.
+- e3030f1: On Google Chat and in the terminal, Mercury now shows its own reasoning live while it thinks, instead of leaving you waiting in silence for the answer. Each round of thinking gets its own status card/output block that closes once that round is done — a turn that reasons more than once (e.g. before and after a tool call) gets one per round, not a single card that reopens and reuses the same one. Nothing is shown at all for models that don't produce reasoning output.
+- 322fe93: Sending a message on Google Chat now gets an immediate acknowledgement card ("Messaggio in ricezione…"), so you're not left wondering if anything happened during the few seconds before the model's own status starts appearing.
+
+  The "Sto pensando…" reasoning card no longer updates while the model is still thinking — you'll see it appear (replacing the acknowledgement card), then it reveals the full reasoning in one go once that round of thinking is done, collapsed by default so you can expand it if you want. Previously it patched live every second or so, which meant expanding it mid-stream would just snap back closed on the next update.
+
+  Status messages about something being saved (a conversation snippet, a correction) are now plainer too: just where it went and what's in it, no arrows or extra symbols.
+
 ## 0.10.0
 
 ### Minor Changes
