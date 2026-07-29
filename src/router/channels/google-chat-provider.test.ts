@@ -47,8 +47,6 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     store: createConfirmationStore(),
     vaultPath: "/vault",
     runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
-    writeSuppressionNoteFn: (async () => {}) as any,
-    recordSuppressionEventFn: async () => {},
     writeConfirmationNoteFn: (async () => {}) as any,
     adminSpace: "spaces/ADMIN",
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
@@ -88,12 +86,44 @@ describe("parseChatEvent", () => {
       space: "spaces/X",
       sender: "users/42",
       senderDisplayName: "Luca",
+      isDirectMessage: false,
     });
   });
 
   test("returns null for a MESSAGE event missing a required field", () => {
     const raw = { type: "MESSAGE", message: { text: "hi", space: { name: "spaces/X" } } };
     expect(parseChatEvent(raw)).toBeNull();
+  });
+
+  // The multi-user NO_REPLY caution (index.ts's buildSystemPrompt) only
+  // makes sense for a space Mercury shares with other people — a DM is
+  // always 1:1 with Mercury, so every message there is unambiguously
+  // addressed to it. Anything other than a confirmed "DM" (missing,
+  // "ROOM", or an unrecognized value) stays on the cautious side.
+  test("marks a DM space event as a direct message", () => {
+    const raw = {
+      type: "MESSAGE",
+      message: {
+        name: "spaces/X/messages/1",
+        text: "ciao",
+        space: { name: "spaces/X", type: "DM" },
+        sender: { name: "users/42", displayName: "Luca" },
+      },
+    };
+    expect(parseChatEvent(raw)).toMatchObject({ isDirectMessage: true });
+  });
+
+  test("does not mark a room/group space as a direct message", () => {
+    const raw = {
+      type: "MESSAGE",
+      message: {
+        name: "spaces/X/messages/1",
+        text: "ciao",
+        space: { name: "spaces/X", type: "ROOM" },
+        sender: { name: "users/42", displayName: "Luca" },
+      },
+    };
+    expect(parseChatEvent(raw)).toMatchObject({ isDirectMessage: false });
   });
 
   test("parses a well-formed CARD_CLICKED event", () => {
@@ -121,13 +151,15 @@ describe("parseChatEvent", () => {
   });
 });
 
-function messageEvent(overrides: Partial<{ text: string; messageName: string; space: string; sender: string; senderDisplayName: string; thread: string }> = {}) {
+function messageEvent(
+  overrides: Partial<{ text: string; messageName: string; space: string; spaceType: string; sender: string; senderDisplayName: string; thread: string }> = {},
+) {
   return {
     type: "MESSAGE",
     message: {
       name: overrides.messageName ?? "spaces/X/messages/1",
       text: overrides.text ?? "hello",
-      space: { name: overrides.space ?? "spaces/X" },
+      space: { name: overrides.space ?? "spaces/X", type: overrides.spaceType },
       sender: { name: overrides.sender ?? "users/42", displayName: overrides.senderDisplayName ?? "Luca" },
       thread: { name: overrides.thread ?? "spaces/X/threads/T1" },
     },
@@ -204,6 +236,27 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     });
     expect(capturedSink!.onTextChunk).toBeUndefined();
     expect(acked).toEqual(["a1"]);
+  });
+
+  // Regression guard: a DM is always 1:1 with Mercury, so the multi-user
+  // NO_REPLY caution must never apply there — a bare "ciao" in a DM was
+  // observed live getting silently swallowed because multiUser was
+  // hardcoded true for every Chat message regardless of space type.
+  test("marks a DM message's turn as not multi-user", async () => {
+    let capturedTurn: InboundTurn | undefined;
+    const sub = fakeSubscription();
+
+    const deps = baseDeps({ subscriptionFn: () => sub as any });
+    const provider = createGoogleChatProvider(deps);
+
+    await provider.start(async (turn, sink) => {
+      capturedTurn = turn;
+      await sink.finalize("ciao");
+    });
+    sub.emit("message", fakeMessage(messageEvent({ spaceType: "DM" }), []));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(capturedTurn).toMatchObject({ multiUser: false });
   });
 
   test("omits the [Da: X] marker when the event has no sender displayName", async () => {

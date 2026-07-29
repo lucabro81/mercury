@@ -20,8 +20,7 @@ import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { runCli } from "../tools/cli-executor.ts";
-import type { writeSuppressionNote, writeConfirmationNote } from "../wiki/wiki-note.ts";
-import type { EpisodicSummary } from "../memory/episodic-store.ts";
+import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 const TERMINAL_SESSION_KEY = "terminal";
 
@@ -30,8 +29,6 @@ export type TerminalProviderDeps = {
     store: ConfirmationStore;
     runCliFn: typeof runCli;
     vaultPath: string;
-    writeSuppressionNoteFn: typeof writeSuppressionNote;
-    recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
     writeConfirmationNoteFn: typeof writeConfirmationNote;
     now?: () => Date;
   };

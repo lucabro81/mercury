@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createToolCorrectionExtractor, type ProceduralCorrection } from "./tool-correction-extractor.ts";
+import { createToolCorrectionExtractor } from "./tool-correction-extractor.ts";
 import type { LanguageModel } from "ai";
 import type { StepInfo } from "./step-info.ts";
 

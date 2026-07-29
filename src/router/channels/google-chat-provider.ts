@@ -23,7 +23,6 @@ import {
   createTokenSource,
   sendMessage,
   sendCard,
-  updateMessage,
   updateCard,
   getOrCreateDmSpace,
   type ServiceAccountCredentials,
@@ -39,8 +38,7 @@ import type { ToolOutcome } from "../../session/tool-start-hook.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
 import type { runCli } from "../../tools/cli-executor.ts";
-import type { writeSuppressionNote, writeConfirmationNote } from "../../wiki/wiki-note.ts";
-import type { EpisodicSummary } from "../../memory/episodic-store.ts";
+import type { writeConfirmationNote } from "../../wiki/wiki-note.ts";
 
 /**
  * Builds the confirmation card sent when a step stages an irreversible
@@ -184,7 +182,7 @@ type RawChatEvent = {
   message?: {
     name?: string;
     text?: string;
-    space?: { name?: string };
+    space?: { name?: string; type?: string };
     sender?: RawChatSender;
   };
   action?: { actionMethodName?: string; parameters?: Array<{ key?: string; value?: string }> };
@@ -199,6 +197,14 @@ export type ParsedMessageEvent = {
   space: string;
   sender: string;
   senderDisplayName: string | undefined;
+  /**
+   * True only when `space.type` is exactly `"DM"` (the Chat API's shape
+   * for a private 1:1 space) — anything else, including a missing field,
+   * stays `false` on purpose: a DM is unambiguously addressed to Mercury,
+   * everything else keeps the cautious multi-user default. Confirmed
+   * live against a real DM event this session.
+   */
+  isDirectMessage: boolean;
 };
 
 export type ParsedCardClickEvent = {
@@ -223,6 +229,7 @@ export function parseChatEvent(raw: unknown): ParsedMessageEvent | ParsedCardCli
       space: m.space.name,
       sender: m.sender.name,
       senderDisplayName: m.sender.displayName,
+      isDirectMessage: m.space.type === "DM",
     };
   }
   if (event?.type === "CARD_CLICKED") {
@@ -247,8 +254,6 @@ export type GoogleChatProviderDeps = {
   store: ConfirmationStore;
   vaultPath: string;
   runCliFn: typeof runCli;
-  writeSuppressionNoteFn: typeof writeSuppressionNote;
-  recordSuppressionEventFn: (entry: EpisodicSummary) => Promise<void>;
   writeConfirmationNoteFn: typeof writeConfirmationNote;
   adminSpace: string;
   /**
@@ -265,7 +270,6 @@ export type GoogleChatProviderDeps = {
   tokenSourceFn?: (creds: ServiceAccountCredentials) => TokenSource;
   sendMessageFn?: typeof sendMessage;
   sendCardFn?: typeof sendCard;
-  updateMessageFn?: typeof updateMessage;
   updateCardFn?: typeof updateCard;
   getOrCreateDmSpaceFn?: typeof getOrCreateDmSpace;
   /** Test seam — defaults to `openSubscription` (real StreamingPull); tests inject a fake `PubSubSubscription`. */
@@ -294,7 +298,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const tokenSource = (deps.tokenSourceFn ?? createTokenSource)(deps.credentials);
   const sendMessageFn = deps.sendMessageFn ?? sendMessage;
   const sendCardFn = deps.sendCardFn ?? sendCard;
-  const updateMessageFn = deps.updateMessageFn ?? updateMessage;
   const updateCardFn = deps.updateCardFn ?? updateCard;
   const getOrCreateDmSpaceFn = deps.getOrCreateDmSpaceFn ?? getOrCreateDmSpace;
   const subscriptionFn = deps.subscriptionFn ?? openSubscription;
@@ -328,8 +331,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         runCliFn: deps.runCliFn,
         userId: sender,
         vaultPath: deps.vaultPath,
-        writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
-        recordSuppressionEventFn: deps.recordSuppressionEventFn,
         writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
       });
       if (reply !== null) {
@@ -499,8 +500,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       runCliFn: deps.runCliFn,
       userId: event.sender,
       vaultPath: deps.vaultPath,
-      writeSuppressionNoteFn: deps.writeSuppressionNoteFn,
-      recordSuppressionEventFn: deps.recordSuppressionEventFn,
       writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
     });
     if (confirmReply !== null) {
@@ -526,7 +525,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       await handleTurn(
         {
           channel: "google-chat",
-          multiUser: true,
+          multiUser: !event.isDirectMessage,
           text: markedInput,
           sessionKey,
           userId: event.sender,
@@ -627,5 +626,3 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     },
   };
 }
-
-export type { ChatCard };

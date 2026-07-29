@@ -25,7 +25,6 @@ import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
-import { runTurn } from "./session/agent-turn.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
@@ -37,22 +36,17 @@ import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {
-  writeSuppressionNote,
-  writeCuratedNote,
-  writeJiraUserResolvedNote,
   writeInferredNote,
   writeToolCorrectionNote,
   writeConfirmationNote,
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
-import { recordStep } from "./session/tool-log-buffer.ts";
 import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron, captureSessionToMemory, type CaptureDeps } from "./cron/idle-session-cron.ts";
 import {
   ensureEpisodicCollection,
   storeEpisodicSummary,
-  searchEpisodicMemory,
   getLastSessionEpisodicSummaries,
 } from "./memory/episodic-store.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
@@ -65,12 +59,7 @@ import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
 import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
-import { isNotificationSuppressed } from "./cron/notification-suppression.ts";
-import { resolveChatTargetForJiraUser, resolveChatTargetForBitbucketUser, findChatUserByEmail } from "./cron/identity-bridge.ts";
-import { composeStaleTicketMessage, composeStalePrMessage } from "./cron/notification-composer.ts";
-import { startStaleTicketCron } from "./cron/stale-ticket-cron.ts";
-import { findStalePrs } from "./cron/stale-pr-finder.ts";
-import { startStalePrCron } from "./cron/stale-pr-cron.ts";
+import { findChatUserByEmail } from "./cron/identity-bridge.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 import { startAdminServer } from "./admin/server.ts";
@@ -214,8 +203,6 @@ const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
   runCliFn: runCli,
 });
 const jiraEnabled = Boolean(activeCliConfigs.jira);
-const bitbucketEnabled = Boolean(activeCliConfigs.bitbucket);
-const atlassianAdminEnabled = Boolean(activeCliConfigs["atlassian-admin"]);
 // A single subscription for the whole app (Cloud Pub/Sub deployment) —
 // unlike the retired impersonation channel, there's no per-space Workspace
 // Events subscription to manage: whatever space the app is a member of
@@ -598,8 +585,7 @@ const handleTurn = createTurnRunner({
 
 // Registered Chat app credentials — its own service-account identity, not
 // a Workspace-user impersonation: no domain-wide delegation, no
-// impersonate_user field. Constructed (and started) before the crons below
-// so they can depend on it for delivery.
+// impersonate_user field.
 const mercuryAdminSpace = process.env.MERCURY_ADMIN_SPACE;
 let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
 if (googleChatSubscription) {
@@ -616,8 +602,6 @@ if (googleChatSubscription) {
     store: confirmationStore,
     vaultPath: wikiVaultPath,
     runCliFn: runCli,
-    writeSuppressionNoteFn: writeSuppressionNote,
-    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     writeConfirmationNoteFn: writeConfirmationNote,
     adminSpace: mercuryAdminSpace ?? "",
   });
@@ -626,64 +610,6 @@ if (googleChatSubscription) {
   Object.assign(
     staticTools,
     createNotifyUserTool({ notifier: chatProvider, vaultPath: wikiVaultPath, findChatUserByEmailFn: findChatUserByEmail }),
-  );
-}
-
-// Needs both an active Jira CLI config (there's nothing to query
-// otherwise), an admin space, and the Google Chat provider actually
-// configured (delivery needs a Notifier to exist) — skip cleanly with a
-// clear reason instead of starting a cron that will fail on its first
-// delivery attempt.
-if (jiraEnabled && mercuryAdminSpace && chatProvider) {
-  const staleTicketCron = startStaleTicketCron(
-    {
-      vaultPath: wikiVaultPath,
-      model,
-      runCliFn: runCli,
-      readWikiFileFn: readWikiFile,
-      writeCuratedNoteFn: writeCuratedNote,
-      writeJiraUserResolvedNoteFn: writeJiraUserResolvedNote,
-      isNotificationSuppressedFn: isNotificationSuppressed,
-      resolveChatTargetForJiraUserFn: resolveChatTargetForJiraUser,
-      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
-      composeStaleTicketMessageFn: composeStaleTicketMessage,
-      notifier: chatProvider,
-      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-      log: (msg) => console.error(`[cron] ${msg}`),
-    },
-    { checkIntervalMs: Number(process.env.STALE_TICKET_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
-  );
-  void staleTicketCron; // kept alive for the process lifetime, same as idleCron
-} else if (jiraEnabled) {
-  console.error("[cron] stale-ticket check not started: MERCURY_ADMIN_SPACE not set or Google Chat channel not configured");
-}
-
-// Same gating logic as the stale-ticket check above, plus atlassian-admin
-// (the Bitbucket identity bridge resolves account_id -> email through it,
-// no email is available on a PR participant directly).
-if (bitbucketEnabled && atlassianAdminEnabled && mercuryAdminSpace && chatProvider) {
-  const stalePrCron = startStalePrCron(
-    {
-      vaultPath: wikiVaultPath,
-      model,
-      runCliFn: runCli,
-      readWikiFileFn: readWikiFile,
-      writeCuratedNoteFn: writeCuratedNote,
-      findStalePrsFn: findStalePrs,
-      isNotificationSuppressedFn: isNotificationSuppressed,
-      resolveChatTargetForBitbucketUserFn: resolveChatTargetForBitbucketUser,
-      historyFn: (userId, queryText) => searchEpisodicMemory(qdrant, episodicCollection, embed, { userId, queryText }),
-      composeStalePrMessageFn: composeStalePrMessage,
-      notifier: chatProvider,
-      recordEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
-      log: (msg) => console.error(`[cron] ${msg}`),
-    },
-    { checkIntervalMs: Number(process.env.STALE_PR_CHECK_INTERVAL_MS ?? String(60 * 60_000)) },
-  );
-  void stalePrCron; // kept alive for the process lifetime, same as idleCron
-} else if (bitbucketEnabled) {
-  console.error(
-    "[cron] stale-PR check not started: needs atlassian-admin active, MERCURY_ADMIN_SPACE set, and Google Chat channel configured",
   );
 }
 
@@ -714,8 +640,6 @@ await createTerminalProvider({
     store: confirmationStore,
     runCliFn: runCli,
     vaultPath: wikiVaultPath,
-    writeSuppressionNoteFn: writeSuppressionNote,
-    recordSuppressionEventFn: (entry) => storeEpisodicSummary(qdrant, episodicCollection, embed, entry),
     writeConfirmationNoteFn: writeConfirmationNote,
   },
   ollamaHost,
