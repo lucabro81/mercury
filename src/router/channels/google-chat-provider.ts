@@ -80,13 +80,14 @@ const TOOL_STATUS_LINES: Record<"loading" | ToolOutcome, string> = {
 };
 
 /**
- * A tool-call status card: `label` is a section `header` (Google Chat's
- * native accordion title, always visible regardless of collapse state),
- * `detail`/status are the two widgets folded behind it —
+ * A tool-call/reasoning status card: `label` is a section `header`
+ * (Google Chat's native accordion title, always visible regardless of
+ * collapse state), `detail`/status are the two widgets folded behind it —
  * `uncollapsibleWidgetsCount: 0` means both start collapsed. Sent once as
- * "loading" (`createSink`'s `onToolStart`), then the very same message is
- * patched in place to its final status (`onToolFinish`) via `updateCardFn`
- * — never a second message.
+ * "loading" (`createSink`'s `onToolStart`/first `onReasoningChunk`), then
+ * the very same message is patched in place to its final status
+ * (`onToolFinish`/`onReasoningEnd`) via `updateCardFn` — never a second
+ * message.
  *
  * The status is appended to the title too, not just left inside the
  * collapsed body: a title stuck reading "Sto leggendo dati con jira…"
@@ -94,25 +95,24 @@ const TOOL_STATUS_LINES: Record<"loading" | ToolOutcome, string> = {
  * "Fatto.", looked like the card never updated at all — confirmed live
  * (the body did patch, only the title didn't change).
  *
- * `alwaysExpanded` drops the collapsible accordion entirely (used for the
- * reasoning card, not tool calls): confirmed live that patching a
- * collapsible section resets the user's own expand/collapse choice back
- * to collapsed on every PATCH, which is fine for a tool card (patched
- * once, at the end) but made a reasoning card patched every ~1s
- * unreadable — it kept snapping shut while still streaming.
+ * Native `collapsible` state is client-side only and resets to collapsed
+ * on every PATCH — confirmed live. Harmless for a card patched exactly
+ * twice (send, then one final patch): reasoning cards used to be patched
+ * every ~1s while streaming and forcibly kept open (`alwaysExpanded`) to
+ * work around it, which made the reset bug moot but leaked the
+ * in-progress reasoning text into a card the user might reopen mid-stream.
+ * Simpler fix, not just a workaround: `createSink`'s reasoning handling no
+ * longer patches this card at all while loading (see `onReasoningChunk`) —
+ * detail is only ever revealed in the single final patch, at which point
+ * nothing patches the message again, so the native toggle can never be
+ * reset out from under the user again either.
  */
-function buildToolCallCard(
-  label: string,
-  detail: string,
-  status: "loading" | ToolOutcome,
-  options: { alwaysExpanded?: boolean } = {},
-): ChatCard {
-  const alwaysExpanded = options.alwaysExpanded ?? false;
+function buildToolCallCard(label: string, detail: string, status: "loading" | ToolOutcome): ChatCard {
   return {
     sections: [
       {
         header: status === "loading" ? label : `${label} ${TOOL_STATUS_LINES[status]}`,
-        collapsible: !alwaysExpanded,
+        collapsible: true,
         uncollapsibleWidgetsCount: 0,
         widgets: [{ textParagraph: { text: detail } }, { textParagraph: { text: TOOL_STATUS_LINES[status] } }],
       },
@@ -120,8 +120,34 @@ function buildToolCallCard(
   };
 }
 
-const REASONING_PATCH_INTERVAL_MS = 1200;
 const REASONING_TAIL_CHARS = 4000;
+
+/**
+ * Sent immediately when a turn starts, before the model has produced
+ * anything at all — covers the real gap (confirmed live, ~10s) between a
+ * message arriving and the first visible activity: Ollama's own
+ * prompt-prefill/model-load time, which happens before even the first
+ * reasoning token, so nothing else would appear on screen until then.
+ * Ollama's `/api/generate`/`/api/chat` streaming endpoints don't expose
+ * any intermediate loading/prefill event to distinguish finer-grained
+ * states here (checked against the API docs) — `load_duration`/
+ * `prompt_eval_duration` only appear in the final, non-streamed response.
+ * Header is the generic "Stato" (not a restatement of the body) so this
+ * has somewhere to grow if a genuinely different state ever becomes
+ * observable, rather than needing a redesign.
+ *
+ * Not expandable (no `collapsible`) — there's nothing to fold away. A
+ * section with zero widgets renders as a near-empty sliver in Google Chat
+ * (confirmed live — a thin grey line, no visible text at all), so this
+ * always carries at least one `textParagraph`, same as every other card
+ * in this file. If the turn's first reasoning burst arrives,
+ * `onReasoningChunk` patches this exact card into the "Sto pensando…"
+ * card in place, rather than sending a second message; otherwise it's
+ * simply left as the last status before the turn's real answer.
+ */
+function buildReceivingCard(): ChatCard {
+  return { sections: [{ header: "Stato", widgets: [{ textParagraph: { text: "Messaggio in ricezione…" } }] }] };
+}
 
 /**
  * Bounds a live-growing reasoning buffer to its most recent
@@ -242,8 +268,6 @@ export type GoogleChatProviderDeps = {
   updateMessageFn?: typeof updateMessage;
   updateCardFn?: typeof updateCard;
   getOrCreateDmSpaceFn?: typeof getOrCreateDmSpace;
-  /** Test seam; defaults to REASONING_PATCH_INTERVAL_MS. Lets tests use a tiny interval instead of sleeping real seconds. */
-  reasoningPatchIntervalMs?: number;
   /** Test seam — defaults to `openSubscription` (real StreamingPull); tests inject a fake `PubSubSubscription`. */
   subscriptionFn?: (creds: ServiceAccountCredentials, subscription: string) => PubSubSubscription;
   log?: (msg: string) => void;
@@ -272,7 +296,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const sendCardFn = deps.sendCardFn ?? sendCard;
   const updateMessageFn = deps.updateMessageFn ?? updateMessage;
   const updateCardFn = deps.updateCardFn ?? updateCard;
-  const reasoningPatchIntervalMs = deps.reasoningPatchIntervalMs ?? REASONING_PATCH_INTERVAL_MS;
   const getOrCreateDmSpaceFn = deps.getOrCreateDmSpaceFn ?? getOrCreateDmSpace;
   const subscriptionFn = deps.subscriptionFn ?? openSubscription;
   const clientDeps = { tokenSource };
@@ -348,24 +371,19 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     // a tool-calling turn can reason more than once (before a tool call,
     // again after seeing its result), each burst a fully independent card,
     // never a continuation of an earlier one.
-    const reasoningCards = new Map<string, { name: string | undefined; buffer: string; timer: ReturnType<typeof setTimeout> | undefined }>();
+    const reasoningCards = new Map<string, { name: string | undefined; buffer: string }>();
 
-    /** Patches reasoning block `id`'s card to `status` with whatever's in its buffer right now — a no-op if the initial send hasn't actually landed yet (shouldn't happen given `enqueue`'s own FIFO ordering, but this stays defensive rather than trusting it blindly). */
-    function enqueueReasoningPatch(id: string, status: "loading" | ToolOutcome): void {
-      enqueue(async () => {
-        const entry = reasoningCards.get(id);
-        if (!entry || entry.name === undefined) return;
-        log(`[chat:${space}] [out] reasoning patch (${id}): status=${status} bufferLen=${entry.buffer.length}`);
-        const card = buildToolCallCard("Sto pensando…", tailTruncate(entry.buffer, REASONING_TAIL_CHARS), status, {
-          alwaysExpanded: true,
-        });
-        await updateCardFn(entry.name, card, clientDeps);
-        // Deleted only here, after the patch actually used the entry —
-        // not synchronously in onReasoningEnd, which would race ahead of
-        // this still-enqueued function and make it find nothing.
-        if (status !== "loading") reasoningCards.delete(id);
-      });
-    }
+    // Claimed (patched into the turn's first reasoning card) by
+    // onReasoningChunk below, then cleared — a second reasoning burst in
+    // the same turn (e.g. after a tool call) always gets its own new card,
+    // never reuses this one.
+    let receivingCardName: string | undefined;
+    enqueue(async () => {
+      log(`[chat:${space}] [out] receiving card`);
+      const sent = await sendCardFn(space, buildReceivingCard(), clientDeps);
+      sentMessageNames.add(sent.name);
+      receivingCardName = sent.name;
+    });
 
     return {
       onToolStart: (label: string, detail?: string, toolCallId?: string) => {
@@ -402,39 +420,43 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       onReasoningChunk: (chunk: string, id: string) => {
         let entry = reasoningCards.get(id);
         if (!entry) {
-          entry = { name: undefined, buffer: chunk, timer: undefined };
+          entry = { name: undefined, buffer: chunk };
           reasoningCards.set(id, entry);
           enqueue(async () => {
-            const card = buildToolCallCard("Sto pensando…", tailTruncate(entry!.buffer, REASONING_TAIL_CHARS), "loading", {
-              alwaysExpanded: true,
-            });
-            log(`[chat:${space}] [out] reasoning card (${id})`);
-            const sent = await sendCardFn(space, card, clientDeps);
-            sentMessageNames.add(sent.name);
-            entry!.name = sent.name;
+            const card = buildToolCallCard("Sto pensando…", "", "loading");
+            if (receivingCardName !== undefined) {
+              // Replace the "Stato" placeholder in place instead of
+              // sending a second message.
+              log(`[chat:${space}] [out] reasoning card (${id}) — replacing receiving card`);
+              const patched = await updateCardFn(receivingCardName, card, clientDeps);
+              entry!.name = patched.name;
+              receivingCardName = undefined;
+            } else {
+              log(`[chat:${space}] [out] reasoning card (${id})`);
+              const sent = await sendCardFn(space, card, clientDeps);
+              sentMessageNames.add(sent.name);
+              entry!.name = sent.name;
+            }
           });
           return;
         }
+        // Accumulated only, never patched here: no live peek at the
+        // reasoning text while it's still streaming — see buildToolCallCard's
+        // doc comment for why. Revealed once, in full, by onReasoningEnd.
         entry.buffer += chunk;
-        // Throttled, not one PATCH per delta — the buffer keeps growing in
-        // the meantime, so whichever chunk's timer actually fires patches
-        // with everything accumulated up to that moment, not just its own.
-        if (entry.timer === undefined) {
-          entry.timer = setTimeout(() => {
-            entry!.timer = undefined;
-            enqueueReasoningPatch(id, "loading");
-          }, reasoningPatchIntervalMs);
-        }
       },
       onReasoningEnd: (id: string, failed: boolean) => {
         log(`[chat:${space}] onReasoningEnd(${id}, failed=${failed})`);
         const entry = reasoningCards.get(id);
         if (!entry) return; // no reasoning happened for this id — no card to close
-        if (entry.timer !== undefined) {
-          clearTimeout(entry.timer);
-          entry.timer = undefined;
-        }
-        enqueueReasoningPatch(id, failed ? "failed" : "success");
+        enqueue(async () => {
+          if (entry.name === undefined) return; // shouldn't happen given enqueue's own FIFO ordering, but stays defensive
+          const status = failed ? "failed" : "success";
+          const card = buildToolCallCard("Sto pensando…", tailTruncate(entry.buffer, REASONING_TAIL_CHARS), status);
+          log(`[chat:${space}] [out] reasoning patch (${id}): status=${status} bufferLen=${entry.buffer.length}`);
+          await updateCardFn(entry.name, card, clientDeps);
+          reasoningCards.delete(id);
+        });
       },
       // Deliberately absent: Google Chat only shows a message once fully
       // sent, so incremental delivery never actually reaches a human

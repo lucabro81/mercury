@@ -53,6 +53,10 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     adminSpace: "spaces/ADMIN",
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
+    // Every turn now sends an immediate "Stato" card on start (see
+    // createSink) — a safe default so tests that don't care about cards
+    // specifically don't trigger a real HTTP call to the Chat API.
+    sendCardFn: async (_space, _card) => ({ name: "spaces/X/messages/card-sent" }),
     subscriptionFn: () => fakeSubscription() as any, // default: a subscription no test drives, only used by tests not centered on message dispatch
     log: () => {},
     ...overrides,
@@ -476,10 +480,11 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     sub.emit("message", fakeMessage(messageEvent(), []));
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(sentCards).toHaveLength(1);
-    expect(sentCards[0]!.space).toBe("spaces/X");
-    expect(JSON.stringify(sentCards[0]!.card)).toContain("jira issue delete KAN-1 --confirm");
-    expect(JSON.stringify(sentCards[0]!.card)).toContain("TOK1");
+    // sentCards[0] is the turn's own immediate "Stato" card; the confirm card is the one after it.
+    expect(sentCards).toHaveLength(2);
+    const confirmCard = sentCards.find((c) => JSON.stringify(c.card).includes("TOK1"))!;
+    expect(confirmCard.space).toBe("spaces/X");
+    expect(JSON.stringify(confirmCard.card)).toContain("jira issue delete KAN-1 --confirm");
   });
 
   // agent-turn.ts returns PENDING_CONFIRMATION_NOTE as the turn's "text"
@@ -646,10 +651,12 @@ describe("createSink — tool-call cards", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sentMessages).toEqual([]);
-    expect(sentCards).toHaveLength(1);
-    expect(sentCards[0]!.space).toBe("spaces/X");
-    const section = sentCards[0]!.card.sections[0];
-    expect(section.header).toBe("Sto leggendo dati con jira…");
+    // sentCards[0] is the "Stato" card every turn sends immediately
+    // on start (see createSink); the tool card is the one after it.
+    expect(sentCards).toHaveLength(2);
+    const toolCard = sentCards.find((c) => c.card.sections[0].header === "Sto leggendo dati con jira…")!;
+    expect(toolCard.space).toBe("spaces/X");
+    const section = toolCard.card.sections[0];
     expect(section.collapsible).toBe(true);
     expect(section.uncollapsibleWidgetsCount).toBe(0);
     expect(JSON.stringify(section.widgets)).toContain("jira issue search --jql X");
@@ -674,7 +681,10 @@ describe("createSink — tool-call cards", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(sentMessages).toEqual(["_Mi sto segnando un'informazione importante…_"]);
-    expect(sentCards).toEqual([]);
+    // Only the turn's own immediate "Stato" card — no tool card, since a
+    // capture-ping has no toolCallId.
+    expect(sentCards).toHaveLength(1);
+    expect((sentCards[0] as any).sections[0].header).toBe("Stato");
   });
 
   test("onToolFinish patches the exact message name onToolStart created, with the outcome's status line", async () => {
@@ -765,21 +775,18 @@ describe("createSink — tool-call cards", () => {
     sink.onToolFinish?.("tc-2", "success");
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(sent).toHaveLength(2);
+    // 3 sends: the turn's own immediate "Stato" card, plus one per tool call.
+    expect(sent).toHaveLength(3);
     expect(patched).toHaveLength(2);
-    expect(patched[0]!.name).toBe("spaces/X/messages/card1");
-    expect(patched[1]!.name).toBe("spaces/X/messages/card2");
     expect(patched[0]!.name).not.toBe(patched[1]!.name);
   });
 });
 
-describe("createSink — reasoning card", () => {
-  async function captureReasoningSink(overrides: Partial<GoogleChatProviderDeps> = {}): Promise<TurnSink> {
+describe("createSink — immediate receiving card", () => {
+  async function captureSink(overrides: Partial<GoogleChatProviderDeps> = {}): Promise<TurnSink> {
     let capturedSink: TurnSink | undefined;
     const sub = fakeSubscription();
-    const provider = createGoogleChatProvider(
-      baseDeps({ subscriptionFn: () => sub as any, reasoningPatchIntervalMs: 5, ...overrides }),
-    );
+    const provider = createGoogleChatProvider(baseDeps({ subscriptionFn: () => sub as any, ...overrides }));
 
     await provider.start(async (_turn, sink) => {
       capturedSink = sink;
@@ -790,8 +797,71 @@ describe("createSink — reasoning card", () => {
     return capturedSink!;
   }
 
-  test("no card is sent when onReasoningChunk never fires", async () => {
-    const sentCards: unknown[] = [];
+  // Covers the real gap (confirmed live, ~10s) between a message arriving
+  // and the first visible activity — Ollama's own prompt-prefill/model-load
+  // time, which happens before even the first reasoning token.
+  test("a non-expandable 'Stato' card ('Messaggio in ricezione…') is sent immediately when the turn starts, before any tool/reasoning activity", async () => {
+    const sentCards: any[] = [];
+    await captureSink({
+      sendCardFn: async (space, card) => {
+        sentCards.push({ space, card });
+        return { name: "spaces/X/messages/r1" };
+      },
+    });
+
+    expect(sentCards).toHaveLength(1);
+    expect(sentCards[0]!.space).toBe("spaces/X");
+    const section = sentCards[0]!.card.sections[0];
+    // Generic "Stato" title, not a restatement of the body — leaves room
+    // for a genuinely different state to reuse this same card shape later.
+    expect(section.header).toBe("Stato");
+    // A section with zero widgets rendered as a near-empty grey sliver in
+    // Google Chat (confirmed live) — must always carry visible text.
+    expect(section.widgets).not.toEqual([]);
+    expect(JSON.stringify(section.widgets)).toContain("Messaggio in ricezione…");
+    expect(section.collapsible).toBeUndefined(); // nothing to expand
+  });
+
+  test("if no reasoning ever happens, the receiving card is simply left as-is — a tool call gets its own separate card, never patches the receiving one", async () => {
+    let cardCount = 0;
+    const patchedNames: string[] = [];
+    const sink = await captureSink({
+      sendCardFn: async () => ({ name: `spaces/X/messages/card${cardCount++}` }),
+      updateCardFn: async (name, card) => {
+        patchedNames.push(name);
+        return { name };
+      },
+    });
+    // card0 = the receiving card, already sent by the time captureSink returns.
+
+    sink.onToolStart("Sto leggendo dati con jira…", "jira issue search", "tc-1"); // sends card1
+    await new Promise((r) => setTimeout(r, 10));
+    sink.onToolFinish?.("tc-1", "success");
+    await new Promise((r) => setTimeout(r, 10));
+
+    // onReasoningChunk never ran, so the claim path never fires: onToolFinish
+    // patches card1 (its own card), never card0 (the receiving card).
+    expect(patchedNames).toEqual(["spaces/X/messages/card1"]);
+  });
+});
+
+describe("createSink — reasoning card", () => {
+  async function captureReasoningSink(overrides: Partial<GoogleChatProviderDeps> = {}): Promise<TurnSink> {
+    let capturedSink: TurnSink | undefined;
+    const sub = fakeSubscription();
+    const provider = createGoogleChatProvider(baseDeps({ subscriptionFn: () => sub as any, ...overrides }));
+
+    await provider.start(async (_turn, sink) => {
+      capturedSink = sink;
+    });
+    sub.emit("message", fakeMessage(messageEvent(), []));
+    await new Promise((r) => setTimeout(r, 20));
+
+    return capturedSink!;
+  }
+
+  test("no card is sent when onReasoningChunk never fires — only the turn's own immediate receiving card", async () => {
+    const sentCards: any[] = [];
     const sink = await captureReasoningSink({
       sendCardFn: async (_space, card) => {
         sentCards.push(card);
@@ -802,50 +872,64 @@ describe("createSink — reasoning card", () => {
     sink.onReasoningEnd?.("block-1", false);
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(sentCards).toEqual([]);
+    expect(sentCards).toHaveLength(1);
+    expect(sentCards[0]!.sections[0].header).toBe("Stato");
   });
 
-  test("the first onReasoningChunk sends a card immediately with loading status, titled 'Sto pensando…', always expanded (not collapsible)", async () => {
-    const sentCards: Array<{ space: string; card: any }> = [];
+  // No live peek: the reasoning text itself must never appear before the
+  // turn's own reasoning burst is done — only a static "in progress"
+  // indicator, so there's nothing here for a user to expand mid-stream
+  // (native `collapsible` resets on every PATCH; not patching at all while
+  // loading is what actually fixes that, not forcing the card open).
+  //
+  // The first chunk claims the turn's own immediate "Stato" card
+  // (see buildReceivingCard) by PATCHING it into this loading state,
+  // rather than sending a second message — so this is a patch, not a send.
+  test("the first onReasoningChunk patches the receiving card into a loading 'Sto pensando…' card with no reasoning content", async () => {
+    const patched: Array<{ name: string; card: any }> = [];
     const sink = await captureReasoningSink({
-      sendCardFn: async (space, card) => {
-        sentCards.push({ space, card });
-        return { name: "spaces/X/messages/r1" };
+      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
+      updateCardFn: async (name, card) => {
+        patched.push({ name, card });
+        return { name };
       },
     });
 
     sink.onReasoningChunk?.("primo pezzo", "block-1");
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(sentCards).toHaveLength(1);
-    const section = sentCards[0]!.card.sections[0];
+    expect(patched).toHaveLength(1);
+    expect(patched[0]!.name).toBe("spaces/X/messages/r1"); // the receiving card's own message
+    const section = patched[0]!.card.sections[0];
     expect(section.header).toBe("Sto pensando…");
-    expect(section.collapsible).toBe(false);
-    expect(JSON.stringify(section.widgets)).toContain("primo pezzo");
+    expect(section.collapsible).toBe(true);
+    expect(section.uncollapsibleWidgetsCount).toBe(0);
     expect(JSON.stringify(section.widgets)).toContain("In corso…");
+    expect(JSON.stringify(section.widgets)).not.toContain("primo pezzo");
   });
 
-  test("a burst of chunks within one throttle window results in exactly one further patch, not one per chunk", async () => {
-    const patched: Array<{ card: any }> = [];
+  test("further chunks accumulate silently — no additional patch beyond the first chunk's claim", async () => {
+    const patched: unknown[] = [];
     const sink = await captureReasoningSink({
       sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
       updateCardFn: async (name, card) => {
-        patched.push({ card });
+        patched.push(card);
         return { name };
       },
     });
 
-    sink.onReasoningChunk?.("uno ", "block-1"); // sent immediately, not a patch
+    sink.onReasoningChunk?.("uno ", "block-1"); // claims the receiving card — one patch
+    await new Promise((r) => setTimeout(r, 20));
+    expect(patched).toHaveLength(1);
+
     sink.onReasoningChunk?.("due ", "block-1");
     sink.onReasoningChunk?.("tre ", "block-1");
-    sink.onReasoningChunk?.("quattro", "block-1");
-    await new Promise((r) => setTimeout(r, 30)); // past the 5ms injected throttle interval
+    await new Promise((r) => setTimeout(r, 20));
 
-    expect(patched).toHaveLength(1);
-    expect(JSON.stringify(patched[0]!.card.sections[0].widgets)).toContain("uno due tre quattro");
+    expect(patched).toHaveLength(1); // still just the one claim patch — no live peek
   });
 
-  test("onReasoningEnd always sends a final patch covering everything accumulated, with success status", async () => {
+  test("onReasoningEnd sends the final patch, revealing everything accumulated, with success status", async () => {
     const patched: Array<{ card: any }> = [];
     const sink = await captureReasoningSink({
       sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
@@ -853,18 +937,21 @@ describe("createSink — reasoning card", () => {
         patched.push({ card });
         return { name };
       },
-      // interval longer than the test's own waits, so only onReasoningEnd's
-      // own (unthrottled) final patch can possibly fire
-      reasoningPatchIntervalMs: 10_000,
     });
 
     sink.onReasoningChunk?.("ragionamento completo", "block-1");
     sink.onReasoningEnd?.("block-1", false);
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(patched).toHaveLength(1);
-    const section = patched[0]!.card.sections[0];
+    // patched[0] is the first chunk's claim (loading); patched[1] is the final reveal.
+    expect(patched).toHaveLength(2);
+    const section = patched[1]!.card.sections[0];
     expect(section.header).toBe("Sto pensando… Fatto.");
+    // Native collapsible, collapsed by default — this is the LAST patch
+    // this message will ever receive, so nothing can reset it out from
+    // under the user again.
+    expect(section.collapsible).toBe(true);
+    expect(section.uncollapsibleWidgetsCount).toBe(0);
     expect(JSON.stringify(section.widgets)).toContain("ragionamento completo");
   });
 
@@ -876,34 +963,14 @@ describe("createSink — reasoning card", () => {
         patched.push({ card });
         return { name };
       },
-      reasoningPatchIntervalMs: 10_000,
     });
 
     sink.onReasoningChunk?.("qualcosa", "block-1");
     sink.onReasoningEnd?.("block-1", true);
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(patched).toHaveLength(1);
-    expect(patched[0]!.card.sections[0].header).toBe("Sto pensando… Non riuscito.");
-  });
-
-  test("onReasoningEnd cancels a still-pending scheduled patch, so it never fires a stray extra update", async () => {
-    const patched: Array<{ card: any }> = [];
-    const sink = await captureReasoningSink({
-      sendCardFn: async () => ({ name: "spaces/X/messages/r1" }),
-      updateCardFn: async (name, card) => {
-        patched.push({ card });
-        return { name };
-      },
-      reasoningPatchIntervalMs: 30, // long enough that onReasoningEnd below fires first
-    });
-
-    sink.onReasoningChunk?.("uno", "block-1"); // immediate send
-    sink.onReasoningChunk?.("due", "block-1"); // schedules a throttled patch 30ms out
-    sink.onReasoningEnd?.("block-1", false); // should cancel it and send its own final patch instead
-    await new Promise((r) => setTimeout(r, 60)); // well past the 30ms window
-
-    expect(patched).toHaveLength(1);
+    expect(patched).toHaveLength(2);
+    expect(patched[1]!.card.sections[0].header).toBe("Sto pensando… Non riuscito.");
   });
 
   test("tail-truncation shows the buffer's actual end, prefixed with '…', not its start", async () => {
@@ -921,7 +988,7 @@ describe("createSink — reasoning card", () => {
     sink.onReasoningEnd?.("block-1", false);
     await new Promise((r) => setTimeout(r, 20));
 
-    const body = JSON.stringify(patched[0]!.card.sections[0].widgets);
+    const body = JSON.stringify(patched[1]!.card.sections[0].widgets);
     expect(body).toContain("TAIL-MARKER");
     expect(body).toContain("…");
     expect(body).not.toContain("a".repeat(4000)); // the untruncated head is gone
@@ -929,7 +996,9 @@ describe("createSink — reasoning card", () => {
 
   // The user's reported scenario: reasoning, a tool call, then reasoning
   // again — two SDK ids, not a continuation of the first card. Each must
-  // get its own independent card.
+  // get its own independent card: block-1 claims the turn's own immediate
+  // "Stato" card (patched, never a fresh send), block-2 arrives
+  // after that card is already claimed, so it gets a genuinely new one.
   test("a second reasoning block (different id) after a tool call gets its own independent card", async () => {
     const sent: Array<{ card: any }> = [];
     const patched: Array<{ name: string; card: any }> = [];
@@ -944,7 +1013,6 @@ describe("createSink — reasoning card", () => {
         patched.push({ name, card });
         return { name };
       },
-      reasoningPatchIntervalMs: 10_000,
     });
 
     sink.onReasoningChunk?.("primo pensiero", "block-1");
@@ -955,11 +1023,16 @@ describe("createSink — reasoning card", () => {
     sink.onReasoningEnd?.("block-2", false);
     await new Promise((r) => setTimeout(r, 20));
 
-    const reasoningSends = sent.filter((s) => (s.card.sections[0].header as string).startsWith("Sto pensando…"));
-    expect(reasoningSends).toHaveLength(2); // two independent cards, not one reused
-    expect(patched[0]!.name).not.toBe(patched[2]!.name); // block-1's and block-2's patches hit different messages
-    expect(JSON.stringify(reasoningSends[0]!.card.sections[0].widgets)).toContain("primo pensiero");
-    expect(JSON.stringify(reasoningSends[1]!.card.sections[0].widgets)).toContain("secondo pensiero");
+    const block1Reveal = patched.find((p) => JSON.stringify(p.card).includes("primo pensiero"))!;
+    const block2Reveal = patched.find((p) => JSON.stringify(p.card).includes("secondo pensiero"))!;
+    expect(block1Reveal).toBeDefined();
+    expect(block2Reveal).toBeDefined();
+    expect(block1Reveal.name).not.toBe(block2Reveal.name); // independent messages
+
+    // block-2 got a genuinely new card (the receiving card was already
+    // claimed by block-1), not a reused/patched one.
+    const block2Send = sent.find((s) => (s.card.sections[0].header as string) === "Sto pensando…");
+    expect(block2Send).toBeDefined();
   });
 
   test("reasoning calls interleaved with tool-call cards stay correctly ordered on the shared chain", async () => {
@@ -977,7 +1050,6 @@ describe("createSink — reasoning card", () => {
         events.push(`patch:${label}`);
         return { name };
       },
-      reasoningPatchIntervalMs: 10_000,
     });
 
     sink.onReasoningChunk?.("pensando", "block-1");
@@ -987,7 +1059,8 @@ describe("createSink — reasoning card", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(events).toEqual([
-      "send:Sto pensando…",
+      "send:Stato", // the turn's own immediate card, sent before any of the above
+      "patch:Sto pensando…", // block-1's first chunk claims it
       "send:Sto leggendo dati con jira…",
       "patch:Sto pensando… Fatto.",
       "patch:Sto leggendo dati con jira… Fatto.",
