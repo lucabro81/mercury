@@ -182,7 +182,7 @@ type RawChatEvent = {
   message?: {
     name?: string;
     text?: string;
-    space?: { name?: string };
+    space?: { name?: string; type?: string };
     sender?: RawChatSender;
   };
   action?: { actionMethodName?: string; parameters?: Array<{ key?: string; value?: string }> };
@@ -197,6 +197,14 @@ export type ParsedMessageEvent = {
   space: string;
   sender: string;
   senderDisplayName: string | undefined;
+  /**
+   * True only when `space.type` is exactly `"DM"` (the Chat API's shape
+   * for a private 1:1 space) — anything else, including a missing field,
+   * stays `false` on purpose: a DM is unambiguously addressed to Mercury,
+   * everything else keeps the cautious multi-user default. Confirmed
+   * live against a real DM event this session.
+   */
+  isDirectMessage: boolean;
 };
 
 export type ParsedCardClickEvent = {
@@ -221,6 +229,7 @@ export function parseChatEvent(raw: unknown): ParsedMessageEvent | ParsedCardCli
       space: m.space.name,
       sender: m.sender.name,
       senderDisplayName: m.sender.displayName,
+      isDirectMessage: m.space.type === "DM",
     };
   }
   if (event?.type === "CARD_CLICKED") {
@@ -516,7 +525,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       await handleTurn(
         {
           channel: "google-chat",
-          multiUser: true,
+          multiUser: !event.isDirectMessage,
           text: markedInput,
           sessionKey,
           userId: event.sender,
