@@ -48,7 +48,6 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     vaultPath: "/vault",
     runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
     writeConfirmationNoteFn: (async () => {}) as any,
-    adminSpace: "spaces/ADMIN",
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
     // Every turn now sends an immediate "Stato" card on start (see
@@ -166,7 +165,7 @@ function messageEvent(
   };
 }
 
-describe("createGoogleChatProvider — notify/notifyAdmin", () => {
+describe("createGoogleChatProvider — notify", () => {
   test("notify resolves a DM space then sends, returning the space name as sessionKey", async () => {
     const calls: string[] = [];
     const deps = baseDeps({
@@ -185,22 +184,6 @@ describe("createGoogleChatProvider — notify/notifyAdmin", () => {
 
     expect(result).toEqual({ sessionKey: "spaces/DM1" });
     expect(calls).toEqual(["dm:users/42", "send:spaces/DM1:ciao"]);
-  });
-
-  test("notifyAdmin sends directly to the configured admin space", async () => {
-    const calls: string[] = [];
-    const deps = baseDeps({
-      adminSpace: "spaces/ADMIN-X",
-      sendMessageFn: async (space, text) => {
-        calls.push(`${space}:${text}`);
-        return { name: "spaces/ADMIN-X/messages/1" };
-      },
-    });
-    const provider = createGoogleChatProvider(deps);
-
-    await provider.notifyAdmin("qualcosa da controllare");
-
-    expect(calls).toEqual(["spaces/ADMIN-X:qualcosa da controllare"]);
   });
 });
 
@@ -310,12 +293,13 @@ describe("createGoogleChatProvider — StreamingPull", () => {
 
     const deps = baseDeps({
       subscriptionFn: () => sub as any,
+      getOrCreateDmSpaceFn: async () => ({ name: "spaces/X" }),
       sendMessageFn: async () => ({ name: "spaces/X/messages/self" }),
     });
     const provider = createGoogleChatProvider(deps);
 
     // Send a message once so its name enters the loop-prevention set.
-    await provider.notifyAdmin("noise"); // uses sendMessageFn, which always returns the same name here
+    await provider.notify("users/1", "noise"); // uses sendMessageFn, which always returns the same name here
     await provider.start(async () => {
       handleTurnCalled = true;
     });

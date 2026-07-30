@@ -6,11 +6,10 @@
  * This is the only file that decides which tools actually exist on
  * this instance — `runCommand` only if `loadActiveCliConfigs` (see
  * `src/tools/cli-config-loader.ts`) successfully loads at least one
- * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`,
- * `notifyUser` only if the Google Chat channel is configured. Every
- * other module (`runTurn`, the channels) takes tools/system as inputs
- * rather than assuming any of them exist, specifically so this file can
- * make that call in one place.
+ * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`.
+ * Every other module (`runTurn`, the channels) takes tools/system as
+ * inputs rather than assuming any of them exist, specifically so this
+ * file can make that call in one place.
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
@@ -18,7 +17,6 @@ import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
-import { createNotifyUserTool } from "./tools/notify-user.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -58,7 +56,6 @@ import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
 import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
-import { findChatUserByEmail } from "./cron/identity-bridge.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 import { startAdminServer } from "./admin/server.ts";
@@ -77,7 +74,7 @@ function requireEnv(name: string): string {
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
  * an absent tool is a real bug, not a harmless no-op).
  */
-function buildSystemPrompt(opts: { jira: boolean; googleChatChannel: boolean; multiUserChannel: boolean }): string {
+function buildSystemPrompt(opts: { jira: boolean; multiUserChannel: boolean }): string {
   const lines = ["You are Mercury, an internal assistant."];
   if (opts.jira) {
     lines.push(
@@ -102,7 +99,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatChannel: boolean; mu
     );
   }
   // Always present (WIKI_VAULT_PATH is a required env var, the vault
-  // always exists once Mercury boots) — unlike jira/googleChatChannel, this
+  // always exists once Mercury boots) — unlike jira, this
   // block doesn't need its own opts flag.
   lines.push(
     [
@@ -130,18 +127,6 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatChannel: boolean; mu
       "- If asked what you actually ran/queried/did earlier in this same conversation, call recall_tool_calls and quote it verbatim — you have no memory of your own past tool calls otherwise, only your own prior reply text, so reconstructing from memory instead of calling this tool risks getting it wrong.",
     ].join("\n"),
   );
-
-  if (opts.googleChatChannel) {
-    lines.push(
-      [
-        "You have access to the notifyUser tool, to message a specific third party on Google Chat mid-conversation (e.g. \"avvisa Marco di questo ticket\").",
-        "DO:",
-        "- It needs the recipient's email address, not just a name — if you only have a first name, ask the user for the person's email before calling it.",
-        "DON'T:",
-        "- DON'T guess an email address or guess which person a first name refers to.",
-      ].join("\n"),
-    );
-  }
 
   if (opts.multiUserChannel) {
     // Interim, explicitly non-deterministic mitigation for Mercury replying
@@ -205,8 +190,8 @@ const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
 // always a private 1:1 conversation — an operator typing normally
 // shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
-const system = buildSystemPrompt({ jira: jiraEnabled, googleChatChannel: Boolean(googleChatSubscription), multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatChannel: Boolean(googleChatSubscription), multiUserChannel: true });
+const system = buildSystemPrompt({ jira: jiraEnabled, multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ jira: jiraEnabled, multiUserChannel: true });
 
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
@@ -478,12 +463,8 @@ void selfReviewCron; // kept alive for the process lifetime, same as idleCron
 // runCommand's confirm-required branch stages a command per-session (see
 // createCliTool's opts) — the tool itself must therefore be rebuilt fresh
 // for each turn, scoped to that turn's own sessionKey, rather than built
-// once here and shared across every session like the rest of `tools`
-// historically was. `staticTools` holds whatever doesn't need that
-// (notifyUser, assigned below), `buildTools` layers the session-scoped
-// runCommand on top for a given turn.
+// once and shared across every session.
 const confirmationStore = createConfirmationStore();
-const staticTools: Record<string, Tool> = {};
 
 // `wikiUserId` is separate from `sessionKey`: inferred/users/<userId> notes
 // are scoped per-person, not per-(space,person) pair, so it must not
@@ -495,7 +476,7 @@ function buildTools(
   onToolStart?: TurnSink["onToolStart"],
   onToolFinish?: TurnSink["onToolFinish"],
 ): Record<string, Tool> {
-  const sessionTools: Record<string, Tool> = { ...staticTools };
+  const sessionTools: Record<string, Tool> = {};
   if (Object.keys(activeCliConfigs).length > 0) {
     Object.assign(
       sessionTools,
@@ -575,10 +556,6 @@ const handleTurn = createTurnRunner({
   logStep,
 });
 
-// Registered Chat app credentials — its own service-account identity, not
-// a Workspace-user impersonation: no domain-wide delegation, no
-// impersonate_user field.
-const mercuryAdminSpace = process.env.MERCURY_ADMIN_SPACE;
 let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
 if (googleChatSubscription) {
   chatProvider = createGoogleChatProvider({
@@ -595,13 +572,8 @@ if (googleChatSubscription) {
     vaultPath: wikiVaultPath,
     runCliFn: runCli,
     writeConfirmationNoteFn: writeConfirmationNote,
-    adminSpace: mercuryAdminSpace ?? "",
   });
   await chatProvider.start(handleTurn);
-  Object.assign(
-    staticTools,
-    createNotifyUserTool({ notifier: chatProvider, vaultPath: wikiVaultPath, findChatUserByEmailFn: findChatUserByEmail }),
-  );
 }
 
 // POC admin panel (see docs/plans, throwaway scaffolding) — opt-in only,

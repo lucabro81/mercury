@@ -51,9 +51,9 @@ describe("consolidateSemanticFact", () => {
     await consolidateSemanticFact("users/42", "preferred-language", deps);
 
     // The userId passed to writeInferredNoteFn must be encodeURIComponent-
-    // encoded, matching the convention the model's own wiki tools already
-    // use (writeResolvedNote, createWikiTools) — clusterFn above still saw
-    // the raw "users/42", since that's Qdrant's own storage form.
+    // encoded, matching the convention the model's own wiki tools
+    // (createWikiTools) already use — clusterFn above still saw the raw
+    // "users/42", since that's Qdrant's own storage form.
     expect(written).toEqual({
       vaultPath: VAULT,
       userId: encodeURIComponent("users/42"),

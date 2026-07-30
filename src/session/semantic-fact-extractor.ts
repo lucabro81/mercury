@@ -15,11 +15,11 @@ import type { Message } from "./history.ts";
 /**
  * Closed vocabulary — the model can only ever return one of these exact
  * values, never invent a new key for the same concept. Deliberately
- * excludes identity/name: Mercury already tracks that deterministically
- * (`writeResolvedNote`, sourced from Google Chat's own user API), so a
- * semantic fact about "who the user is" would only duplicate or
- * contradict that more authoritative source, never add anything —
- * observed live as the `name`/`user-name` duplicate before this fix.
+ * excludes identity/name: a registered Chat app's own `MESSAGE` event
+ * already carries the sender's `displayName` directly, so a semantic
+ * fact about "who the user is" would only duplicate or contradict that
+ * more authoritative source, never add anything — observed live as the
+ * `name`/`user-name` duplicate before this fix.
  */
 export const SEMANTIC_FACT_TOPICS = ["team", "role", "preferred-language", "tools-used"] as const;
 export const SemanticFactSchema = z.object({ topic: z.enum(SEMANTIC_FACT_TOPICS), value: z.string() });

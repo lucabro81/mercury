@@ -6,9 +6,9 @@
  * tool-status rendering, and the live context-usage prompt suffix.
  *
  * A single operator, one conversation at a time — there is no real
- * per-user identity here, so `notify`/`notifyAdmin` just write to stderr
- * rather than actually reaching anyone; implemented (not left optional)
- * so a caller that expects a `Notifier` never silently loses a message.
+ * per-user identity here, so `notify` just writes to stderr rather than
+ * actually reaching anyone; implemented (not left optional) so a caller
+ * that expects a `Notifier` never silently loses a message.
  */
 import { startTerminalRepl } from "./terminal.ts";
 import { tryConfirm } from "./confirm-flow.ts";
@@ -153,10 +153,6 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
     async notify(userId: string, text: string): Promise<{ sessionKey: string }> {
       stderrWrite(`[notify] to ${userId}: ${text}`);
       return { sessionKey: TERMINAL_SESSION_KEY };
-    },
-
-    async notifyAdmin(text: string): Promise<void> {
-      stderrWrite(`[notify] admin: ${text}`);
     },
   };
 }

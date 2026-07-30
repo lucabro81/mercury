@@ -255,7 +255,6 @@ export type GoogleChatProviderDeps = {
   vaultPath: string;
   runCliFn: typeof runCli;
   writeConfirmationNoteFn: typeof writeConfirmationNote;
-  adminSpace: string;
   /**
    * Handles a `CARD_CLICKED` event's action parameters. Defaults to
    * resolving the confirm-required button's token through the same
@@ -598,11 +597,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       const sent = await sendMessageFn(space.name, text, clientDeps);
       sentMessageNames.add(sent.name); // loop prevention applies here too — a proactive notification is still our own message if it comes back as an event
       return { sessionKey: space.name };
-    },
-
-    async notifyAdmin(text: string): Promise<void> {
-      const sent = await sendMessageFn(deps.adminSpace, text, clientDeps);
-      sentMessageNames.add(sent.name);
     },
   };
 }

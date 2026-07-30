@@ -60,8 +60,8 @@ describe("createSemanticFactExtractor", () => {
     expect(received?.system.toLowerCase()).toMatch(/stabil|ricorrent|preferenz/);
   });
 
-  // Point 5: identity/name is already tracked deterministically elsewhere
-  // (writeResolvedNote, sourced from Google Chat's own user API) — a
+  // Point 5: identity/name is already available directly from a
+  // registered Chat app's own MESSAGE event (sender.displayName) — a
   // semantic fact about "who the user is" would only ever duplicate or
   // contradict that more authoritative source, never add anything.
   it("instructs the model not to extract the user's identity/name", async () => {

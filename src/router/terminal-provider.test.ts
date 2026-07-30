@@ -437,17 +437,4 @@ describe("createTerminalProvider", () => {
     expect(result).toEqual({ sessionKey: "terminal" });
     expect(written).toEqual(["[notify] to some-user: hello there"]);
   });
-
-  test("notifyAdmin writes to stderr", async () => {
-    const written: string[] = [];
-    const provider = createTerminalProvider({
-      confirmDeps: fakeConfirmDeps(),
-      ollamaHost: "http://host",
-      ollamaModel: "model",
-      stderrWrite: (s) => written.push(s),
-    });
-
-    await provider.notifyAdmin("something needs attention");
-    expect(written).toEqual(["[notify] admin: something needs attention"]);
-  });
 });

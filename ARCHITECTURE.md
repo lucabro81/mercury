@@ -24,8 +24,8 @@ Two things shape almost every other decision in this doc. The LLM endpoint is ha
 │  Google Chat listen ───┼─→ runTurn → Layer 1 history → tools         │
 │  (single Pub/Sub sub)  │            confirmation store               │
 │                        └──────────────┬──────────────┘               │
-│                        runCommand, notifyUser, list_files/read_file/ │
-│                              grep/write_file                         │
+│           runCommand, list_files/read_file/grep/write_file,          │
+│                           recall_tool_calls                          │
 └──────────┬──────────────────────┬────────────────────────┬───────────┘
            │                      │                        │
     ┌──────┴──────┐       ┌───────┴───────┐        ┌───────┴───────┐

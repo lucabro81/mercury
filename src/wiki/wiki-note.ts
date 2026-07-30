@@ -27,11 +27,9 @@ import { stringify as stringifyYaml } from "yaml";
 import {
   CuratedFrontmatterSchema,
   InferredFrontmatterSchema,
-  ResolvedFrontmatterSchema,
   ConfirmationFrontmatterSchema,
   type CuratedFrontmatter,
   type InferredFrontmatter,
-  type ResolvedFrontmatter,
   type ConfirmationFrontmatter,
 } from "./frontmatter-schema.ts";
 
@@ -174,7 +172,7 @@ async function writeVerbatimFile(
 async function writeNoteFile(
   vaultPath: string,
   fullPath: string,
-  frontmatter: CuratedFrontmatter | InferredFrontmatter | ResolvedFrontmatter | ConfirmationFrontmatter,
+  frontmatter: CuratedFrontmatter | InferredFrontmatter | ConfirmationFrontmatter,
   body: string,
   commitMessage: string,
 ): Promise<void> {
@@ -257,69 +255,6 @@ export async function writeToolCorrectionNote(
   const standardsRoot = resolve(vaultPath, "curated", "standards");
   const fullPath = resolveWithinRoot(standardsRoot, `${tool}-${topic}.md`);
   await writeNoteFile(vaultPath, fullPath, frontmatter, body, `inferred: standards/${tool}-${topic}`);
-}
-
-/**
- * Writes the deterministic id->display-name lookup at
- * `inferred/users/<encoded userId>/resolved-name.md` — always exactly one
- * fact per user (unlike `writeInferredNote`'s LLM-chosen `topic`), so
- * there's no topic parameter, just a fixed filename.
- *
- * Unlike `writeInferredNote`'s `userId` (checked via
- * `assertNoPathSeparator`), this `userId` is a deterministic,
- * Mercury-controlled value that legitimately contains `/` in its normal
- * shape (Google Chat's `users/<id>` resource name) — rejecting it would
- * reject the expected input. It's `encodeURIComponent`-encoded into a
- * single safe path segment instead, so it can never represent more than
- * one directory level regardless of content — the same containment
- * `resolveWithinRoot` already guarantees for every writer here, just
- * arrived at without a separate reject-on-slash check.
- */
-export async function writeResolvedNote(
-  vaultPath: string,
-  userId: string,
-  fields: { resolvedAt: string; email: string | null },
-  displayName: string,
-): Promise<void> {
-  const frontmatter = ResolvedFrontmatterSchema.parse({
-    type: "resolved",
-    source: "api",
-    resolved_at: fields.resolvedAt,
-    display_name: displayName,
-    email: fields.email,
-  });
-  const inferredUserRoot = resolve(vaultPath, "inferred", "users", encodeURIComponent(userId));
-  const fullPath = resolveWithinRoot(inferredUserRoot, "resolved-name.md");
-  await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: ${userId}`);
-}
-
-/**
- * Writes the Jira-side half of the Jira<->Chat identity bridge: an
- * assignee's accountId -> {displayName, email} lookup, at
- * `inferred/jira-users/<encoded accountId>/resolved-info.md`. Deliberately
- * a separate namespace from `writeResolvedNote`'s `inferred/users/` (Chat
- * ids), not merged into one — the two caches are joined by email at read
- * time, not by sharing a directory. No separate CLI call needed to
- * populate this: unlike Chat's `getUser`, Jira exposes assignee
- * displayName/email as fields on the issue query Mercury is already
- * running, so the caller just has the data in hand already.
- */
-export async function writeJiraUserResolvedNote(
-  vaultPath: string,
-  accountId: string,
-  fields: { resolvedAt: string; email: string | null },
-  displayName: string,
-): Promise<void> {
-  const frontmatter = ResolvedFrontmatterSchema.parse({
-    type: "resolved",
-    source: "api",
-    resolved_at: fields.resolvedAt,
-    display_name: displayName,
-    email: fields.email,
-  });
-  const jiraUserRoot = resolve(vaultPath, "inferred", "jira-users", encodeURIComponent(accountId));
-  const fullPath = resolveWithinRoot(jiraUserRoot, "resolved-info.md");
-  await writeNoteFile(vaultPath, fullPath, frontmatter, displayName, `resolved: jira-users/${accountId}`);
 }
 
 /**

@@ -122,9 +122,9 @@ async function readIncumbentCount(deps: ConsolidationDeps, userId: string, topic
  * Google Chat resource name) — `clusterFn` above searches with it as-is,
  * matching how `storeSemanticFact` wrote it. The wiki's
  * `inferred/users/<userId>/` convention expects a different,
- * `encodeURIComponent`-encoded form instead (the same one
- * `writeResolvedNote`/the model's own wiki tools already use) — a raw
- * userId containing "/" would otherwise be rejected outright by
+ * `encodeURIComponent`-encoded form instead (the same one the model's
+ * own wiki tools already use) — a raw userId containing "/" would
+ * otherwise be rejected outright by
  * `writeInferredNote`'s own path-separator guard, and even without that
  * guard would land in a directory the model's wiki tools never look at.
  * Two different representations of the same identity, for two different

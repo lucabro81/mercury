@@ -106,13 +106,6 @@ export type Notifier = {
    * same conversation (D-25).
    */
   notify(userId: string, text: string): Promise<{ sessionKey: string }>;
-  /**
-   * Escalation destination for ownerless findings (D-35). A distinct
-   * method, not a sentinel `userId` — the two targets differ in kind
-   * (per-user identity resolution vs. a static admin destination) and in
-   * configuration.
-   */
-  notifyAdmin(text: string): Promise<void>;
 };
 
 export type Provider = Notifier & {
