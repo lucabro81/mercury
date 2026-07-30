@@ -11,6 +11,7 @@
   - [Using the terminal REPL](#using-the-terminal-repl)
   - [Stopping everything](#stopping-everything)
   - [Wiki vault maintenance](#wiki-vault-maintenance)
+  - [Inspecting Qdrant](#inspecting-qdrant)
 - [Deploying to a remote host](#deploying-to-a-remote-host)
   - [Setting up the Chat app's Google Cloud project](#setting-up-the-chat-apps-google-cloud-project)
   - [First deploy](#first-deploy)
@@ -127,6 +128,30 @@ cat note.md | bun run vault -- write-curated curated/standards/new-file.md --aut
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for what the vault is and how Mercury itself uses it.
+
+### Inspecting Qdrant
+
+No dedicated CLI for this one: Qdrant's own REST API is already published on `6333` (see `docker-compose.yml`), so plain `curl` reaches it directly, container running or not.
+
+```bash
+curl -s http://localhost:6333/collections | jq
+```
+
+---
+
+```bash
+curl -s http://localhost:6333/collections/episodic_memory | jq '.result.points_count'
+```
+
+---
+
+```bash
+curl -s -X POST http://localhost:6333/collections/episodic_memory/points/scroll \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 10, "with_payload": true}' | jq
+```
+
+Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the other two collections. Drop `| jq` if it isn't installed, the raw JSON still prints fine.
 
 ## Deploying to a remote host
 
