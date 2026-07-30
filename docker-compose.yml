@@ -14,6 +14,14 @@ services:
       # cambiarlo. Path del repo, non dell'host — identico ovunque il
       # checkout esista.
       - ./cli-configs:/app/cli-config:ro
+      # Storage delle credenziali CLI (jira/bitbucket/atlassian-admin/
+      # google-chat) — seedato una volta sola da scripts/docker-entrypoint.sh
+      # da variabili base64 in .env se il volume è vuoto, poi mai più
+      # toccato: i refresh token che le CLI scrivono durante l'esecuzione
+      # sopravvivono così a un redeploy, stesso pattern di wiki-vault/
+      # qdrant-data. Su dev Mac, docker-compose.override.yml monta path più
+      # specifici sugli stessi sotto-percorsi e questi restano inutilizzati.
+      - cli-credentials:/home/mercury/.config
     depends_on:
       - qdrant
 
@@ -34,3 +42,5 @@ volumes:
     name: mercury_wiki-vault
   qdrant-data:
     name: mercury_qdrant-data
+  cli-credentials:
+    name: mercury_cli-credentials

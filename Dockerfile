@@ -59,10 +59,12 @@ RUN chmod +x ./scripts/docker-entrypoint.sh
 # write, confirmed live against a real fresh volume before this line existed
 RUN mkdir -p /app/wiki-vault && chown mercury:mercury /app/wiki-vault
 
-# useradd -r above doesn't create a home directory — needed so
-# docker-entrypoint.sh has somewhere writable to materialize CLI configs
-# into (/home/mercury/.config/<cli>)
-RUN mkdir -p /home/mercury && chown mercury:mercury /home/mercury
+# useradd -r above doesn't create a home directory. Same fresh-volume
+# reasoning as wiki-vault above: /home/mercury/.config is the
+# cli-credentials named volume's mount point (docker-compose.yml), needs
+# the right ownership pre-existing in the image or a brand-new volume
+# attaches as root:root and docker-entrypoint.sh gets EACCES
+RUN mkdir -p /home/mercury/.config && chown -R mercury:mercury /home/mercury
 
 USER mercury
 
