@@ -238,8 +238,6 @@ Each wipes its own named volume and lets Mercury reinitialize it empty on the ne
 
 ## Scripts
 
-Everything in `scripts/` is plain bash, nothing needs `bun`/`npm` to invoke — just `bash scripts/<name>.sh`, or `./scripts/<name>.sh` directly, all of them are already executable.
-
 - **`vault.sh`** — maintenance CLI for the wiki vault, run manually. See [Wiki vault maintenance](#wiki-vault-maintenance).
 - **`reset-qdrant.sh`** / **`reset-wiki.sh`** — wipe one memory layer after a confirmation prompt, run manually. See [Resetting memory](#resetting-memory).
 - **`redeploy-gb10.sh`** — `git pull` then `docker compose up -d --build`, run manually on a remote deployment. See [Redeploying](#redeploying).
