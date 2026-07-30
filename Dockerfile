@@ -48,6 +48,9 @@ COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
 
 COPY --chown=mercury:mercury src ./src
 
+COPY --chown=mercury:mercury scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+RUN chmod +x ./scripts/docker-entrypoint.sh
+
 # Pre-creates the wiki-vault mount point with the right ownership before the
 # named volume is ever attached: a fresh named volume inherits its initial
 # content/permissions from whatever already exists at the mount path in the
@@ -56,6 +59,11 @@ COPY --chown=mercury:mercury src ./src
 # write, confirmed live against a real fresh volume before this line existed
 RUN mkdir -p /app/wiki-vault && chown mercury:mercury /app/wiki-vault
 
+# useradd -r above doesn't create a home directory — needed so
+# docker-entrypoint.sh has somewhere writable to materialize CLI configs
+# into (/home/mercury/.config/<cli>)
+RUN mkdir -p /home/mercury && chown mercury:mercury /home/mercury
+
 USER mercury
 
-CMD ["bun", "run", "src/index.ts"]
+CMD ["scripts/docker-entrypoint.sh"]
