@@ -5,6 +5,9 @@
 - [What it is](#what-it-is)
 - [Installation](#installation)
 - [Running it](#running-it)
+  - [Starting it](#starting-it)
+  - [Rebuilding](#rebuilding)
+  - [Viewing logs](#viewing-logs)
   - [Using the terminal REPL](#using-the-terminal-repl)
   - [Stopping everything](#stopping-everything)
   - [Wiki vault maintenance](#wiki-vault-maintenance)
@@ -34,17 +37,48 @@ Leave `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty to run with the terminal channel o
 
 ## Running it
 
+Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory, see [ARCHITECTURE.md](ARCHITECTURE.md)). `docker compose` starts, stops, and rebuilds both together.
+
+### Starting it
+
 ```bash
 docker compose up -d
 ```
 
-Starts Mercury and Qdrant in the background. In development, `docker-compose.override.yml` is applied automatically: it mounts `src/` and reloads on every change, no manual build required — for source changes.
+`-d` (detached) runs it in the background: the command returns immediately, and both containers keep running after you close the terminal. Drop it to run attached, in the foreground, with every service's output printed live and `Ctrl+C` stopping everything:
 
-CLI binaries are the exception: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them. A new release on CLI-monorepo doesn't reach the running container until you rebuild — and a plain `--build` isn't enough to guarantee that: Docker caches the `RUN ./scripts/install-clis.sh` layer by its inputs (the script's own content, unchanged), not by whether something changed on GitHub, so a normal rebuild can silently keep serving an old binary. Force it with `--no-cache`:
+```bash
+docker compose up
+```
+
+In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts `src/` and reloads on every source change, no rebuild needed for that.
+
+### Rebuilding
+
+Plain `docker compose up -d` doesn't rebuild anything if an image already exists. Add `--build` whenever something outside `src/` changed (dependencies, the Dockerfile itself):
+
+```bash
+docker compose up -d --build
+```
+
+CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them, and neither does a normal `--build`. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a plain rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache`:
 
 ```bash
 docker compose build --no-cache mercury
 docker compose up -d
+```
+
+### Viewing logs
+
+```bash
+docker compose logs -f
+```
+
+Follows every service's logs together, interleaved — the same thing you'd see running `docker compose up` in the foreground. Name a service to follow only that one:
+
+```bash
+docker compose logs -f mercury
+docker compose logs -f qdrant
 ```
 
 ### Using the terminal REPL
@@ -68,6 +102,8 @@ docker compose logs -f mercury
 ```bash
 docker compose down
 ```
+
+Stops and removes both containers. The named volumes (wiki vault, Qdrant data, CLI credentials) aren't touched — they survive, and the next `up` picks up right where it left off. See [Resetting memory](#resetting-memory) for actually wiping one of them.
 
 ### Wiki vault maintenance
 
