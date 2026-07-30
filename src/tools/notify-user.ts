@@ -2,7 +2,7 @@
  * Model-invocable tool that lets the model message a third party
  * mid-conversation — e.g. "avvisa Marco di questo ticket" while talking to
  * Mercury on a different channel. A plain native AI-SDK tool, same shape
- * as `joinSpace`/wiki tools, **not** a CLI string: no real external binary
+ * as the wiki tools, **not** a CLI string: no real external binary
  * sits behind "send a message," so faking the `runCommand`-style
  * tokenize/allowlist/spawn dance would protect nothing (D-07's rationale —
  * the LLM already knows CLI syntax, zero token waste on schema injection —

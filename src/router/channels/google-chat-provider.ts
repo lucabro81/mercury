@@ -278,17 +278,6 @@ export type GoogleChatProviderDeps = {
 };
 
 export type GoogleChatProvider = Provider & {
-  /**
-   * Best-effort self-join: adds the app itself to `space` via the Members
-   * API if it isn't already a member. Unlike the retired channel's
-   * `ensureChannel` (which could only start *listening* to a space Mercury
-   * was already added to by a human — a real app has no self-add
-   * capability under impersonation), a registered app can add itself.
-   * **Not verified live as of this pass** — the Members-API call shape
-   * here follows the documented request format but hasn't been exercised
-   * against a real space yet; treat as best-effort until confirmed.
-   */
-  ensureChannel(space: string): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -593,15 +582,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       // convention every other channel/poller loop in this project
       // follows).
       sub.on("error", (err) => log(`[chat] pubsub stream error: ${String(err)}`));
-    },
-
-    async ensureChannel(space: string): Promise<void> {
-      // Self-join via the Members API — a real capability a registered app
-      // has that the retired impersonated-user channel never did (see this
-      // type's own doc comment). **Not exercised against a real space as
-      // of this pass**: left as an honest no-op rather than a fabricated,
-      // unverified Members-API call shape. Revisit once verified live.
-      log(`[chat] ensureChannel(${space}) requested — self-join not yet implemented/verified`);
     },
 
     async stop(): Promise<void> {

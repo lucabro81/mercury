@@ -24,7 +24,7 @@ Two things shape almost every other decision in this doc. The LLM endpoint is ha
 │  Google Chat listen ───┼─→ runTurn → Layer 1 history → tools         │
 │  (single Pub/Sub sub)  │            confirmation store               │
 │                        └──────────────┬──────────────┘               │
-│                        runCommand, joinSpace, list_files/read_file/  │
+│                        runCommand, notifyUser, list_files/read_file/ │
 │                              grep/write_file                         │
 └──────────┬──────────────────────┬────────────────────────┬───────────┘
            │                      │                        │
@@ -73,7 +73,7 @@ Installation and activation are two separate decisions. Which CLIs end up *insta
 
 ## Google Chat channel
 
-Mercury is a registered Chat app, not an impersonated Workspace user: a service-account JWT-bearer flow (`google-chat-app-client.ts`, `chat.bot` scope) authenticates it under its own bot identity, and event delivery comes through a single Pub/Sub subscription for the whole app, not one per space, consumed via StreamingPull (`@google-cloud/pubsub`, `google-chat-pubsub-stream.ts`). The `joinSpace` tool still exists, but now maps to a real Members-API self-join (`ensureChannel`) rather than just attaching to a space Mercury was already added to — that call shape follows the documented request format but hasn't been exercised against a real space yet, so it's treated as best-effort until confirmed live.
+Mercury is a registered Chat app, not an impersonated Workspace user: a service-account JWT-bearer flow (`google-chat-app-client.ts`, `chat.bot` scope) authenticates it under its own bot identity, and event delivery comes through a single Pub/Sub subscription for the whole app, not one per space, consumed via StreamingPull (`@google-cloud/pubsub`, `google-chat-pubsub-stream.ts`). Joining a space is still a human action, the same as adding any other Chat app — once added, that space's events arrive on the same shared subscription with no further setup. A self-join tool (`joinSpace`/`ensureChannel`) existed for a while as an unverified Members-API call that had never actually been exercised against a real space; removed rather than left half-built, since calling it did nothing but log and claim success.
 
 Two event kinds arrive on that one subscription: a `MESSAGE` event and a `CARD_CLICKED` event (the confirmation card's button). Mercury acks each message immediately, before `handleTurn` or the card-click handler ever runs — a real multi-step turn routinely outlasts Pub/Sub's ack deadline, and acking only after processing finished would risk a concurrent redelivery mid-turn; a hard crash mid-turn loses that one message instead of risking an endless redelivery loop. Turns for the same session (`space:sender`) are serialized through an in-process queue, so two messages arriving close together never race on the same `SessionHistory` — a session already mid-turn queues the next event instead of starting a second one concurrently.
 

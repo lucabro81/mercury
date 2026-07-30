@@ -7,7 +7,7 @@
  * this instance — `runCommand` only if `loadActiveCliConfigs` (see
  * `src/tools/cli-config-loader.ts`) successfully loads at least one
  * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`,
- * `joinSpace` only if the Google Chat channel is configured. Every
+ * `notifyUser` only if the Google Chat channel is configured. Every
  * other module (`runTurn`, the channels) takes tools/system as inputs
  * rather than assuming any of them exist, specifically so this file can
  * make that call in one place.
@@ -18,7 +18,6 @@ import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
-import { createJoinSpaceTool } from "./tools/google-chat-join.ts";
 import { createNotifyUserTool } from "./tools/notify-user.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -78,7 +77,7 @@ function requireEnv(name: string): string {
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
  * an absent tool is a real bug, not a harmless no-op).
  */
-function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multiUserChannel: boolean }): string {
+function buildSystemPrompt(opts: { jira: boolean; googleChatChannel: boolean; multiUserChannel: boolean }): string {
   const lines = ["You are Mercury, an internal assistant."];
   if (opts.jira) {
     lines.push(
@@ -103,7 +102,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
     );
   }
   // Always present (WIKI_VAULT_PATH is a required env var, the vault
-  // always exists once Mercury boots) — unlike jira/googleChatJoin, this
+  // always exists once Mercury boots) — unlike jira/googleChatChannel, this
   // block doesn't need its own opts flag.
   lines.push(
     [
@@ -132,14 +131,7 @@ function buildSystemPrompt(opts: { jira: boolean; googleChatJoin: boolean; multi
     ].join("\n"),
   );
 
-  if (opts.googleChatJoin) {
-    lines.push(
-      [
-        "You have access to the joinSpace tool.",
-        "DO:",
-        "- If a user asks you to participate in a specific Google Chat space, use it to start listening immediately instead of waiting for periodic discovery.",
-      ].join("\n"),
-    );
+  if (opts.googleChatChannel) {
     lines.push(
       [
         "You have access to the notifyUser tool, to message a specific third party on Google Chat mid-conversation (e.g. \"avvisa Marco di questo ticket\").",
@@ -213,8 +205,8 @@ const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
 // always a private 1:1 conversation — an operator typing normally
 // shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
-const system = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatSubscription), multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatJoin: Boolean(googleChatSubscription), multiUserChannel: true });
+const system = buildSystemPrompt({ jira: jiraEnabled, googleChatChannel: Boolean(googleChatSubscription), multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ jira: jiraEnabled, googleChatChannel: Boolean(googleChatSubscription), multiUserChannel: true });
 
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
@@ -488,7 +480,7 @@ void selfReviewCron; // kept alive for the process lifetime, same as idleCron
 // for each turn, scoped to that turn's own sessionKey, rather than built
 // once here and shared across every session like the rest of `tools`
 // historically was. `staticTools` holds whatever doesn't need that
-// (joinSpace, assigned below), `buildTools` layers the session-scoped
+// (notifyUser, assigned below), `buildTools` layers the session-scoped
 // runCommand on top for a given turn.
 const confirmationStore = createConfirmationStore();
 const staticTools: Record<string, Tool> = {};
@@ -606,7 +598,6 @@ if (googleChatSubscription) {
     adminSpace: mercuryAdminSpace ?? "",
   });
   await chatProvider.start(handleTurn);
-  Object.assign(staticTools, createJoinSpaceTool(chatProvider.ensureChannel));
   Object.assign(
     staticTools,
     createNotifyUserTool({ notifier: chatProvider, vaultPath: wikiVaultPath, findChatUserByEmailFn: findChatUserByEmail }),

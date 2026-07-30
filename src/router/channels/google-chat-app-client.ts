@@ -2,8 +2,9 @@
  * The registered Chat app's own transport — Chat REST API + Pub/Sub pull,
  * called directly over HTTPS from this process, never through `gchat-cli`
  * (that CLI is only ever a subprocess wrapper for the retired impersonation
- * path; it is not model-facing either way — see `google-chat-join.ts`'s own
- * doc comment on why channel transport is never model-invocable).
+ * path; it is not model-facing either way — channel transport itself
+ * (reading/sending messages) is never something the model calls directly,
+ * unlike a tool such as `notify-user.ts`, which the model does invoke).
  *
  * Auth: a service-account JWT-bearer flow (RFC 7523), signed with Node's
  * built-in `crypto` — no new OAuth/Google API client dependency needed for
