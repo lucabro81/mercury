@@ -51,6 +51,8 @@ docker compose up -d
 docker compose up
 ```
 
+---
+
 In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts `src/` and reloads on every source change, no rebuild needed for that.
 
 ### Rebuilding
@@ -60,6 +62,8 @@ Plain `docker compose up -d` doesn't rebuild anything if an image already exists
 ```bash
 docker compose up -d --build
 ```
+
+---
 
 CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them, and neither does a normal `--build`. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a plain rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache`:
 
@@ -74,7 +78,11 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Follows every service's logs together, interleaved — the same thing you'd see running `docker compose up` in the foreground. Name a service to follow only that one:
+Follows every service's logs together, interleaved — the same thing you'd see running `docker compose up` in the foreground.
+
+---
+
+Name a service to follow only that one:
 
 ```bash
 docker compose logs -f mercury
@@ -90,6 +98,8 @@ docker compose run --rm mercury
 ```
 
 Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough.
+
+---
 
 `Ctrl+C` exits the REPL and stops the container. To follow logs without attaching to the REPL:
 
@@ -166,6 +176,8 @@ gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
 ```
 
 `key.json`'s `client_email`/`private_key` go into `GOOGLE_CHAT_APP_CLIENT_EMAIL`/`GOOGLE_CHAT_APP_PRIVATE_KEY`, and `projects/$PROJECT_ID/subscriptions/$SUBSCRIPTION` into `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION`. Delete `key.json` once you've copied it in.
+
+---
 
 One part has no `gcloud`/API equivalent and has to be done by hand in Cloud Console, at *APIs & Services → Enabled APIs & Services → Google Chat API → Configuration*: set an app name, avatar, and description, turn on interactive features, and under connection settings pick Cloud Pub/Sub with `$TOPIC`'s full name. Add the resulting bot to a space the same way you'd add any Chat app.
 
