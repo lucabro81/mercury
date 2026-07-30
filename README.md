@@ -18,6 +18,7 @@
   - [Redeploying](#redeploying)
   - [CLI credentials without a host installation](#cli-credentials-without-a-host-installation)
   - [Resetting memory](#resetting-memory)
+- [Scripts](#scripts)
 - [CLIs and service authentication](#clis-and-service-authentication)
 - [Architecture](ARCHITECTURE.md)
 
@@ -121,10 +122,10 @@ Stops and removes both containers. The named volumes (wiki vault, Qdrant data, C
 The wiki vault lives on its own Docker volume, not in this repo, so there's a small maintenance CLI for it:
 
 ```bash
-bun run vault -- list
-bun run vault -- read curated/standards/some-file.md
-bun run vault -- grep "some pattern"
-cat note.md | bun run vault -- write-curated curated/standards/new-file.md --author yourname
+scripts/vault.sh list
+scripts/vault.sh read curated/standards/some-file.md
+scripts/vault.sh grep "some pattern"
+cat note.md | scripts/vault.sh write-curated curated/standards/new-file.md --author yourname
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for what the vault is and how Mercury itself uses it.
@@ -229,11 +230,22 @@ The four CLIs (Jira, Bitbucket, Google Chat, atlassian-admin) normally read thei
 ### Resetting memory
 
 ```bash
-bun run reset:qdrant
-bun run reset:wiki
+scripts/reset-qdrant.sh
+scripts/reset-wiki.sh
 ```
 
 Each wipes its own named volume and lets Mercury reinitialize it empty on the next start, useful for clearing out test data without touching the other layer.
+
+## Scripts
+
+Everything in `scripts/` is plain bash, nothing needs `bun`/`npm` to invoke — just `bash scripts/<name>.sh`, or `./scripts/<name>.sh` directly, all of them are already executable.
+
+- **`vault.sh`** — maintenance CLI for the wiki vault, run manually. See [Wiki vault maintenance](#wiki-vault-maintenance).
+- **`reset-qdrant.sh`** / **`reset-wiki.sh`** — wipe one memory layer after a confirmation prompt, run manually. See [Resetting memory](#resetting-memory).
+- **`redeploy-gb10.sh`** — `git pull` then `docker compose up -d --build`, run manually on a remote deployment. See [Redeploying](#redeploying).
+- **`install-clis.sh`** — fetches the CLI binaries from CLI-monorepo. Runs automatically at image build time, never by hand.
+- **`docker-entrypoint.sh`** — the container's actual entrypoint: materializes CLI credentials from `.env` if the volume's still empty, then starts Mercury. Runs automatically at container start. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
+- **`tag-release.sh`** — tags the version `changeset version` just bumped. Runs as part of `bun run release`, not standalone.
 
 ## CLIs and service authentication
 
