@@ -18,9 +18,35 @@ describe("createJiraIssueListFormatter", () => {
     expect(format(PARSED, result)).toEqual(result);
   });
 
-  it("passes a result through unchanged when issues array elements aren't issue-shaped", () => {
+  // Not a hard error like the missing-summary case below — the raw data is
+  // still valid and returned untouched, just with a note explaining why no
+  // formattedList could be built, so the model can retry if it turns out
+  // the user actually wanted a rendered list.
+  it("adds a formattedListNote, without erroring, when issues are missing key (e.g. reshaped by --select)", () => {
+    // Real shape confirmed live: `--select issues.fields.summary,issues.fields.status.name`
+    // prunes "key" off each issue entirely, still under the issues[] wrapper.
+    const original = { issues: [{ fields: { summary: "Ticket di test", status: { name: "Da fare" } } }] };
+    const result: CliResult = { ok: true, data: original };
+
+    const formatted = format(PARSED, result);
+
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      expect(formatted.data).toMatchObject(original);
+      const data = formatted.data as { formattedListNote: string; formattedList?: unknown };
+      expect(data.formattedListNote).toContain("key");
+      expect(data.formattedListNote).toContain("--select");
+      expect(data.formattedList).toBeUndefined();
+    }
+  });
+
+  it("adds a formattedListNote when issues array elements aren't objects at all", () => {
     const result: CliResult = { ok: true, data: { issues: ["not an issue object"] } };
-    expect(format(PARSED, result)).toEqual(result);
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      expect((formatted.data as { formattedListNote: string }).formattedListNote).toBeTruthy();
+    }
   });
 
   it("adds a 'no matching issues' formattedList for an empty issues array, without erroring", () => {
