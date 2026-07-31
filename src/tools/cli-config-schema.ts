@@ -22,6 +22,12 @@ export const CliCommandSchema = z
      * etc.) rather than just reading it — distinct from `confirm`: a
      * command can mutate without requiring confirmation (e.g. create). */
     mutating: z.boolean(),
+    /** Optional name of a post-processor (see `cli-tool.ts`'s
+     * `postProcessors`) applied to this command's result after it runs —
+     * e.g. "issue-list" to add a deterministically-formatted block to a
+     * `jira issue search` result. Looked up by name at the composition
+     * root; the schema doesn't know or care what processors exist. */
+    postProcess: z.string().min(1).optional(),
   })
   .strict();
 

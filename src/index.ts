@@ -14,7 +14,8 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "./tools/cli-executor.ts";
-import { createCliTool } from "./tools/cli-tool.ts";
+import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
+import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
@@ -86,6 +87,7 @@ function buildSystemPrompt(opts: { jira: boolean; multiUserChannel: boolean }): 
         "- Use --help on any subcommand if you're unsure of its flags.",
         "- Use native JQL syntax for relative dates (e.g. now()) — don't compute dates yourself.",
         '- When a search can return more than one or two issues, add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.',
+        "- When you have a list of Jira issues to show the user, for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.",
         "- If the user refers to a project by an informal name (e.g. \"the monorepo\") rather than its JQL project key, check curated/projects/project-codes.md for the mapping FIRST, before guessing a key or running a keyword search. If it's not there and you learn it (from the user or from search results), write_file it there so you don't have to rediscover it next time.",
         '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.',
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
@@ -96,6 +98,8 @@ function buildSystemPrompt(opts: { jira: boolean; multiUserChannel: boolean }): 
         "- DON'T just say you'll retry and stop there — an empty/rejected/suspicious result means retry for real, not just talk about it.",
         "- DON'T describe a command you're about to run as your entire response — if the question needs runCommand, call it in this same turn before replying; a sentence saying what you're about to look up, with no tool call attached, leaves the user with nothing.",
         '- DON\'T treat a bare `{}` as "confirmed zero matching issues" — it usually means your `--select` path was wrong, not that the search found nothing. A genuine empty result looks like `{"issues": []}`. On `{}`, check curated/standards/jira-cli.md for the correct `--select` syntax, or retry with `--select-all`, before telling the user there\'s no data.',
+        "- DON'T hand-format a list of Jira issues yourself, even straight from the raw JSON — if formattedList isn't in the result, retry issue search with --fields including summary instead of improvising from partial data.",
+        "- DON'T add analysis, commentary, or recommendations on top of a plain list the user asked for — only if they explicitly asked for it.",
       ].join("\n"),
     );
   }
@@ -181,6 +185,19 @@ const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
   runCliFn: runCli,
 });
 const jiraEnabled = Boolean(activeCliConfigs.jira);
+
+// The "issue-list" hook cli-configs/jira.json declares on `issue search`
+// only actually does anything if this is set — JIRA_SITE_URL isn't
+// derivable from any CLI output (the API talks to
+// api.atlassian.com/ex/jira/<cloud-id>/..., unrelated to the human-facing
+// hostname), so without it the formatter is simply never registered and
+// runCommand's result for `issue search` passes through unaugmented, same
+// as any other CLI with no post-processor configured.
+const cliPostProcessors: Record<string, CliPostProcessor> = {};
+const jiraSiteUrl = process.env.JIRA_SITE_URL;
+if (jiraSiteUrl) {
+  cliPostProcessors["issue-list"] = createJiraIssueListFormatter(jiraSiteUrl);
+}
 // A single subscription for the whole app (Cloud Pub/Sub deployment) —
 // unlike the retired impersonation channel, there's no per-space Workspace
 // Events subscription to manage: whatever space the app is a member of
@@ -486,6 +503,7 @@ function buildTools(
         store: confirmationStore,
         vaultPath: wikiVaultPath,
         userId: wikiUserId,
+        postProcessors: cliPostProcessors,
       }),
     );
   }

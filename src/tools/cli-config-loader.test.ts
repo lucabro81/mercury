@@ -68,6 +68,18 @@ describe("toCliConfig", () => {
     });
     expect(config.allowedPrefixes).toEqual([{ prefix: ["issue", "create"], confirm: false, mutating: true }]);
   });
+
+  it("passes postProcess through when declared, and leaves it undefined when not", () => {
+    const config = toCliConfig({
+      binary: "fakecli",
+      commands: [
+        { prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" },
+        { prefix: ["doctor"], confirm: false, mutating: false },
+      ],
+    });
+    expect(config.allowedPrefixes[0]?.postProcess).toBe("issue-list");
+    expect(config.allowedPrefixes[1]?.postProcess).toBeUndefined();
+  });
 });
 
 describe("loadCliConfig", () => {

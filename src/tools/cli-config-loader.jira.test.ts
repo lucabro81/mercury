@@ -30,6 +30,7 @@ describe("cli-configs/jira.json", () => {
     expect(matchCommand(["issue", "search", "--jql", "project=KAN"], jiraConfig)).toEqual({
       kind: "allowed",
       mutating: false,
+      postProcess: "issue-list",
     });
     expect(matchCommand(["issue", "get", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
     expect(matchCommand(["issue", "transitions", "KAN-42"], jiraConfig)).toEqual({
@@ -93,7 +94,7 @@ describe("cli-configs/jira.json", () => {
         ["--select", "issues.key,issues.fields.summary", "issue", "search", "--jql", "project=KAN"],
         jiraConfig,
       ),
-    ).toEqual({ kind: "allowed", mutating: false });
+    ).toEqual({ kind: "allowed", mutating: false, postProcess: "issue-list" });
     expect(matchCommand(["--select", "id", "doctor"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
   });
 

@@ -106,6 +106,21 @@ describe("matchCommand", () => {
     expect(matchCommand(["--select", "id", "issue", "search"], config)).toEqual({ kind: "not-allowed" });
   });
 
+  it("carries a matched prefix's postProcess name through on an allowed result", () => {
+    const withPostProcess: CliConfig = {
+      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
+    };
+    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], withPostProcess)).toEqual({
+      kind: "allowed",
+      mutating: false,
+      postProcess: "issue-list",
+    });
+  });
+
+  it("leaves postProcess undefined for a prefix that doesn't declare one", () => {
+    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed", mutating: false });
+  });
+
   // Proves the allowlist logic is genuinely generic across CLIs, not just
   // "jira with extra steps" — two configs with unrelated prefix sets must
   // each only allow their own shapes.
@@ -194,6 +209,95 @@ describe("createCliTool", () => {
     expect(receivedBinary).toBe("jira");
     expect(receivedArgs).toEqual(["issue", "search", "--jql", "project = KAN"]);
     expect(result).toEqual(fakeResult);
+  });
+
+  describe("postProcessors", () => {
+    const withPostProcess: CliConfig = {
+      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
+    };
+
+    it("applies the named post-processor to a successful result when the matched prefix declares one", async () => {
+      const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
+      const postProcessors = {
+        "issue-list": (_parsed: { binary: string; args: string[] }, result: CliResult): CliResult =>
+          result.ok ? { ok: true, data: { ...(result.data as object), formattedList: "no issues" } } : result,
+      };
+
+      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
+
+      expect(result).toEqual({ ok: true, data: { issues: [], formattedList: "no issues" } });
+    });
+
+    it("passes the parsed binary/args to the post-processor", async () => {
+      const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
+      let received: { binary: string; args: string[] } | undefined;
+      const postProcessors = {
+        "issue-list": (parsed: { binary: string; args: string[] }, result: CliResult): CliResult => {
+          received = parsed;
+          return result;
+        },
+      };
+
+      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
+
+      expect(received).toEqual({ binary: "jira", args: ["issue", "search", "--jql", "project = KAN"] });
+    });
+
+    it("leaves the result untouched when no postProcessors map is supplied", async () => {
+      const fakeResult: CliResult = { ok: true, data: { issues: [] } };
+      const runCliFn = async (): Promise<CliResult> => fakeResult;
+
+      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, defaultOpts());
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
+
+      expect(result).toEqual(fakeResult);
+    });
+
+    it("leaves the result untouched when the matched prefix's postProcess name isn't registered", async () => {
+      const fakeResult: CliResult = { ok: true, data: { issues: [] } };
+      const runCliFn = async (): Promise<CliResult> => fakeResult;
+
+      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+        ...defaultOpts(),
+        postProcessors: { "some-other-hook": (_p, r: CliResult) => r },
+      });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
+
+      expect(result).toEqual(fakeResult);
+    });
+
+    it("leaves the result untouched for a matched prefix that declares no postProcess, even with a postProcessors map present", async () => {
+      const fakeResult: CliResult = { ok: true, data: "ok" };
+      const runCliFn = async (): Promise<CliResult> => fakeResult;
+
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, {
+        ...defaultOpts(),
+        postProcessors: { "issue-list": (_p, r: CliResult) => ({ ok: true, data: "mutated" }) },
+      });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = await runCommand.execute({ command: "jira doctor" }, {} as never);
+
+      expect(result).toEqual(fakeResult);
+    });
+
+    it("lets a post-processor turn a successful CLI result into an error (e.g. missing required fields)", async () => {
+      const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [{ key: "KAN-1" }] } });
+      const postProcessors = {
+        "issue-list": (): CliResult => ({ ok: false, error: "missing required field: summary" }),
+      };
+
+      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      // @ts-expect-error - execute is guaranteed present for this tool definition
+      const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
+
+      expect(result).toEqual({ ok: false, error: "missing required field: summary" });
+    });
   });
 
   // Relocated originally from jira.test.ts's createJiraTool coverage: lists

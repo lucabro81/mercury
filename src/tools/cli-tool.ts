@@ -24,11 +24,31 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
-import type { runCli } from "./cli-executor.ts";
+import type { runCli, CliResult } from "./cli-executor.ts";
 import type { ConfirmationStore } from "./confirmation-store.ts";
 import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
-export type AllowedCommand = { prefix: string[]; confirm: boolean; mutating: boolean };
+/**
+ * Deterministically transforms a successful (or failed) `runCliFn` result
+ * for one specific command shape — looked up by the name a CLI's own
+ * config declares via `postProcess` (e.g. "issue-list"), never by
+ * `cli-tool.ts` knowing anything about which binary or command it's for.
+ * Can augment `data` (add a field, never remove what was there) or turn a
+ * technically-successful result into `{ok:false, error}` when the data
+ * isn't shaped as the post-processor needs (e.g. a required field wasn't
+ * requested via --fields) — same self-correctable-error contract as every
+ * other `runCommand` failure mode.
+ */
+export type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
+
+export type AllowedCommand = {
+  prefix: string[];
+  confirm: boolean;
+  mutating: boolean;
+  /** Name of a post-processor (see `CliPostProcessor`/`createCliTool`'s
+   * `postProcessors`) applied to this command's result after it runs. */
+  postProcess?: string;
+};
 export type GlobalFlag = { flag: string; takesValue: boolean };
 
 export type CliConfig = {
@@ -60,7 +80,7 @@ export function stripGlobalFlags(args: string[], globalFlags: GlobalFlag[]): str
 }
 
 export type CommandMatch =
-  | { kind: "allowed"; mutating: boolean }
+  | { kind: "allowed"; mutating: boolean; postProcess?: string }
   | { kind: "confirm-required"; prefix: string[]; mutating: boolean }
   | { kind: "not-allowed" };
 
@@ -86,7 +106,7 @@ export function matchCommand(args: string[], config: CliConfig): CommandMatch {
   }
   return match.confirm
     ? { kind: "confirm-required", prefix: match.prefix, mutating: match.mutating }
-    : { kind: "allowed", mutating: match.mutating };
+    : { kind: "allowed", mutating: match.mutating, postProcess: match.postProcess };
 }
 
 /** Renders a list of prefixes as a comma-separated string for a
@@ -129,6 +149,11 @@ export function createCliTool(
     writeConfirmationNoteFn?: typeof writeConfirmationNote;
     /** Test seam; defaults to `() => new Date()`. */
     nowFn?: () => Date;
+    /** Named post-processors (see `CliPostProcessor`), keyed by the name a
+     * command's config declares via `postProcess`. Assembled at the
+     * composition root (`index.ts`) from whichever CLI-specific modules
+     * are wired in — `cli-tool.ts` itself never knows what any of them do. */
+    postProcessors?: Record<string, CliPostProcessor>;
   },
 ) {
   const writeConfirmationNoteFn = opts.writeConfirmationNoteFn ?? writeConfirmationNote;
@@ -202,7 +227,9 @@ export function createCliTool(
         };
       }
 
-      return runCliFn(parsed.binary, parsed.args);
+      const result = await runCliFn(parsed.binary, parsed.args);
+      const postProcess = match.postProcess ? opts.postProcessors?.[match.postProcess] : undefined;
+      return postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
     },
   });
 

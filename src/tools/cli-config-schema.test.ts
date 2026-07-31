@@ -120,4 +120,23 @@ describe("CliConfigFileSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // postProcess names a hook applied to this command's result after it
+  // runs (see cli-tool.ts's postProcessors) — optional, most commands
+  // don't need one.
+  it("accepts a command with a postProcess name", () => {
+    const result = CliConfigFileSchema.safeParse({
+      binary: "jira",
+      commands: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty postProcess string", () => {
+    const result = CliConfigFileSchema.safeParse({
+      binary: "jira",
+      commands: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "" }],
+    });
+    expect(result.success).toBe(false);
+  });
 });
