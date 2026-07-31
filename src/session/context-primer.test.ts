@@ -24,6 +24,7 @@ function fakeDeps(overrides: Partial<ContextPrimerDeps> = {}): ContextPrimerDeps
     getLastSessionEntries: async () => [],
     listWikiFilesInRootsFn: async () => [],
     readWikiFileInRootsFn: async () => "",
+    readIndexFileFn: async () => "",
     ...overrides,
   };
 }
@@ -199,6 +200,41 @@ describe("buildContextPrimer", () => {
       await buildContextPrimer("users/42", deps);
 
       expect(confirmationsRoots).toEqual(["/vault/inferred/confirmations/users%2F42"]);
+    });
+  });
+
+  describe("Wiki index", () => {
+    it("includes the wiki index's actual content, not just a reference to it, even with no prior session", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [],
+        readIndexFileFn: async () => "- [[standards/jira-fields]] — custom field conventions\n",
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).toBe("Wiki index:\n- [[standards/jira-fields]] — custom field conventions");
+    });
+
+    it("omits the section entirely when index.md is empty or missing", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [],
+        readIndexFileFn: async () => "",
+      });
+
+      expect(await buildContextPrimer("users/42", deps)).toBe("");
+    });
+
+    it("places the wiki index before the per-user sections", async () => {
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => [lastSessionEntry],
+        readIndexFileFn: async () => "- [[glossary]] — team glossary\n",
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).toBe(
+        "Wiki index:\n- [[glossary]] — team glossary\n\n" + "Last session:\n- Discussed KAN-1 rollout",
+      );
     });
   });
 });

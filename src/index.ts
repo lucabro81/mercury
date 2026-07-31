@@ -53,7 +53,7 @@ import { createToolCorrectionExtractor } from "./session/tool-correction-extract
 import { createEmbedder } from "./memory/embedder.ts";
 import { initVault } from "./wiki/vault-init.ts";
 import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
-import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots } from "./wiki/wiki-read.ts";
+import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots, readIndexFile } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { resolve as resolvePath } from "node:path";
@@ -536,6 +536,7 @@ const handleTurn = createTurnRunner({
         getLastSessionEntries: (uid) => getLastSessionEpisodicSummaries(qdrant, episodicCollection, { userId: uid }),
         listWikiFilesInRootsFn: listWikiFilesInRoots,
         readWikiFileInRootsFn: readWikiFileInRoots,
+        readIndexFileFn: readIndexFile,
       });
       return getOrCreateHistory(key, trackForCapture, primer);
     }

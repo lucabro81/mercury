@@ -1,16 +1,18 @@
 /**
  * Builds the synthetic primer text seeded into a brand-new Google Chat
- * session's history (see `history.ts`'s `primer` param): the wiki facts the
- * user's last closed session actually reinforced, plus that same session's
- * own episodic entries. Empty string when there's nothing — enrichment, a
- * caller must work fine without it. Deliberately not similarity retrieval:
- * there's no query yet to compare against at session start, only "what
- * happened last time" (see `getLastSessionEpisodicSummaries`).
+ * session's history (see `history.ts`'s `primer` param): the wiki's own
+ * index (same for every user, not tied to any prior session), the wiki
+ * facts the user's last closed session actually reinforced, plus that same
+ * session's own episodic entries. Empty string when there's nothing —
+ * enrichment, a caller must work fine without it. Deliberately not
+ * similarity retrieval: there's no query yet to compare against at session
+ * start, only "what happened last time" (see `getLastSessionEpisodicSummaries`)
+ * plus "what's in the wiki right now".
  */
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { EpisodicSummary } from "../memory/episodic-store.ts";
-import type { listWikiFilesInRoots, readWikiFileInRoots } from "../wiki/wiki-read.ts";
+import type { listWikiFilesInRoots, readWikiFileInRoots, readIndexFile } from "../wiki/wiki-read.ts";
 
 export type ContextPrimerDeps = {
   vaultPath: string;
@@ -18,6 +20,7 @@ export type ContextPrimerDeps = {
   getLastSessionEntries: (userId: string) => Promise<EpisodicSummary[]>;
   listWikiFilesInRootsFn: typeof listWikiFilesInRoots;
   readWikiFileInRootsFn: typeof readWikiFileInRoots;
+  readIndexFileFn: typeof readIndexFile;
 };
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n/;
@@ -79,12 +82,20 @@ export async function buildContextPrimer(userId: string, deps: ContextPrimerDeps
   // Checked regardless of `entries` — a pending confirmation isn't tied to
   // "was there a prior episodic session", it's simply still open right now.
   const pendingTokens = await pendingConfirmationTokens(userId, deps);
+  // Same for every user (curated/ has no per-user scoping) — checked
+  // regardless of prior session too, so even a first-ever session gets
+  // pointed at what's in the wiki right now.
+  const indexContent = (await deps.readIndexFileFn(deps.vaultPath)).trim();
 
-  if (entries.length === 0 && pendingTokens.length === 0) {
+  if (entries.length === 0 && pendingTokens.length === 0 && indexContent.length === 0) {
     return "";
   }
 
   const sections: string[] = [];
+
+  if (indexContent.length > 0) {
+    sections.push(`Wiki index:\n${indexContent}`);
+  }
 
   if (entries.length > 0) {
     const entryTimestamps = new Set(entries.map((e) => e.timestamp));
