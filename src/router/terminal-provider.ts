@@ -94,7 +94,7 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
               if (chunk !== PENDING_CONFIRMATION_NOTE) onChunk(chunk);
             },
             // Only ever fires for a model that actually supports Ollama's
-            // extended thinking (see src/index.ts's think: true) — a
+            // extended thinking (see src/index.ts's OLLAMA_THINK) — a
             // non-reasoning model means this is simply never called, so
             // there's no header and no output at all for that turn.
             onReasoningChunk: (chunk, id) => {

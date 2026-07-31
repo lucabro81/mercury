@@ -64,7 +64,7 @@ export type TurnSink = {
   onTextChunk?: (chunk: string) => void;
   /**
    * Live reasoning-token delta as it streams (Ollama's native extended
-   * thinking, gated behind `think: true` at model-construction time — see
+   * thinking, gated behind OLLAMA_THINK at model-construction time — see
    * `src/index.ts`). Present ⇒ `runTurn` uses `streamText`, same as
    * `onTextChunk`. UI-only: never reaches `SessionHistory` (see
    * `agent-turn.ts`'s `fullText`/reasoning split) — never fires at all for

@@ -215,13 +215,19 @@ const chatSystem = buildSystemPrompt({ jira: jiraEnabled, multiUserChannel: true
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
 const ollamaModel = requireEnv("OLLAMA_MODEL");
-// think: true enables Ollama's native extended-thinking tokens (only takes
-// effect on models that actually support it — see agent-turn.ts's
-// reasoning-delta handling, and google-chat-provider.ts/terminal-provider.ts
-// for where the resulting stream gets displayed). Model-construction-time
-// setting only, no per-call override exists in ai-sdk-ollama, so it's set
-// once here for the one shared model instance used by every channel.
-const model = provider(ollamaModel, { think: true });
+// think: true enables Ollama's native extended-thinking tokens — see
+// agent-turn.ts's reasoning-delta handling, and google-chat-provider.ts/
+// terminal-provider.ts for where the resulting stream gets displayed.
+// NOT a silent no-op on a model that doesn't support it, despite what this
+// comment used to claim: observed live against nemotron:70b, Ollama
+// rejects the request outright (400 "does not support thinking"), failing
+// every single turn. OLLAMA_THINK lets the deployer turn it off for a
+// model that doesn't support it — Mercury has no way to detect this
+// itself, same reasoning as never guessing OLLAMA_HOST. Model-construction-
+// time setting only, no per-call override exists in ai-sdk-ollama, so it's
+// set once here for the one shared model instance used by every channel.
+const ollamaThink = process.env.OLLAMA_THINK !== "false";
+const model = provider(ollamaModel, { think: ollamaThink });
 const summarize = createSummarizer(model);
 
 const histories = new Map<string, SessionHistory>();

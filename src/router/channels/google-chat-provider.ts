@@ -403,7 +403,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         });
       },
       // Only ever fires for a model that actually supports Ollama's
-      // extended thinking (see src/index.ts's think: true) — a
+      // extended thinking (see src/index.ts's OLLAMA_THINK) — a
       // non-reasoning model means this is simply never called, so no card
       // is ever created for that turn.
       onReasoningChunk: (chunk: string, id: string) => {
