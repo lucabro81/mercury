@@ -100,7 +100,6 @@ function buildSystemPrompt(opts: { jira: boolean; multiUserChannel: boolean }): 
         "- DON'T describe a command you're about to run as your entire response — if the question needs runCommand, call it in this same turn before replying; a sentence saying what you're about to look up, with no tool call attached, leaves the user with nothing.",
         '- DON\'T treat a bare `{}` as "confirmed zero matching issues" — it usually means your `--select` path was wrong, not that the search found nothing. A genuine empty result looks like `{"issues": []}`. On `{}`, check curated/standards/jira-cli.md for the correct `--select` syntax, or retry with `--select-all`, before telling the user there\'s no data.',
         "- DON'T hand-format a list of Jira issues yourself, even straight from the raw JSON — if formattedList isn't in the result, retry issue search with --fields including summary instead of improvising from partial data.",
-        "- DON'T ever try `--select formattedList` (or any --select path built from it) to fetch a formatted list directly — jira has no such field in its own JSON, that path always resolves to nothing. formattedList only ever shows up as a field Mercury adds to the result you already have; it can't be requested.",
         "- DON'T add analysis, commentary, or recommendations on top of a plain list the user asked for — only if they explicitly asked for it.",
       ].join("\n"),
     );
