@@ -1,5 +1,18 @@
 # mercury
 
+## 0.13.0
+
+### Minor Changes
+
+- 5356810: Mercury can now be deployed to a host where the Jira/Bitbucket/Chat CLIs aren't otherwise installed — their credentials are seeded from env vars into a persistent volume on first boot, and survive redeploys.
+- 5356810: Added scripts to reset Qdrant's episodic/semantic memory or the wiki vault independently, without touching the other.
+
+### Patch Changes
+
+- 30ce532: Mercury now checks its wiki for a known mapping from an informal project name (e.g. "the monorepo") to its Jira project key before guessing or falling back to a keyword search — and records the mapping there once it learns it, instead of only remembering it for the current conversation. Previously it could end up re-discovering (or being told) the same mapping again in a later session.
+- 5356810: Removed the tool that let Mercury try to add itself to a Google Chat space on request — it never actually worked (silently did nothing while claiming success), so the capability is gone rather than fixed.
+- 5356810: Removed the tools for sending a Google Chat notification to a user or the admin space by email — the lookup they depended on could never resolve a real user on any actual deployment, so neither ever worked.
+
 ## 0.12.0
 
 ### Minor Changes
