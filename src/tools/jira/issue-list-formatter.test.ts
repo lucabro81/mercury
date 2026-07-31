@@ -13,9 +13,37 @@ describe("createJiraIssueListFormatter", () => {
     expect(format(PARSED, result)).toEqual(result);
   });
 
-  it("passes a result through unchanged when data has no issues array (not this shape)", () => {
+  it("passes a result through unchanged when data isn't even a plain object (nothing safe to attach a note to)", () => {
     const result: CliResult = { ok: true, data: "some --help text" };
     expect(format(PARSED, result)).toEqual(result);
+  });
+
+  // Regression: observed live — the model tried `--select formattedList`,
+  // reasoning (from the system prompt alone) that formattedList must be a
+  // real path in jira's own JSON. It isn't: jira evaluates --select on its
+  // own raw output, before this post-processor ever runs, so that path
+  // matches nothing and jira returns a bare `{}`. Previously this passed
+  // through in total silence — the model got no signal at all and burned
+  // two retries on the exact same broken guess before giving up.
+  it("adds a formattedListNote (not silence) for a plain object with no issues array at all, e.g. --select finding nothing", () => {
+    const result: CliResult = { ok: true, data: {} };
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      const data = formatted.data as { formattedListNote: string };
+      expect(data.formattedListNote).toContain("--select");
+      expect(data.formattedListNote.toLowerCase()).toContain("formattedlist");
+    }
+  });
+
+  it("explains in the note that formattedList/formattedListNote can never be reached via --select", () => {
+    const result: CliResult = { ok: true, data: {} };
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      const data = formatted.data as { formattedListNote: string };
+      expect(data.formattedListNote).toContain("--select formattedList");
+    }
   });
 
   // Not a hard error like the missing-summary case below — the raw data is
@@ -34,7 +62,6 @@ describe("createJiraIssueListFormatter", () => {
     if (formatted.ok) {
       expect(formatted.data).toMatchObject(original);
       const data = formatted.data as { formattedListNote: string; formattedList?: unknown };
-      expect(data.formattedListNote).toContain("key");
       expect(data.formattedListNote).toContain("--select");
       expect(data.formattedList).toBeUndefined();
     }
