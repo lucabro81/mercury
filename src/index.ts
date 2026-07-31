@@ -86,6 +86,7 @@ function buildSystemPrompt(opts: { jira: boolean; multiUserChannel: boolean }): 
         "- Use --help on any subcommand if you're unsure of its flags.",
         "- Use native JQL syntax for relative dates (e.g. now()) — don't compute dates yourself.",
         '- When a search can return more than one or two issues, add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.',
+        "- If the user refers to a project by an informal name (e.g. \"the monorepo\") rather than its JQL project key, check curated/projects/project-codes.md for the mapping FIRST, before guessing a key or running a keyword search. If it's not there and you learn it (from the user or from search results), write_file it there so you don't have to rediscover it next time.",
         '- If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.',
         '- If the user\'s free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording (e.g. "todo" → "To Do") before concluding there\'s no data.',
         "- issue create/transition/comment run immediately, no confirmation needed — tell the user what you did (e.g. the new issue's key) after it succeeds.",
