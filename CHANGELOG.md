@@ -1,5 +1,15 @@
 # mercury
 
+## 0.14.0
+
+### Minor Changes
+
+- a74940a: Every new conversation now starts with the wiki's own index already in view, instead of relying on Mercury deciding on its own to go look. This makes it more likely relevant existing documentation actually gets used instead of re-discovered from scratch.
+
+### Patch Changes
+
+- e396bb9: Fix: during the nightly wiki self-review, Mercury could write an `index.md` line for a curated doc that looked fine but wasn't actually recognized as referencing it — that doc would then get flagged as orphaned again on every subsequent run, forever. Adding or removing an index entry is now a dedicated, deterministic operation instead of free-form text the model had to get exactly right.
+
 ## 0.13.0
 
 ### Minor Changes
