@@ -49,31 +49,32 @@ async function runPass(params: {
 }
 
 const SHARED_BOUNDARIES =
-  "You can read/list/grep curated/ and raw/, write curated docs, rewrite index.md, and delete " +
-  "resolved raw/ entries. You have no access to inferred/ — it is written exclusively by a " +
-  "separate deterministic process, never by judgment calls like this one.";
+  "You can read/list/grep curated/ and raw/, write curated docs, add/update or remove a curated " +
+  "doc's index.md entry (update_index_entry/remove_index_entry — never hand-write index.md's " +
+  "content yourself, those tools own its exact format), and delete resolved raw/ entries. You have " +
+  "no access to inferred/ — it is written exclusively by a separate deterministic process, never by " +
+  "judgment calls like this one.";
 
 const RAW_TRIAGE_SYSTEM =
   "You are performing Mercury's periodic wiki self-review — the raw/ triage pass. For each entry " +
   "in raw/, read it and decide: merge its content into an existing curated doc, promote it into a " +
   "new curated doc, or discard it (already superseded, duplicate, or simply not wiki-worthy — one " +
   "bucket, not three). Then delete it from raw/ once resolved. If you create or meaningfully change " +
-  "a curated doc, add or update its line in index.md too. " +
+  "a curated doc, call update_index_entry for it too. " +
   SHARED_BOUNDARIES;
 
 const INDEX_AND_ORPHAN_SYSTEM =
   "You are performing Mercury's periodic wiki self-review — the index.md and orphan-page pass. For " +
-  "each orphaned curated doc listed below, decide whether it needs a line in index.md, a cross-link " +
-  "from a related doc, or both. Keep index.md accurate: one line per curated doc, a short " +
-  "description, in the Karpathy pattern. " +
+  "each orphaned curated doc listed below, decide whether it needs an index.md entry " +
+  "(update_index_entry), a cross-link from a related doc, or both. " +
   SHARED_BOUNDARIES;
 
 const CONTRADICTION_CHECK_SYSTEM =
   "You are performing Mercury's periodic wiki self-review — the contradiction and cross-link check. " +
   "Read through curated/ and look for direct contradictions between documents, or clearly-related " +
   "documents missing a cross-link between them. Fix what you're confident about; leave the rest — " +
-  "this is best-effort, not exhaustive. If you delete a doc as a resolved duplicate, remove its " +
-  "index.md line in the same pass. " +
+  "this is best-effort, not exhaustive. If you delete a doc as a resolved duplicate, call " +
+  "remove_index_entry for it in the same pass. " +
   SHARED_BOUNDARIES;
 
 export type RawTriagePassDeps = {

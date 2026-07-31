@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { writeCuratedNote, writeInferredNote, writeRawEntry } from "./wiki-note.ts";
 import { createSelfReviewTools } from "./self-review-tools.ts";
 import { initVault } from "./vault-init.ts";
+import { findOrphanCuratedDocs } from "./orphan-detector.ts";
 
 const tempDirs: string[] = [];
 
@@ -112,19 +113,103 @@ describe("createSelfReviewTools", () => {
     expect(text).toContain("type: curated");
   });
 
-  it("write_index writes index.md at the vault root, verbatim", async () => {
+  it("update_index_entry writes a [[wikilink]] line for an existing curated doc", async () => {
     const vaultPath = await makeTempVault();
-    const { write_index } = createSelfReviewTools({ vaultPath });
+    await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
+    const { update_index_entry } = createSelfReviewTools({ vaultPath });
 
     // @ts-expect-error - execute is guaranteed present for this tool definition
-    const result = (await write_index.execute(
-      { content: "- [[glossary]] — team glossary" },
+    const result = (await update_index_entry.execute(
+      { path: "curated/projects/project-codes.md", description: "Project name to code mapping" },
       {} as never,
     )) as { ok: true } | { ok: false; error: string };
 
     expect(result.ok).toBe(true);
     const text = await readFile(join(vaultPath, "index.md"), "utf-8");
-    expect(text).toBe("- [[glossary]] — team glossary\n");
+    expect(text).toBe("- [[projects/project-codes]] — Project name to code mapping\n");
+  });
+
+  it("update_index_entry normalizes curated/, .md, and bare path forms to the same entry, without duplicating it", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
+    const { update_index_entry } = createSelfReviewTools({ vaultPath });
+
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await update_index_entry.execute({ path: "projects/project-codes.md", description: "first pass" }, {} as never);
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await update_index_entry.execute(
+      { path: "curated/projects/project-codes", description: "updated description" },
+      {} as never,
+    )) as { ok: true } | { ok: false; error: string };
+
+    expect(result.ok).toBe(true);
+    const text = await readFile(join(vaultPath, "index.md"), "utf-8");
+    expect(text).toBe("- [[projects/project-codes]] — updated description\n");
+  });
+
+  it("update_index_entry errors, and writes nothing, when the curated doc doesn't exist", async () => {
+    const vaultPath = await makeTempVault();
+    const { update_index_entry } = createSelfReviewTools({ vaultPath });
+
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await update_index_entry.execute(
+      { path: "projects/project-codes.md", description: "Project name to code mapping" },
+      {} as never,
+    )) as { ok: true } | { ok: false; error: string };
+
+    expect(result).toEqual({
+      ok: false,
+      error: "curated/projects/project-codes.md does not exist — create it first with write_curated",
+    });
+    await expect(readFile(join(vaultPath, "index.md"), "utf-8")).rejects.toThrow();
+  });
+
+  it("remove_index_entry removes an existing entry", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "glossary.md", {}, "body");
+    const { update_index_entry, remove_index_entry } = createSelfReviewTools({ vaultPath });
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await update_index_entry.execute({ path: "curated/glossary.md", description: "team glossary" }, {} as never);
+
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await remove_index_entry.execute({ path: "glossary.md" }, {} as never)) as
+      | { ok: true }
+      | { ok: false; error: string };
+
+    expect(result.ok).toBe(true);
+    const text = await readFile(join(vaultPath, "index.md"), "utf-8");
+    expect(text).toBe("\n");
+  });
+
+  it("remove_index_entry is a no-op when the entry doesn't exist", async () => {
+    const vaultPath = await makeTempVault();
+    const { remove_index_entry } = createSelfReviewTools({ vaultPath });
+
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    const result = (await remove_index_entry.execute({ path: "curated/glossary.md" }, {} as never)) as
+      | { ok: true }
+      | { ok: false; error: string };
+
+    expect(result.ok).toBe(true);
+  });
+
+  // Regression: with the old free-form write_index tool, a model could write
+  // an index.md line ("path: description", no [[wikilink]]) that looked fine
+  // but findOrphanCuratedDocs' wikilink check didn't recognize — the doc got
+  // re-flagged as orphaned every night regardless. update_index_entry can't
+  // produce that shape at all.
+  it("a doc indexed via update_index_entry is no longer reported as orphaned", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
+    const { update_index_entry } = createSelfReviewTools({ vaultPath });
+
+    // @ts-expect-error - execute is guaranteed present for this tool definition
+    await update_index_entry.execute(
+      { path: "curated/projects/project-codes.md", description: "Project name to code mapping" },
+      {} as never,
+    );
+
+    expect(await findOrphanCuratedDocs(vaultPath)).toEqual([]);
   });
 
   it("delete_raw deletes an existing raw/ entry", async () => {

@@ -111,3 +111,12 @@ export async function grepWikiInRoots(vaultPath: string, roots: string[], patter
 export async function grepWiki(vaultPath: string, userId: string, pattern: string): Promise<WikiGrepMatch[]> {
   return grepWikiInRoots(vaultPath, allowedRoots(vaultPath, userId), pattern);
 }
+
+/** Reads index.md at the vault root; empty string if it doesn't exist yet (a brand-new vault, or one where self-review hasn't created it). */
+export async function readIndexFile(vaultPath: string): Promise<string> {
+  try {
+    return await readFile(resolve(vaultPath, "index.md"), "utf-8");
+  } catch {
+    return "";
+  }
+}

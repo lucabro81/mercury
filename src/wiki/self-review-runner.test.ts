@@ -29,7 +29,16 @@ describe("runRawTriagePass", () => {
     ]);
     expect((received!.messages as { content: string }[])[0]!.content).toContain("raw/notes/b.md");
     expect(Object.keys(received!.tools as object).sort()).toEqual(
-      ["delete_curated", "delete_raw", "grep", "list_files", "read_file", "write_curated", "write_index"].sort(),
+      [
+        "delete_curated",
+        "delete_raw",
+        "grep",
+        "list_files",
+        "read_file",
+        "write_curated",
+        "update_index_entry",
+        "remove_index_entry",
+      ].sort(),
     );
     expect(received!.system).toContain("raw/");
     expect(received!.system).toContain("triage");

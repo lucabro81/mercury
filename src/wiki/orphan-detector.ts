@@ -6,17 +6,8 @@
  * the index, add a cross-link, both) is left to the LLM's judgment;
  * that decision can't be made deterministically.
  */
-import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { listWikiFilesInRoots, readWikiFileInRoots } from "./wiki-read.ts";
-
-async function readIndexIfExists(vaultPath: string): Promise<string> {
-  try {
-    return await readFile(resolve(vaultPath, "index.md"), "utf-8");
-  } catch {
-    return "";
-  }
-}
+import { listWikiFilesInRoots, readWikiFileInRoots, readIndexFile } from "./wiki-read.ts";
 
 /** Both `[[jira-fields]]` and `[[jira-fields|display text]]` resolve to "jira-fields". */
 function extractWikilinks(content: string): Set<string> {
@@ -32,7 +23,7 @@ function extractWikilinks(content: string): Set<string> {
 export async function findOrphanCuratedDocs(vaultPath: string): Promise<string[]> {
   const curatedRoot = resolve(vaultPath, "curated");
   const curatedFiles = await listWikiFilesInRoots(vaultPath, [curatedRoot]);
-  const indexContent = await readIndexIfExists(vaultPath);
+  const indexContent = await readIndexFile(vaultPath);
 
   const fileContents = new Map<string, string>();
   for (const file of curatedFiles) {

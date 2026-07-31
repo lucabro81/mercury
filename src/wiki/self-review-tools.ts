@@ -7,7 +7,9 @@
  * (curated/ + raw/, never inferred/ — reserved for deterministic,
  * mechanically-written notes, not an LLM's own judgment call) and with
  * capabilities no conversational tool
- * has (deleting an entry, rewriting the index).
+ * has (deleting an entry, updating/removing an index.md entry — the
+ * model supplies a doc path and a description, never the file's raw text,
+ * so an update can't get the `[[wikilink]]` format wrong).
  *
  * All three nightly sub-passes (`self-review-runner.ts`) share this
  * exact tool set — they differ only in system prompt and pre-computed
@@ -15,8 +17,9 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
-import { listWikiFilesInRoots, readWikiFileInRoots, grepWikiInRoots, selfReviewRoots } from "./wiki-read.ts";
+import { listWikiFilesInRoots, readWikiFileInRoots, grepWikiInRoots, selfReviewRoots, readIndexFile } from "./wiki-read.ts";
 import { writeCuratedNote, writeIndexFile, deleteRawEntry, deleteCuratedEntry } from "./wiki-note.ts";
+import { normalizeIndexKey, upsertIndexEntry, removeIndexEntry } from "./index-entry.ts";
 
 export type SelfReviewToolsDeps = { vaultPath: string };
 
@@ -72,12 +75,37 @@ export function createSelfReviewTools(deps: SelfReviewToolsDeps) {
     },
   });
 
-  const write_index = tool({
-    description: "Overwrite index.md at the vault root with the given content — one line per curated doc, short description.",
-    inputSchema: z.object({ content: z.string() }),
-    execute: async ({ content }) => {
+  const update_index_entry = tool({
+    description:
+      'Add or update index.md\'s line for one curated doc — pass its path in any form ("curated/projects/x.md", "projects/x.md", or "projects/x", all normalize the same way) and a short description. Writes it as a [[wikilink]] so the orphan check recognizes it; never hand-write index.md yourself, it has to match this exact format to count.',
+    inputSchema: z.object({ path: z.string().min(1), description: z.string().min(1) }),
+    execute: async ({ path, description }) => {
+      const key = normalizeIndexKey(path);
+      const curatedPath = `curated/${key}.md`;
       try {
-        await writeIndexFile(vaultPath, content);
+        await readWikiFileInRoots(vaultPath, roots, curatedPath);
+      } catch {
+        return { ok: false as const, error: `${curatedPath} does not exist — create it first with write_curated` };
+      }
+      try {
+        const current = await readIndexFile(vaultPath);
+        await writeIndexFile(vaultPath, upsertIndexEntry(current, key, description));
+        return { ok: true as const };
+      } catch (err) {
+        return { ok: false as const, error: String(err) };
+      }
+    },
+  });
+
+  const remove_index_entry = tool({
+    description:
+      'Remove index.md\'s line for one curated doc (e.g. after delete_curated) — same path forms as update_index_entry. A no-op if it has no line.',
+    inputSchema: z.object({ path: z.string().min(1) }),
+    execute: async ({ path }) => {
+      const key = normalizeIndexKey(path);
+      try {
+        const current = await readIndexFile(vaultPath);
+        await writeIndexFile(vaultPath, removeIndexEntry(current, key));
         return { ok: true as const };
       } catch (err) {
         return { ok: false as const, error: String(err) };
@@ -117,5 +145,5 @@ export function createSelfReviewTools(deps: SelfReviewToolsDeps) {
     },
   });
 
-  return { list_files, read_file, grep, write_curated, write_index, delete_raw, delete_curated };
+  return { list_files, read_file, grep, write_curated, update_index_entry, remove_index_entry, delete_raw, delete_curated };
 }
