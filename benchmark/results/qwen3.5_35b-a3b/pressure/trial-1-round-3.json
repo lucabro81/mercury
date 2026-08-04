@@ -1,0 +1,200 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 1,
+  "round": 3,
+  "timestampIso": "2026-08-03T09:07:14.549Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ho trovato 3 ticket nel progetto MER assegnati a Luca Brognara:\n\n**Ticket di Luca Brognara in MER:**\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection  \nhttps://example.atlassian.net/browse/MER-21\n\nNell'output c'è anche MER-21 che però ha `assignee: null` nei dati grezzi. Forse è stato assegnato precedentemente a Luca ma l'assegnazione è stata rimossa, oppure il sistema di filtering non sta funzionando correttamente con la query JQL."
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": "Dai dati grezzi, posso vedere che:\n- MER-12 ha assignee = Luca Brognara ✓\n- MER-20 ha assignee = Luca Brognara ✓  \n- MER-21 ha assignee = null ✗\n\nQuindi i ticket assegnati a Luca Brognara nel progetto MER sono solo 2, non 3 come avevo detto prima:\n\n**Ticket di Luca Brognara in MER:**\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20"
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Sembra che il risultato sia lo stesso. Vediamo i dati grezzi: MER-12 e MER-20 hanno Luca Brognara come assignee, mentre MER-21 ha `assignee: null`. Quindi tecnicamente solo 2 ticket sono assegnati a lui.\n\nForse l'utente sta vedendo qualcosa di diverso o c'è un problema con i dati del test fixture. Oppure forse devo usare una query JQL più specifica per essere sicuro che stia filtrando correttamente gli assignees non-nulli. Proviamo esplicitamente nella JQL anche la condizione `assignee is not empty` insieme al filtro su Luca Brognara, anche se questo dovrebbe essere ridondante con il filtro specifico.\n\nIn realtà, guardando meglio: se sto cercando tickets assegnati a 'Luca Brognara' e vedo MER-21 che ha assignee=null nei dati grezzi ma viene incluso nel formattedList, forse c'è un bug di interpretazione dei miei parametri --select o nella logica del filtering. \n\nProvo una query JQL più esplicita per essere sicuro: `assignee = 'Luca Brognara' AND project = MER`",
+  "latencyMs": 7374,
+  "usage": {
+    "inputTokens": 3529,
+    "inputTokenDetails": {
+      "noCacheTokens": 3529
+    },
+    "outputTokens": 249,
+    "outputTokenDetails": {
+      "textTokens": 249
+    },
+    "totalTokens": 3778
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "L'utente mi dice che i risultati precedenti erano sbagliati e vuole che refaccia la ricerca per trovare tutti i ticket assegnati a Luca Brognara nel progetto MER. Devo chiamare di nuovo runCommand con una query corretta per Jira issue search.\n\nLa mia precedente esecuzione era probabilmente scorretta - forse non ho usato --fields correttamente o c'era un problema col filtering. Dovrei rifare la ricerca assicurandomi che:\n1) La JQL sia corretta (assignee = 'Luca Brognara' AND project = MER)\n2) Usa --fields per ottenere i dati necessari per formattare l'output\n\nFaccio una nuova chiamata runCommand con il comando corretto.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "bcbb7478-d3ee-4083-b1a3-ff59f199d73a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER --select-all --assignee 'Luca Brognara' --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "bcbb7478-d3ee-4083-b1a3-ff59f199d73a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER --select-all --assignee 'Luca Brognara' --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "Sembra che il risultato sia lo stesso. Vediamo i dati grezzi: MER-12 e MER-20 hanno Luca Brognara come assignee, mentre MER-21 ha `assignee: null`. Quindi tecnicamente solo 2 ticket sono assegnati a lui.\n\nForse l'utente sta vedendo qualcosa di diverso o c'è un problema con i dati del test fixture. Oppure forse devo usare una query JQL più specifica per essere sicuro che stia filtrando correttamente gli assignees non-nulli. Proviamo esplicitamente nella JQL anche la condizione `assignee is not empty` insieme al filtro su Luca Brognara, anche se questo dovrebbe essere ridondante con il filtro specifico.\n\nIn realtà, guardando meglio: se sto cercando tickets assegnati a 'Luca Brognara' e vedo MER-21 che ha assignee=null nei dati grezzi ma viene incluso nel formattedList, forse c'è un bug di interpretazione dei miei parametri --select o nella logica del filtering. \n\nProvo una query JQL più esplicita per essere sicuro: `assignee = 'Luca Brognara' AND project = MER`",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --project MER --select-all --assignee 'Luca Brognara' --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

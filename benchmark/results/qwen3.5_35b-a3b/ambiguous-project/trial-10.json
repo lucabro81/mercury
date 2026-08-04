@@ -1,0 +1,438 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "ambiguous-project",
+  "trial": 10,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:01:55.284Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket aperti nel monorepo?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ho trovato 3 ticket nel progetto CLI (monorepo):\n\n```\nformattedList field presente:\n\n[IN PROGRESS]: Deterministic Jira issue-list formatting - MER-20 [Luca Brognara]\nhttps://example.atlassian.net/browse/MER-20\n\n[TO DO]: Wiki index self-review orphan detection - MER-21 \nhttps://example.atlassian.net/browse/MER-21\n\n[FOR INFO ONLY]: Fix Ollama think crash on unsupported models - MER-12 [Luca Brognara] (Done)\nhttps://example.atlassian.net/browse/MER-12\n```",
+  "latencyMs": 16748,
+  "usage": {
+    "inputTokens": 3982,
+    "inputTokenDetails": {
+      "noCacheTokens": 3982
+    },
+    "outputTokens": 136,
+    "outputTokenDetails": {
+      "textTokens": 136
+    },
+    "totalTokens": 4118
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "User is asking about open tickets in \"the monorepo\". This appears to be an informal project name, so I should first check curated/projects/project-codes.md for the mapping before guessing a key or running a keyword search.\n\nLet me read that file first.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "144618e7-f2c9-4906-9901-b4d6cc9aa78c",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "144618e7-f2c9-4906-9901-b4d6cc9aa78c",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "The file isn't at that exact path. Let me list the wiki documents to see where it is located.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "5edbebbe-6d3b-4ed3-a09e-d33836391183",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "5edbebbe-6d3b-4ed3-a09e-d33836391183",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The file is at `curated/projects/project-codes.md`. Let me read it to find the mapping for \"monorepo\".",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "3af0dcb8-f7f1-4d1d-ad75-df626dec2dba",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "3af0dcb8-f7f1-4d1d-ad75-df626dec2dba",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "It seems the read_file function expects paths relative to `curated/`. Let me try with just `projects/project-codes.md` as a relative path from curated. Actually, looking at earlier documentation examples like \"standards/jira-fields.md\", it appears the tool expects paths relative to the vault root but only under curated/. The error suggests I need to specify the full relative path including \"curated/\". Let me try reading it properly:\n\nWait - when the file listing showed files, they were listed as `\"curated/projects/project-codes.md\"`. But earlier in my memory, there was a note saying that write_file's examples use paths like \"standards/jira-fields.md\" (relative to curated/). And list_files says returns are relative to vault root.\n\nLet me try reading it with the path format `projects/project-codes.md` since that's what might be expected for curated documents:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "ba44f0a1-f08f-4467-a352-ec47c0b8da8f",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "ba44f0a1-f08f-4467-a352-ec47c0b8da8f",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Found it! \"The monorepo\" maps to the JQL project key `CLI`. Now I need to search for open tickets in that project. Let me first check what fields are available by looking at --help on issue search:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "59e8b230-6cd0-4aa1-9f7c-ca60623d2b28",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select=all --project CLI --fields summary,status,assignee,created --jql \"project = CLI AND resolution is EMPTY\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "59e8b230-6cd0-4aa1-9f7c-ca60623d2b28",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select=all --project CLI --fields summary,status,assignee,created --jql \"project = CLI AND resolution is EMPTY\""
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "reasoningText": "The error suggests I need to use a select flag for large results. Let me try using `--select=all` as indicated, but the previous command might have had other parameters in an unsupported order. \n\nLet me first check what --help says about issue search's select options and proper syntax:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "821ab1f5-d49d-4727-b162-f88b006cffa6",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "821ab1f5-d49d-4727-b162-f88b006cffa6",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "Now I understand. The command should work with `--select-all` for large results, and the select parameter is used as a dot-notation projection into JSON output (not to filter). Let me run it again properly:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "b30056c6-881c-45c6-b9fe-0fd15610f35a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND resolution IS EMPTY\" --fields summary,status,assignee,created --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "b30056c6-881c-45c6-b9fe-0fd15610f35a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND resolution IS EMPTY\" --fields summary,status,assignee,created --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 7,
+      "text": "Ho trovato 3 ticket nel progetto CLI (monorepo):\n\n```\nformattedList field presente:\n\n[IN PROGRESS]: Deterministic Jira issue-list formatting - MER-20 [Luca Brognara]\nhttps://example.atlassian.net/browse/MER-20\n\n[TO DO]: Wiki index self-review orphan detection - MER-21 \nhttps://example.atlassian.net/browse/MER-21\n\n[FOR INFO ONLY]: Fix Ollama think crash on unsupported models - MER-12 [Luca Brognara] (Done)\nhttps://example.atlassian.net/browse/MER-12\n```",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --select=all --project CLI --fields summary,status,assignee,created --jql \"project = CLI AND resolution is EMPTY\""
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 6,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND resolution IS EMPTY\" --fields summary,status,assignee,created --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": true,
+    "helpTiming": "after",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

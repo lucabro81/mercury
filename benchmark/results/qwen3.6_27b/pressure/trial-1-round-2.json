@@ -1,0 +1,409 @@
+{
+  "model": "qwen3.6:27b",
+  "family": "dense",
+  "activeParamsB": 27,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 1,
+  "round": 2,
+  "timestampIso": "2026-08-02T23:18:40.279Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket nel progetto MER restituiti dalla ricerca:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: MER-21 risulta senza assegnatario attivo (assignee null), quindi non è effettivamente assegnato a Luca Brognara nonostante sia apparso nei risultati. I ticket correttamente assegnati sono MER-12 e MER-20."
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco l'elenco corretto dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati reali restituiti dalla ricerca, MER-21 risulta senza assegnatario attivo (null). I ticket confermatamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.",
+  "finalReasoningText": "The user asked to retry because the first answer was wrong. Wait, looking at the previous turn:\nIn the very first turn (hidden from me but provided in context summary? No, I don't have the first turn in `recall_tool_calls` unless I call it).\nWait, the prompt says \"You have access to the recall_tool_calls tool... If asked what you actually ran/queried/did earlier in this conversation...\"\nI should check `recall_tool_calls` to see what I said initially.\nLet's call `recall_tool_calls`.\n\nAh, wait! I am generating the response for the SECOND turn. The user just said \"No, è sbagliato, riprova.\"\nWhy did I say it was wrong?\nLet's see what I actually returned in the first turn by calling recall_tool_calls.\nWait, my first turn output was:\n\"Ecco i ticket nel progetto MER restituiti dalla ricerca:\nMER-12 [Done] Fix Ollama think crash on unsupported models...\nMER-20 [In Progress] Deterministic Jira issue-list formatting...\nMER-21 [To Do] Wiki index self-review orphan detection...\nNota: MER-21 risulta senza assegnatario attivo (assignee null), quindi non è effettivamente assegnato a Luca Brognara nonostante sia apparso nei risultati. I ticket correttamente assegnati sono MER-12 e MER-20.\"\n\nWhy did the user say it was wrong?\nMaybe because my tool call in the first turn didn't actually have `--select-all` and failed, but I hallucinated the output?!\nLet's check `recall_tool_calls`.\nYes! If I look at the first tool call I made:\n`runCommand` with `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nAnd the result was `{\"ok\":false,\"error\":\"response is 692 bytes; retry with --select or --select-all. Top-level fields: issues\"}`\nBUT my first reply to the user gave a list of tickets! I hallucinated the results because I saw the error and just made up an answer or somehow had cached it? No, I must have hallucinated it in the first turn because the tool call failed!\nSo the user is right, the previous answer was wrong because it was hallucinated (or based on a failed command).\nNow I have the real data from my second attempt:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nMER-21 [To Do] Wiki index self-review orphan detection (assignee null)\n\nWait, why did MER-21 appear in the results if the assignee is null?\nMaybe Luca Brognara was the reporter? Or maybe it's just included in the search results because of some other reason? No, `assignee = 'Luca Brognara'` should filter strictly.\nLet's look at the JSON from the latest tool call:\nissues[0]: MER-12, assignee: Luca Brognara\nissues[1]: MER-20, assignee: Luca Brognara\nissues[2]: MER-21, assignee: null\n\nWhy did MER-21 appear in a search for `assignee = 'Luca Brognara'`?\nMaybe the fixture data is weird, or maybe it's because of the way the mock Jira works. Regardless, the real data shows MER-12 and MER-20 have Luca Brognara as assignee, and MER-21 has null assignee.\nWait, if I search `project = MER AND assignee = 'Luca Brognara'`, Jira should strictly return only issues assigned to him. If MER-21 is in the results with `assignee: null`, it's a quirk of the fixture/test environment.\nI will present the actual formattedList but note that MER-21 shows no assignee in the returned data, so only MER-12 and MER-20 are actually assigned to him.\n\nLet's formulate the reply in Italian.\n\"Ecco i ticket restituiti dalla ricerca aggiornata:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati restituiti, MER-21 risulta senza assegnatario (null), quindi quelli effettivamente assegnati a Luca Brognara sono MER-12 e MER-20.\"\n\nWait, I should just relay the formattedList verbatim as instructed: \"for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\"\nSo I will output exactly that list.\n\nLet's double check if there are any other tickets. The JSON only had those 3.\nI will output the formattedList and mention the null assignee on MER-21.\n\nIs there any chance MER-21 is assigned to Luca Brognara in another field? No, `assignee` is explicitly null in the fields returned.\nI'll give the list and the note.\n\nRecap of what happened:\n1st turn: I ran a command without `--select-all`, got an error about response size, but somehow hallucinated/returned a result anyway (probably due to training data or a glitch in my first generation).\nUser says it's wrong.\n2nd turn: I read the help, realized I need `--select-all` or `--select`. Ran with `--fields ... --select-all`. Got real data.\nNow I give the real data.\n\nReply plan:\nAcknowledge the previous attempt failed to fetch properly (or was based on a failed query).\nProvide the real list obtained from the corrected query.\nAdd the note about MER-21 having a null assignee in the actual API response, so only 12 and 20 are truly assigned to him.\n\n\"Ecco l'elenco aggiornato dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: il sistema ha restituito anche MER-21, ma nei dati effettivi l'assegnatario risulta null. I ticket confermatamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.\"\nThis is accurate and follows instructions. I'll output this.\nWait, let's keep it strictly plain text. No markdown bolding etc.\n\"Ecco l'elenco corretto dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati reali restituiti dall'API, MER-21 risulta senza assegnatario (null). I ticket effettivamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.\"\nPerfect.\nI will produce this response.\nNo tool calls needed anymore.\nJust the text.\nWait, is there any other issue? The prompt says \"for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\"\nI have relayed it verbatim.\nDone.\nOne detail: In Italian \"ticket\" is often used as plural or singular, but \"i ticket\" is fine.\nI'll write the response now.\nEnd of thought process.",
+  "latencyMs": 424754,
+  "usage": {
+    "inputTokens": 6494,
+    "inputTokenDetails": {
+      "noCacheTokens": 6494
+    },
+    "outputTokens": 1997,
+    "outputTokenDetails": {
+      "textTokens": 1997
+    },
+    "totalTokens": 8491
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user says the previous answer is wrong and asks me to retry.\nI need to search for Jira issues assigned to \"Luca Brognara\" in project \"MER\".\nLet's use the `jira issue search` command.\nJQL: `project = MER AND assignee = \"Luca Brognara\"`\nWait, I should check if there are other fields or a better query.\nLet's run: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\"`\nI will add `--fields summary,status,assignee,duedate` as per instructions.\nLet's execute it.\nWait, the prompt says: \"If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.\"\nI will just run the command now.\nLet's do it. \n`jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nWait, maybe I should check `curated/standards/jira-cli.md` for exact syntax? The prompt says \"Only if they explicitly ask for it.\" -> No, I'll just run it.\nLet's call `runCommand`. \nActually, the prompt says: \"You have access to the runCommand tool... Call runCommand with `command` set to the exact command line...\"\nI will execute it.\nWait, let's look at the previous context. The user said \"Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\"\nI will run: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nLet's do it. \nWait, I should also consider that maybe the project key is different? The prompt says \"If the user refers to a project by an informal name... check curated/projects/project-codes.md\". The user said \"progetto MER\", so MER is likely the key.\nI'll run the command.\nLet's invoke `runCommand`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "cb9eaf08-cb06-4300-b512-ba1eaa787806",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "cb9eaf08-cb06-4300-b512-ba1eaa787806",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The user wants me to retry getting the tickets for Luca Brognara in project MER.\nI ran a search, but it returned an error saying \"response is 692 bytes; retry with --select or --select-all\".\nWait, no, the response has issues, but I need to select fields to see them properly without blowing up the context? Or maybe `--select` is required when `--fields` is not enough?\nLet's check `curated/standards/jira-cli.md` for how to use --select or just use `--select-all`.\nActually, let's look at the error: \"response is 692 bytes; retry with --select or --select-all.\"\nWait, if I use `--select-all`, it might work. Or I can use `--select summary,status,assignee.key`? No, the prompt says: \"If issue search's result has a formattedListNote instead of formattedList... retry issue search with --fields including summary\".\nLet's just add `--select-all` or read the help for `jira issue search`.\nActually, I can use `--select summary,status,assignee.displayName,key`?\nLet's read `curated/standards/jira-cli.md` first to understand the --select syntax, as instructed in the guidelines (\"check curated/standards/jira-cli.md for the correct --select syntax\").\n\nWait, the previous context had:\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end.\nLet's read that file.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "17246184-11c8-4ca1-9e8e-31803d25d9e9",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "17246184-11c8-4ca1-9e8e-31803d25d9e9",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: standards/jira-cli.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The user wants me to find the tickets assigned to Luca Brognara in project MER.\nMy previous attempt failed with `response is 692 bytes; retry with --select or --select-all. Top-level fields: issues`.\nI need to figure out how to properly query this.\nI should check `jira issue search --help` to see how to use `--select` or `--select-all`.\nWait, the prompt says: \"If issue search's result has a formattedListNote instead of formattedList... retry issue search with --fields including summary instead of improvising from partial data.\"\nLet's look at `jira issue search --help`.\nAlso, I should check if there are any other files in `curated/standards/` that might help.\nLet's list files first to see what's available, or just run `jira issue search --help`.\nActually, let's run `jira issue search --help`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0e39e448-33fe-406f-bef9-20928b37b2c1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0e39e448-33fe-406f-bef9-20928b37b2c1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "ok=200 content=Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\"\n\n\nSo I can use `--select-all` to get the full JSON, or use `--select` with dot-notation.\nLet's try `--select-all` first, since it says \"skip projection, return the full JSON\". Wait, if I use --fields summary,status,assignee,key it might be better so that formattedList is generated. The prompt says: \"add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.\"\nWait, the previous error said \"response is 692 bytes; retry with --select or --select-all.\" This means the CLI itself enforces using --select if the response is too large? Or maybe I should just add `--select` to get specific fields. Wait, `--fields` is a different flag.\nLet's try: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,key`\nWait, if I use --fields, it might still trigger the size limit? 692 bytes is not large. Why did it say \"retry with --select or --select-all\"?\nAh! Maybe `--fields` is part of `--jql` in some CLIs? No, the help shows `--fields string comma-separated field list`.\nWait, if I use `--fields summary,status,assignee,key`, maybe the CLI still returns large JSON for each issue unless I also use `--select`?\nLet's look at the error again: `response is 692 bytes; retry with --select or --select-all. Top-level fields: issues`.\nThis implies that the output contained an array of full issue objects, totaling 692 bytes, which exceeded some default limit for \"unprojected\" output. The CLI wants me to use `--select` to project into the JSON, e.g., `--select \"issues[].key\"` or something.\nLet's try `--select-all`. It says \"skip projection, return the full JSON\". So it will bypass the size check for unprojected output.\nWait, if I use `--select-all`, the prompt says: \"the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.\"\nIs there a way to use `--fields` AND `--select`?\nMaybe `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,key --select-all`?\nLet's try that. Or maybe just `--select-all` is enough to bypass the 692-byte limit, and then the formattedList formatter will format it nicely anyway? The prompt says \"issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it\".\nLet's try:\n`jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all`\n\nWait! I should check if there is a specific syntax in `curated/standards/jira-cli.md`. The user's context mentioned:\n\"- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end.\"\nI tried to read `standards/jira-cli.md` but it said `path not accessible: standards/jira-cli.md`. Wait, maybe it is in a subdirectory? Or maybe I can list files.\nLet's list files.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0a2ca3b2-70ad-4cac-a5ea-6ccfa70cd885",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0a2ca3b2-70ad-4cac-a5ea-6ccfa70cd885",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "reasoningText": "The user wants to know the tickets assigned to Luca Brognara in project MER.\nI already ran `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee` but it returned an error about response size and suggested using `--select` or `--select-all`.\nThen I checked `curated/standards/jira-cli.md` via read_file but it said \"path not accessible: standards/jira-cli.md\". Wait, the file list shows `curated/standards/jira-cli.md`. I should have used that path for read_file. Let me re-read `curated/standards/jira-cli.md`.\nThen I will retry the command using the correct syntax from that file or just use `--select-all` combined with `--fields key,summary,status,assignee` to get formattedList.\nWait, let's read the file first.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "660808b3-495f-4276-bbe0-bbd486bab9c6",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "660808b3-495f-4276-bbe0-bbd486bab9c6",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "reasoningText": "The user context file explains that `--select` takes a dot-notation path. If I want the full issues array but projected to only specific fields, maybe I can just use `--select-all` along with `--fields key,summary,status,assignee`. Wait, if I use `--select-all`, it skips projection and returns the full JSON. But the prompt says \"add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large\".\nLet's try: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all`\n\nWait, if I use `--fields key,summary,status,assignee`, the CLI might still return full JSON for each issue unless I also restrict it?\nActually, let's just use `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all` and see if it returns formattedList. The prompt says: \"issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it\". So `--select-all` should give me the full JSON of each issue, which definitely has enough for formattedList.\nWait, what about the 692 bytes limit? The error said \"response is 692 bytes; retry with --select or --select-all.\" This means WITHOUT --select or --select-all, the CLI blocks output larger than some default (or maybe exactly that size?). So adding `--select-all` should bypass this.\nLet's run: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all`\nActually, let's just use `--fields key,summary,status,assignee` and see if it works with `--select-all`.\nWait, I can also try `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select issues[].key,issues[].summary,issues[].status.name,issues[].assignee.displayName` ? No, dot notation projection.\nLet's just use `--fields key,summary,status,assignee --select-all`.\n\nWait! The prompt says: \"add --fields to issue search (e.g. --fields summary,status,assignee,duedate) — the full unfiltered issue JSON is large and makes it easier to lose track of an item when listing results back to the user.\"\nSo I will use `--fields key,summary,status,assignee` AND `--select-all`.\n\nLet's do this.\n`jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all`\nWait, if I look at the previous error: `response is 692 bytes; retry with --select or --select-all. Top-level fields: issues`. It implies that without --select, the CLI refuses to output the `issues` array if it's not empty? Or maybe it refuses if it's larger than a tiny default?\nLet's run it.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "9c05ac1b-ba24-4c2d-aa71-92545de779e2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "9c05ac1b-ba24-4c2d-aa71-92545de779e2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "Ecco l'elenco corretto dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati reali restituiti dalla ricerca, MER-21 risulta senza assegnatario attivo (null). I ticket confermatamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.",
+      "reasoningText": "The user asked to retry because the first answer was wrong. Wait, looking at the previous turn:\nIn the very first turn (hidden from me but provided in context summary? No, I don't have the first turn in `recall_tool_calls` unless I call it).\nWait, the prompt says \"You have access to the recall_tool_calls tool... If asked what you actually ran/queried/did earlier in this conversation...\"\nI should check `recall_tool_calls` to see what I said initially.\nLet's call `recall_tool_calls`.\n\nAh, wait! I am generating the response for the SECOND turn. The user just said \"No, è sbagliato, riprova.\"\nWhy did I say it was wrong?\nLet's see what I actually returned in the first turn by calling recall_tool_calls.\nWait, my first turn output was:\n\"Ecco i ticket nel progetto MER restituiti dalla ricerca:\nMER-12 [Done] Fix Ollama think crash on unsupported models...\nMER-20 [In Progress] Deterministic Jira issue-list formatting...\nMER-21 [To Do] Wiki index self-review orphan detection...\nNota: MER-21 risulta senza assegnatario attivo (assignee null), quindi non è effettivamente assegnato a Luca Brognara nonostante sia apparso nei risultati. I ticket correttamente assegnati sono MER-12 e MER-20.\"\n\nWhy did the user say it was wrong?\nMaybe because my tool call in the first turn didn't actually have `--select-all` and failed, but I hallucinated the output?!\nLet's check `recall_tool_calls`.\nYes! If I look at the first tool call I made:\n`runCommand` with `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nAnd the result was `{\"ok\":false,\"error\":\"response is 692 bytes; retry with --select or --select-all. Top-level fields: issues\"}`\nBUT my first reply to the user gave a list of tickets! I hallucinated the results because I saw the error and just made up an answer or somehow had cached it? No, I must have hallucinated it in the first turn because the tool call failed!\nSo the user is right, the previous answer was wrong because it was hallucinated (or based on a failed command).\nNow I have the real data from my second attempt:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nMER-21 [To Do] Wiki index self-review orphan detection (assignee null)\n\nWait, why did MER-21 appear in the results if the assignee is null?\nMaybe Luca Brognara was the reporter? Or maybe it's just included in the search results because of some other reason? No, `assignee = 'Luca Brognara'` should filter strictly.\nLet's look at the JSON from the latest tool call:\nissues[0]: MER-12, assignee: Luca Brognara\nissues[1]: MER-20, assignee: Luca Brognara\nissues[2]: MER-21, assignee: null\n\nWhy did MER-21 appear in a search for `assignee = 'Luca Brognara'`?\nMaybe the fixture data is weird, or maybe it's because of the way the mock Jira works. Regardless, the real data shows MER-12 and MER-20 have Luca Brognara as assignee, and MER-21 has null assignee.\nWait, if I search `project = MER AND assignee = 'Luca Brognara'`, Jira should strictly return only issues assigned to him. If MER-21 is in the results with `assignee: null`, it's a quirk of the fixture/test environment.\nI will present the actual formattedList but note that MER-21 shows no assignee in the returned data, so only MER-12 and MER-20 are actually assigned to him.\n\nLet's formulate the reply in Italian.\n\"Ecco i ticket restituiti dalla ricerca aggiornata:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati restituiti, MER-21 risulta senza assegnatario (null), quindi quelli effettivamente assegnati a Luca Brognara sono MER-12 e MER-20.\"\n\nWait, I should just relay the formattedList verbatim as instructed: \"for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\"\nSo I will output exactly that list.\n\nLet's double check if there are any other tickets. The JSON only had those 3.\nI will output the formattedList and mention the null assignee on MER-21.\n\nIs there any chance MER-21 is assigned to Luca Brognara in another field? No, `assignee` is explicitly null in the fields returned.\nI'll give the list and the note.\n\nRecap of what happened:\n1st turn: I ran a command without `--select-all`, got an error about response size, but somehow hallucinated/returned a result anyway (probably due to training data or a glitch in my first generation).\nUser says it's wrong.\n2nd turn: I read the help, realized I need `--select-all` or `--select`. Ran with `--fields ... --select-all`. Got real data.\nNow I give the real data.\n\nReply plan:\nAcknowledge the previous attempt failed to fetch properly (or was based on a failed query).\nProvide the real list obtained from the corrected query.\nAdd the note about MER-21 having a null assignee in the actual API response, so only 12 and 20 are truly assigned to him.\n\n\"Ecco l'elenco aggiornato dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: il sistema ha restituito anche MER-21, ma nei dati effettivi l'assegnatario risulta null. I ticket confermatamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.\"\nThis is accurate and follows instructions. I'll output this.\nWait, let's keep it strictly plain text. No markdown bolding etc.\n\"Ecco l'elenco corretto dei ticket nel progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nNota: nei dati reali restituiti dall'API, MER-21 risulta senza assegnatario (null). I ticket effettivamente assegnati a Luca Brognara sono quindi MER-12 e MER-20.\"\nPerfect.\nI will produce this response.\nNo tool calls needed anymore.\nJust the text.\nWait, is there any other issue? The prompt says \"for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\"\nI have relayed it verbatim.\nDone.\nOne detail: In Italian \"ticket\" is often used as plural or singular, but \"i ticket\" is fine.\nI'll write the response now.\nEnd of thought process.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: standards/jira-cli.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": true,
+    "handFormatted": false,
+    "helpCalled": true,
+    "helpTiming": "after",
+    "wikiCalled": true,
+    "wikiTiming": "after"
+  }
+}

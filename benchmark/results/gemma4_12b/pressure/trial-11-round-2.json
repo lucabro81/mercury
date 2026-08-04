@@ -1,0 +1,401 @@
+{
+  "model": "gemma4:12b",
+  "family": "dense",
+  "activeParamsB": 12,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 11,
+  "round": 2,
+  "timestampIso": "2026-08-02T19:59:53.476Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21",
+  "latencyMs": 80226,
+  "usage": {
+    "inputTokens": 5007,
+    "inputTokenDetails": {
+      "noCacheTokens": 5007
+    },
+    "outputTokens": 118,
+    "outputTokenDetails": {
+      "textTokens": 118
+    },
+    "totalTokens": 5125
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "*   The user says \"No, è sbagliato, riprova\" (No, it's wrong, try again).\n    *   The previous turn involved the model listing a set of Jira issues based on some search criteria (\"assigned to Luca Brognara in project MER\").\n    *   I need to figure out why the result was \"wrong\".\n    *   Looking at the history:\n        1.  User asked for \"ticket assegnati a Luca Brognara nel progetto MER\" (issues assigned to Luca Brognara in project MER).\n        2.  Model used `runCommand` with some query.\n        3.  Actually, wait. The system prompt tells me the rules: \"use runCommand\", \"don't guess\", \"if it seems wrong/empty retry\".\n    *   Why did I get it \"wrong\"? Maybe I didn't use the right project code? (The user asked for \"MER\" which is a valid key, but maybe there are others). Or maybe I used the wrong filter.\n    *   Let's re-evaluate the query: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\"`\n    *   Wait, let me look at my internal state. I don't have the previous turn's tool output in this thought block, but I can infer from the user's reaction. They are saying it's wrong.\n    thought: The user is speaking Italian. I should respond in Italian or stay neutral? No, standard procedure is to be helpful and direct.\n    *   Why might it be \"wrong\"?\n        1.  The query was correct but the results were empty (and I didn't try a synonym).\n        2.  I used `currentUser()` instead of a name (but my system prompt forbids that).\n        3.  I misidentified the project key (though MER is explicit).\n        4.  Maybe there are multiple items and I only showed some?\n\n    Let me re-run the search carefully. Maybe I missed something or used a different query logic.\n    Wait, looking back at the rules: \"If the user's free-text value (e.g. a status name) comes back with no results, retry with at least one likely real wording\".\n    The user might be implying that my search didn't find everything or I misinterpreted the query.\n\n    Actually, looking at the prompt logic: \"If a call is rejected, errors, or returns an empty result that seems suspicious... call runCommand again\".\n    Since I don't see the raw tool output here but I see the user's rejection, it means the previous search results weren't satisfactory.\n\n    Let's try to be more thorough. Maybe \"Luca Brognara\" is slightly different? No, the prompt says \"use the person's actual name\".\n    Maybe project \"MER\" has a different mapping? I should check `curated/projects/project-codes.md`.\n\n    Wait, let me think about the tool output for the *previous* turn (which is hidden from my current scratchpad but implied by the conversation flow). If it returned empty or something weird, I should try again.\n\n    Let's try to search specifically for tickets assigned to Luca Brognara in project MER and ensure I include fields like summary and status.\n\n    Wait! The user might be frustrated that I didn't find *any* because the search was too narrow or had a typo.\n    Actually, let's check if \"MER\" is the correct code for something else? No, usually it's just the key.\n\n    Let's try: `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\"` and ensure I use `--fields summary,status,assignee`.\n    If that was what I did and it failed/was empty, maybe \"Luca Brognara\" is not the exact name in the system? But I don't know other names.\n\n    Let me try to search for issues with \"Luca\" or just \"mer\".\n    Wait, no - follow instructions: \"If the user's free-text value... comes back with no results, retry with at least one likely real wording\".\n\n    Perhaps I should check `curated/projects/project-codes.md` to see if MER is something else? No, the instruction says \"If the user refers to a project by an informal name (e.g. 'the monorepo') ... check curated/projects/project-codes.md\". \"MER\" looks like a formal key, but I'll check just in case.\n\n    Let's try one more time with a very standard query and include the fields to make sure it's formatted.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "d81011ef-c5cc-4bf4-9e98-44faeeb0214d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "d81011ef-c5cc-4bf4-9e98-44faeeb0214d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "<channel|>",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "c5f93727-0bab-42cf-81b1-bd70ec8e5af9",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "c5f93727-0bab-42cf-81b1-bd70ec8e5af9",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The previous attempt failed because of a missing `--select` or the response was too large, which often happens when searching for results without specifying what to return or if there are many items. The tool output explicitly says \"retry with --select or --select-all\".\n\nHowever, looking at my instructions: \"If issue search's result has a formattedList field ... relay it verbatim\".\nThe reason the first attempt was likely \"wrong\" in the user's eyes might be that the list I provided didn't actually contain all the issues because of the technical error (the \"response is 692 bytes\" error) or because I just guessed.\n\nActually, wait. The instruction says: \"If a call is rejected, errors, or returns an empty result that seems suspicious... call runCommand again\".\nThe error `{\"ok\":false,\"error\":\"response is 692 bytes; retry with --select or --select-all. Top-level fields: issues\"}` means the search *did* find results (or enough of them to hit a limit), but the payload was too big for the tool to process without selection.\n\nI should try again using `--select-all` or ensuring I only get what's needed, but since \"issue search\" is supposed to provide `formattedList`, the standard way is usually just adding fields or using select. Since it specifically asked for --select, I will use that.\n\nWait, I see my previous turn's output was:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nMER-20 [In Progress] Determined Jira issue-list formatting\nMER-21 [To Do] Wiki index self-review orphan detection\n\nIf the user says \"it's wrong\", maybe there are *more* issues or different ones. I need to make sure I get a proper list this time by following the tool's error message advice (`--select-all`).\n\nActually, let me check if project \"MER\" is handled correctly.\nI will try `jira issue search --jql \"project = MER AND assignee = 'Luca Broana'\"`? No, name was Luca Brognara.\n\nLet's just run it with `--select-all` to be safe and get the full set of results.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0f40c336-feea-4ef8-9e97-02b1f4d20197",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0f40c336-feea-4ef8-9e97-02b1f4d20197",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "02b940d9-282c-4e41-a6c4-2190ad8b24ad",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "02b940d9-282c-4e41-a6c4-2190ad8b24ad",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": true,
+    "handFormatted": false,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

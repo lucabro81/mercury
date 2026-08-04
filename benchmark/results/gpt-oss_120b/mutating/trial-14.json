@@ -1,0 +1,247 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "mutating",
+  "trial": 14,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:45:02.371Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Crea un ticket nel progetto MER con titolo \"Bug nel login\" e assegnalo a Luca Brognara."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ticket created: MER‑99. It has the title “Bug nel login” and is assigned to Luca Brognara.",
+  "latencyMs": 16717,
+  "usage": {
+    "inputTokens": 2988,
+    "inputTokenDetails": {
+      "noCacheTokens": 2988
+    },
+    "outputTokens": 30,
+    "outputTokenDetails": {
+      "textTokens": 30
+    },
+    "totalTokens": 3018
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "User wants to create a Jira ticket in project MER, title \"Bug nel login\", assign to Luca Brognara.\n\nWe need to ensure the project key mapping: MER is presumably already known? Could check curated/projects/project-codes.md for mapping. Let's grep for MER.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "9f5560cf-75e0-44ac-9047-11809f541246",
+          "toolName": "grep",
+          "input": {
+            "pattern": "MER"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "9f5560cf-75e0-44ac-9047-11809f541246",
+          "toolName": "grep",
+          "input": {
+            "pattern": "MER"
+          },
+          "output": {
+            "ok": true,
+            "matches": [
+              {
+                "path": "curated/projects/project-codes.md",
+                "line": 3,
+                "text": "- \"Mercury\" / \"the assistant\" → MER"
+              }
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The mapping shows \"Mercury\" / \"the assistant\" maps to MER. So project key is MER.\n\nNow we need to create issue. Use jira issue create command. Let's see help for creating.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0f2a5372-55a2-436e-a04b-b5d9d59a0502",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0f2a5372-55a2-436e-a04b-b5d9d59a0502",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue create [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue create --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "We need to specify fields: project key, summary, assignee. Likely we must set values via --field or something? The help didn't show a flag for setting fields; maybe the CLI expects positional args? Let's run generic create without specifying fields but include needed fields in payload. Perhaps syntax is `jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\"`? But not sure.\n\nLet's check wiki standards/jira-cli.md for create usage.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0d5eeb9c-a562-48b1-be6a-0fd5aada453f",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0d5eeb9c-a562-48b1-be6a-0fd5aada453f",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "We need create usage; wiki may not have specifics. Let's try help for \"create\" subcommand more fully. Perhaps we need to run `jira issue create --help` again? Already did but didn't show options for setting fields.\n\nMaybe CLI expects JSON input via stdin or a file? Could be that the tool is Atlassian's jira-cli which uses --project etc. Let's try searching online? Not possible offline.\n\nWe can attempt to run a command with what we think: `jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\"` and see result or error.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "4e8cdf6d-cf8a-487c-8d30-42950ca8834d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "4e8cdf6d-cf8a-487c-8d30-42950ca8834d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "key": "MER-99"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Ticket created: MER‑99. It has the title “Bug nel login” and is assigned to Luca Brognara.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "grep",
+      "input": {
+        "pattern": "MER"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": [
+          {
+            "path": "curated/projects/project-codes.md",
+            "line": 3,
+            "text": "- \"Mercury\" / \"the assistant\" → MER"
+          }
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue create --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue create [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue create --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "key": "MER-99"
+        }
+      },
+      "isError": false,
+      "outputSummary": "data"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": true,
+    "helpTiming": "no-error",
+    "wikiCalled": true,
+    "wikiTiming": "no-error"
+  }
+}

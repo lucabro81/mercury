@@ -1,0 +1,290 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "mutating",
+  "trial": 10,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:43:39.790Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Crea un ticket nel progetto MER con titolo \"Bug nel login\" e assegnalo a Luca Brognara."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "The ticket has been created with key **MER-99**.",
+  "latencyMs": 26118,
+  "usage": {
+    "inputTokens": 3084,
+    "inputTokenDetails": {
+      "noCacheTokens": 3084
+    },
+    "outputTokens": 17,
+    "outputTokenDetails": {
+      "textTokens": 17
+    },
+    "totalTokens": 3101
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user wants to create a Jira ticket in project MER with title \"Bug nel login\" and assign to Luca Brognara.\n\nWe need to ensure we have correct project key mapping: MER likely is the JQL project key. We should verify via wiki curated/projects/project-codes.md if needed, but the user gave explicit code MER; could be safe. Might still check the mapping file for \"MER\". Let's grep.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "3e108054-a9d7-4486-a880-9519e3d91c55",
+          "toolName": "grep",
+          "input": {
+            "pattern": "MER"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "3e108054-a9d7-4486-a880-9519e3d91c55",
+          "toolName": "grep",
+          "input": {
+            "pattern": "MER"
+          },
+          "output": {
+            "ok": true,
+            "matches": [
+              {
+                "path": "curated/projects/project-codes.md",
+                "line": 3,
+                "text": "- \"Mercury\" / \"the assistant\" → MER"
+              }
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The mapping shows that \"Mercury\"/\"the assistant\" maps to MER. Good.\n\nNow we need to create an issue with jira CLI: likely command `jira issue create` with fields summary, project key, assignee. Need to check help for syntax.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "e9d7cb32-4cc3-4afb-bf95-bd86d2d2d3e8",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "e9d7cb32-4cc3-4afb-bf95-bd86d2d2d3e8",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue create [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue create --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The help is generic; maybe we need to pass fields directly as arguments: Usually jira-cli syntax: `jira issue create --summary \"title\" --project MER --assignee \"Luca Brognara\"`? We need to check standard usage. Let's grep curated/standards/jira-cli.md for create example.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "554db5e3-77d5-4190-ad5d-0a6f65f016a8",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "554db5e3-77d5-4190-ad5d-0a6f65f016a8",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "The jira-cli standard usage is not fully documented here. Let's try a command example: maybe `jira issue create -p MER -t \"Bug nel login\" -a \"Luca Brognara\"`? Need to check help for create subcommand more specifically, perhaps `jira issue create --help`. Already did generic help; maybe need full path: `jira issue create --help` gave generic.\n\nMaybe the CLI expects fields via `--field` repeated flag like `--field summary=\"Bug nel login\"`. Let's try search for \"issue create\" in docs.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "397ade95-662d-4923-b2e6-b0d008cc3004",
+          "toolName": "grep",
+          "input": {
+            "pattern": "issue create"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "397ade95-662d-4923-b2e6-b0d008cc3004",
+          "toolName": "grep",
+          "input": {
+            "pattern": "issue create"
+          },
+          "output": {
+            "ok": true,
+            "matches": []
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "reasoningText": "We have limited documentation. Perhaps we can infer typical jira-cli syntax: Usually Atlassian's CLI uses `jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\"`.\n\nLet's try to run a command with those flags and see response.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "758ef75c-76ca-432a-8a6c-57b82c979559",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "758ef75c-76ca-432a-8a6c-57b82c979559",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "key": "MER-99"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "The ticket has been created with key **MER-99**.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "grep",
+      "input": {
+        "pattern": "MER"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": [
+          {
+            "path": "curated/projects/project-codes.md",
+            "line": 3,
+            "text": "- \"Mercury\" / \"the assistant\" → MER"
+          }
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue create --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue create [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue create --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "grep",
+      "input": {
+        "pattern": "issue create"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": []
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue create --project MER --summary \"Bug nel login\" --assignee \"Luca Brognara\""
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "key": "MER-99"
+        }
+      },
+      "isError": false,
+      "outputSummary": "data"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": true,
+    "helpTiming": "no-error",
+    "wikiCalled": true,
+    "wikiTiming": "no-error"
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "wiki-only",
+  "trial": 3,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:57:28.304Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Cosa devo fare se una issue search mi ritorna un `{}` vuoto invece dei dati?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "If un risultato di `jira issue search` ti restituisce solo un `{}` vuoto, significa che il percorso indicato con `--select` non corrisponde a nessun campo del JSON prodotto dal comando; **non** indica “nessuna issue”.  \n\nPer risolvere:\n\n1. **Rimuovi o correggi il flag `--select`.**  \n   - Se non sei sicuro della struttura, esegui di nuovo la ricerca senza `--select`; otterrai l’intero JSON (oppure un risultato formattato con `formattedList`).  \n\n2. **Usa `--select-all` se vuoi tutti i campi disponibili.**  \n   - Questo evita il problema del percorso errato e ti mostra comunque una lista leggibile.\n\n3. **Oppure specifica esplicitamente i campi da visualizzare con `--fields`.**  \n   - Esempio:  \n     ```bash\n     jira issue search --jql \"project = MYPROJ\" \\\n         --fields summary,status,assignee,duedate\n     ```  \n   - In questo modo il risultato contiene le informazioni richieste e la CLI può generare `formattedList`.\n\n4. **Controlla la documentazione di `--select`.**  \n   - Usa `jira issue search --help` per vedere esempi corretti del percorso dot‑notation.\n\nIn sintesi: quando vedi `{}`, ripeti la ricerca senza `--select` oppure con `--select-all`/`--fields` per ottenere i dati reali.",
+  "latencyMs": 15552,
+  "usage": {
+    "inputTokens": 2621,
+    "inputTokenDetails": {
+      "noCacheTokens": 2621
+    },
+    "outputTokens": 324,
+    "outputTokenDetails": {
+      "textTokens": 324
+    },
+    "totalTokens": 2945
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user asks in Italian: \"What should I do if an issue search returns an empty `{}` instead of data?\" They refer to earlier instructions: when you get a {} it usually means select path wrong, not zero matching issues. Need to answer with steps: check that select is correct, use --select-all or proper fields, ensure formattedList, maybe run with --fields summary,status etc.\n\nWe need to consult wiki for jira-cli standards possibly. Use grep to find info about `{}` empty and select.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "635beb74-9fda-4f82-84d0-296ff866ca5a",
+          "toolName": "grep",
+          "input": {
+            "pattern": "\\{\\}"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "635beb74-9fda-4f82-84d0-296ff866ca5a",
+          "toolName": "grep",
+          "input": {
+            "pattern": "\\{\\}"
+          },
+          "output": {
+            "ok": true,
+            "matches": [
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 10,
+                "text": "in that JSON returns a bare `{}` — not an error, not \"no matches\", just"
+              },
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 11,
+                "text": "an empty object. If you get `{}` back from `issue search`, don't treat"
+              }
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "We need to read that file for context.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "4d6611ac-c7e1-4e02-a1e5-463b844439e7",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "4d6611ac-c7e1-4e02-a1e5-463b844439e7",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "If un risultato di `jira issue search` ti restituisce solo un `{}` vuoto, significa che il percorso indicato con `--select` non corrisponde a nessun campo del JSON prodotto dal comando; **non** indica “nessuna issue”.  \n\nPer risolvere:\n\n1. **Rimuovi o correggi il flag `--select`.**  \n   - Se non sei sicuro della struttura, esegui di nuovo la ricerca senza `--select`; otterrai l’intero JSON (oppure un risultato formattato con `formattedList`).  \n\n2. **Usa `--select-all` se vuoi tutti i campi disponibili.**  \n   - Questo evita il problema del percorso errato e ti mostra comunque una lista leggibile.\n\n3. **Oppure specifica esplicitamente i campi da visualizzare con `--fields`.**  \n   - Esempio:  \n     ```bash\n     jira issue search --jql \"project = MYPROJ\" \\\n         --fields summary,status,assignee,duedate\n     ```  \n   - In questo modo il risultato contiene le informazioni richieste e la CLI può generare `formattedList`.\n\n4. **Controlla la documentazione di `--select`.**  \n   - Usa `jira issue search --help` per vedere esempi corretti del percorso dot‑notation.\n\nIn sintesi: quando vedi `{}`, ripeti la ricerca senza `--select` oppure con `--select-all`/`--fields` per ottenere i dati reali.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "grep",
+      "input": {
+        "pattern": "\\{\\}"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": [
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 10,
+            "text": "in that JSON returns a bare `{}` — not an error, not \"no matches\", just"
+          },
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 11,
+            "text": "an empty object. If you get `{}` back from `issue search`, don't treat"
+          }
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "no-error"
+  }
+}

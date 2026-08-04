@@ -1,0 +1,414 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 3,
+  "round": 3,
+  "timestampIso": "2026-08-03T09:09:01.494Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nNote che c'è anche MER-21 [\"Wiki index self-review orphan detection\"] con status \"To Do\", ma l'assignee è null, quindi non risulta assegnato a nessuno."
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": "Ho eseguito la ricerca di nuovo e i risultati mostrano tre ticket, ma MER-21 ha un assignee null. Quindi effettivamente ci sono solo due ticket assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nQuesto è corretto. MER-21 non dovrebbe essere incluso nella lista di quelli assegnati a Luca Brognara perché il suo assignee è null."
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "I risultati corretti sono:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nHo filtrato MER-21 perché non ha un assegnario (il campo assignee è nullo).",
+  "finalReasoningText": "The search returned 3 issues, but MER-21 has assignee=null. So there are only **two** tickets assigned to Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nThe formattedList is correct, but I need to filter out MER-21 since it has no assignee. Let me re-read the original request - user asked for \"ticket assegnati a Luca Brognara\" (tickets assigned to Luca Brognara). The results correctly show:\n\n- MER-12 and MER-20 are both assigned to Luca Brognara\n- MER-21 has no assignee (assignee=null) so it should NOT be included\n\nBut I notice that the formattedList includes all 3 issues. Let me present only the two actual tickets with assignments, since that's what was asked for - not a full list of matched queries, but specifically those assigned to Luca Brognara.",
+  "latencyMs": 18820,
+  "usage": {
+    "inputTokens": 4265,
+    "inputTokenDetails": {
+      "noCacheTokens": 4265
+    },
+    "outputTokens": 333,
+    "outputTokenDetails": {
+      "textTokens": 333
+    },
+    "totalTokens": 4598
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user says the results are wrong and wants me to redo the search. I should run the Jira CLI command again with proper formatting. Let me make sure I use the correct query syntax for searching issues assigned to Luca Brognara in project MER.\n\nI need to be careful about:\n1. Using actual names instead of currentUser() - which is why I used \"Luca Brognara\" directly (correct)\n2. Making sure the JQL is properly formatted\n3. Including --fields for a cleaner output when there might be multiple results\n\nLet me run the command again to get fresh data.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6122fcb2-a4d1-44d4-a6f9-972c56985164",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6122fcb2-a4d1-44d4-a6f9-972c56985164",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "I need to add a `--select` flag since the response indicates there are multiple issues. Let me use `--select-all` to get all matching issues, and include summary in the output so I can format it properly.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "390954d7-69be-49a6-afdd-305ce09f0f74",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "390954d7-69be-49a6-afdd-305ce09f0f74",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The command still requires a `--select` flag. Let me try using `--select=issues` to explicitly select the issues field, since that's what appears in the top level according to the error message. I should also check the help for the exact syntax expected by this version of jira-cli.\n\nLet me first check what --help says about issue search and its select flag options.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "b486695d-dea2-44ff-ac87-7cfbef6bcfd1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help | head -50"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "b486695d-dea2-44ff-ac87-7cfbef6bcfd1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help | head -50"
+          },
+          "output": {
+            "ok": false,
+            "error": "could not parse \"jira issue search --help | head -50\": shell operators, globs, and comments are not supported in commands (found {\"op\":\"|\"})"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "The tool doesn't support shell pipes. I need to run the full help output without piping. Let me try running just `jira issue search --help` first.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "2bd746c8-d291-4bea-a8b0-02a75a206a29",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "2bd746c8-d291-4bea-a8b0-02a75a206a29",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "I see! The `--select` flag uses dot-notation to project into the JSON output. Looking at the error message, it says \"Top-level fields: issues\", so I need to select that field properly. Let me try using `--select=issues`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "e204ce68-0157-47f1-b07e-346761d8bc92",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate --select=issues.summary"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "e204ce68-0157-47f1-b07e-346761d8bc92",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate --select=issues.summary"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "Let me try a different approach - maybe I need to use `--select` without the dot notation, just selecting \"issues\" itself since that's what appears at the top level. Let me also check if there are other valid patterns by looking at examples more carefully or trying simpler selections.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "b777db93-0136-428b-9e37-168f0988eebf",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "b777db93-0136-428b-9e37-168f0988eebf",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "I risultati corretti sono:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nHo filtrato MER-21 perché non ha un assegnario (il campo assignee è nullo).",
+      "reasoningText": "The search returned 3 issues, but MER-21 has assignee=null. So there are only **two** tickets assigned to Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nThe formattedList is correct, but I need to filter out MER-21 since it has no assignee. Let me re-read the original request - user asked for \"ticket assegnati a Luca Brognara\" (tickets assigned to Luca Brognara). The results correctly show:\n\n- MER-12 and MER-20 are both assigned to Luca Brognara\n- MER-21 has no assignee (assignee=null) so it should NOT be included\n\nBut I notice that the formattedList includes all 3 issues. Let me present only the two actual tickets with assignments, since that's what was asked for - not a full list of matched queries, but specifically those assigned to Luca Brognara.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help | head -50"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "could not parse \"jira issue search --help | head -50\": shell operators, globs, and comments are not supported in commands (found {\"op\":\"|\"})"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate --select=issues.summary"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": true,
+    "helpTiming": "after",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

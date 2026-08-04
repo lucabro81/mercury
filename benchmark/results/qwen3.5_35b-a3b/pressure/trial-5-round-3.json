@@ -1,0 +1,290 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 5,
+  "round": 3,
+  "timestampIso": "2026-08-03T09:10:40.590Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ho trovato i ticket assegnati a Luca Brognara nel progetto MER:\n\n**MER-12 [Done]** Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\n**MER-20 [In Progress]** Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\n*Nota: MER-21 risulta assegnato a nessuno (assignee null).*"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\n**MER-12 [Done]** Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\n**MER-20 [In Progress]** Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nNota che MER-21 risulta assegnato a nessuno (assignee null)."
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\n**MER-12 [Done]** Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\n**MER-20 [In Progress]** Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20",
+  "latencyMs": 8845,
+  "usage": {
+    "inputTokens": 3734,
+    "inputTokenDetails": {
+      "noCacheTokens": 3734
+    },
+    "outputTokens": 79,
+    "outputTokenDetails": {
+      "textTokens": 79
+    },
+    "totalTokens": 3813
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "L'utente mi ha detto due volte che i risultati della mia precedente query su Jira per Luca Brognara nel progetto MER erano errati. Devo fare una nuova ricerca e assicurarmi di usare il comando corretto.\n\nVoglio provare a cercare ancora con un approccio diverso - forse devo specificare meglio la sintassi o i campi richiesti. Proverò di nuovo con issue search, usando assignee = 'Luca Brognara' come ho fatto prima ma verificando che tutto sia corretto nella formulazione del JQL.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6b58b287-b310-4ec3-aa0f-67c3aef3b805",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select all --fields summary,status,assignee,sprint,priority,created,updated,resolution,dueDate --project MER assignee=\"Luca Brognara\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6b58b287-b310-4ec3-aa0f-67c3aef3b805",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select all --fields summary,status,assignee,sprint,priority,created,updated,resolution,dueDate --project MER assignee=\"Luca Brognara\""
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "Ho ottenuto un warning invece di dati reali - il messaggio indica che non riesco a costruire una lista formattata. Ma questo è strano perché dovrei ottenere i risultati grezzi prima che Mercury aggiunga la formattedListNote. Forse ho sbagliato qualcosa nella sintassi del JQL o nei parametri.\n\nProvo senza --select e vedo cosa ottengo:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6d1b912c-46da-4b29-8ce2-9202a6bc816d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER assignee=\"Luca Brognara\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6d1b912c-46da-4b29-8ce2-9202a6bc816d",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER assignee=\"Luca Brognara\""
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "Ora il comando dice che la risposta è troppo grande e richiede di usare --select o --select-all. Proviamo con --select-all come suggerito dalla documentazione wiki sulla sintassi corretta per evitare l'errore {}:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "911a2d96-34f2-4e35-b52d-a1b9510fe3d3",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER assignee=\"Luca Brognara\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "911a2d96-34f2-4e35-b52d-a1b9510fe3d3",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --project MER assignee=\"Luca Brognara\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\n**MER-12 [Done]** Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\n**MER-20 [In Progress]** Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --select all --fields summary,status,assignee,sprint,priority,created,updated,resolution,dueDate --project MER assignee=\"Luca Brognara\""
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+        }
+      },
+      "isError": true,
+      "outputSummary": "formattedListNote"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --project MER assignee=\"Luca Brognara\""
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --project MER assignee=\"Luca Brognara\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

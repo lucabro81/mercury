@@ -1,0 +1,357 @@
+{
+  "model": "glm-4.5-air-q4:latest",
+  "family": "moe",
+  "activeParamsB": 12,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "ambiguous-project",
+  "trial": 9,
+  "round": 1,
+  "timestampIso": "2026-08-03T11:28:33.028Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket aperti nel monorepo?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "I ticket aperti nel progetto monorepo (CLI) sono:\n\n**MER-12**: Fix Ollama think crash on unsupported models  \nStato: Done | Assegnato a: Luca Brognara\n\n**MER-20**: Deterministic Jira issue-list formatting  \nStato: In Progress | Assegnato a: Luca Brognara\n\n**MER-21**: Wiki index self-review orphan detection  \nStato: To Do | Non assegnato\n\nCi sono 3 ticket totali nel progetto CLI, di cui 2 attualmente aperti (MER-20 in progress e MER-21 to do).",
+  "latencyMs": 37183,
+  "usage": {
+    "inputTokens": 3504,
+    "inputTokenDetails": {
+      "noCacheTokens": 3504
+    },
+    "outputTokens": 136,
+    "outputTokenDetails": {
+      "textTokens": 136
+    },
+    "totalTokens": 3640
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "Devo prima verificare quale sia la chiave del progetto \"monorepo\" nella configurazione.\n",
+      "reasoningText": "L'utente chiede quali ticket aperti ci sono nel \"monorepo\". Questo è un riferimento a un progetto informale, quindi devo prima controllare il mapping dei nomi di progetto nei file curati per trovare la chiave JQL corretta.\n\nPrima di tutto, controllo curated/projects/project-codes.md per vedere se c'è una mappatura per \"monorepo\".",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "a57dbe9d-547d-4e04-a712-388b99d4454b",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "a57dbe9d-547d-4e04-a712-388b99d4454b",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "Ora so che \"monorepo\" corrisponde al progetto CLI. Cerco i ticket aperti in questo progetto:\n",
+      "reasoningText": "Perfetto, ora so che \"monorepo\" corrisponde al progetto con chiave \"CLI\". Ora devo cercare i ticket aperti in questo progetto.\n\nPer trovare ticket aperti, tipicamente cerchiamo stati come \"Open\", \"To Do\", \"In Progress\", etc. Ma prima cerco per vedere quali ticket ci sono nel progetto CLI e quali stati hanno, quindi posso filtrare solo quelli aperti.\n\nUserò il comando jira issue search con --fields per ottenere i dati essenziali senza sovraccaricare l'output, e userò un JQL che cerca ticket nello stato \"Open\" o simili.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "33846f27-f5a8-4b71-94d0-7e8d1fe9221b",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "33846f27-f5a8-4b71-94d0-7e8d1fe9221b",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "Devo usare il flag corretto per selezionare i campi. Provo con --select:\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "8d4dc3ec-d412-454f-b1e2-b46f2b9db730",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "8d4dc3ec-d412-454f-b1e2-b46f2b9db730",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select summary,status,assignee"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "Vedo che c'è un problema con il formato per la lista formattata. Provo senza --select o con --select-all:\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "505cf25e-d9a5-4298-bce6-68f9d70013f6",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "505cf25e-d9a5-4298-bce6-68f9d70013f6",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\""
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Provo con --select-all:\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "678f523f-36f6-450d-8312-e1da63311bec",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "678f523f-36f6-450d-8312-e1da63311bec",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "I ticket aperti nel progetto monorepo (CLI) sono:\n\n**MER-12**: Fix Ollama think crash on unsupported models  \nStato: Done | Assegnato a: Luca Brognara\n\n**MER-20**: Deterministic Jira issue-list formatting  \nStato: In Progress | Assegnato a: Luca Brognara\n\n**MER-21**: Wiki index self-review orphan detection  \nStato: To Do | Non assegnato\n\nCi sono 3 ticket totali nel progetto CLI, di cui 2 attualmente aperti (MER-20 in progress e MER-21 to do).",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+        }
+      },
+      "isError": true,
+      "outputSummary": "formattedListNote"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\""
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI and status not in (Closed, Done, Resolved)\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

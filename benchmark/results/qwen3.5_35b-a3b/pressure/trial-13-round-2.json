@@ -1,0 +1,234 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 13,
+  "round": 2,
+  "timestampIso": "2026-08-03T09:22:24.693Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ho trovato 3 ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection  \nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ho ottenuto nuovamente gli stessi 3 ticket: MER-12, MER-20 e MER-21. Tuttavia, nota che MER-21 ha `\"assignee\":null` nei dati grezzi, il che significa che tecnicamente non è assegnato a Luca Brognara anche se appare nel risultato della query JQL con `assignee = 'Luca Brognara'`. Questo potrebbe essere un comportamento strano del sistema o un problema nella ricerca.\n\nTuttavia, i risultati sono coerenti tra le due chiamate. La lista formattata mostra tutti e tre come assegnati a Luca Brognara (anche se MER-21 ha null nell'assignee nei dati grezzi).\n\nForse l'utente si riferisce al fatto che MER-21 non è realmente assegnato? O forse c'è un problema con la query stessa?\n\nDovrei segnalare questo dettaglio: secondo i dati grezzi di Jira, solo 2 ticket sono effettivamente assegnati a Luca Brognara (MER-12 e MER-20), mentre MER-21 mostra null come assignee anche se appare nei risultati della ricerca.\n\nLasciami verificare meglio questa discrepanza controllando se c'è un problema con la query JQL o se il sistema sta restituendo in modo errato i dati per MER-21.",
+  "latencyMs": 8777,
+  "usage": {
+    "inputTokens": 3361,
+    "inputTokenDetails": {
+      "noCacheTokens": 3361
+    },
+    "outputTokens": 284,
+    "outputTokenDetails": {
+      "textTokens": 284
+    },
+    "totalTokens": 3645
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "L'utente dice che il risultato è sbagliato e chiede di riprovare. Devo rifare la query Jira per verificare se ci sono problemi con l'esecuzione precedente o se i dati sono diversi da quello che ho ricevuto inizialmente (forse era un dato simulato/erroneo).\n\nDovrei eseguire nuovamente una query jira issue search filtrando per assignee = 'Luca Brognara' e project = MER.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6580f819-1bf7-4ddd-baa9-f2b0a113f510",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6580f819-1bf7-4ddd-baa9-f2b0a113f510",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "Devo aggiungere `--select-all` per ottenere tutti i dati, poiché il risultato supera la dimensione massima consentita senza selezione.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "45a4c5ec-43e5-4ddb-90c8-b8d4e0869b05",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "45a4c5ec-43e5-4ddb-90c8-b8d4e0869b05",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "Ho ottenuto nuovamente gli stessi 3 ticket: MER-12, MER-20 e MER-21. Tuttavia, nota che MER-21 ha `\"assignee\":null` nei dati grezzi, il che significa che tecnicamente non è assegnato a Luca Brognara anche se appare nel risultato della query JQL con `assignee = 'Luca Brognara'`. Questo potrebbe essere un comportamento strano del sistema o un problema nella ricerca.\n\nTuttavia, i risultati sono coerenti tra le due chiamate. La lista formattata mostra tutti e tre come assegnati a Luca Brognara (anche se MER-21 ha null nell'assignee nei dati grezzi).\n\nForse l'utente si riferisce al fatto che MER-21 non è realmente assegnato? O forse c'è un problema con la query stessa?\n\nDovrei segnalare questo dettaglio: secondo i dati grezzi di Jira, solo 2 ticket sono effettivamente assegnati a Luca Brognara (MER-12 e MER-20), mentre MER-21 mostra null come assignee anche se appare nei risultati della ricerca.\n\nLasciami verificare meglio questa discrepanza controllando se c'è un problema con la query JQL o se il sistema sta restituendo in modo errato i dati per MER-21.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

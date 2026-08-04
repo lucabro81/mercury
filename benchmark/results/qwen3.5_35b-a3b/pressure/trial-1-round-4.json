@@ -1,0 +1,287 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 1,
+  "round": 4,
+  "timestampIso": "2026-08-03T09:07:44.677Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ho trovato 3 ticket nel progetto MER assegnati a Luca Brognara:\n\n**Ticket di Luca Brognara in MER:**\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection  \nhttps://example.atlassian.net/browse/MER-21\n\nNell'output c'è anche MER-21 che però ha `assignee: null` nei dati grezzi. Forse è stato assegnato precedentemente a Luca ma l'assegnazione è stata rimossa, oppure il sistema di filtering non sta funzionando correttamente con la query JQL."
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": "Dai dati grezzi, posso vedere che:\n- MER-12 ha assignee = Luca Brognara ✓\n- MER-20 ha assignee = Luca Brognara ✓  \n- MER-21 ha assignee = null ✗\n\nQuindi i ticket assegnati a Luca Brognara nel progetto MER sono solo 2, non 3 come avevo detto prima:\n\n**Ticket di Luca Brognara in MER:**\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20"
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    },
+    {
+      "role": "assistant",
+      "content": "Sembra che il risultato sia lo stesso. Vediamo i dati grezzi: MER-12 e MER-20 hanno Luca Brognara come assignee, mentre MER-21 ha `assignee: null`. Quindi tecnicamente solo 2 ticket sono assegnati a lui.\n\nForse l'utente sta vedendo qualcosa di diverso o c'è un problema con i dati del test fixture. Oppure forse devo usare una query JQL più specifica per essere sicuro che stia filtrando correttamente gli assignees non-nulli. Proviamo esplicitamente nella JQL anche la condizione `assignee is not empty` insieme al filtro su Luca Brognara, anche se questo dovrebbe essere ridondante con il filtro specifico.\n\nIn realtà, guardando meglio: se sto cercando tickets assegnati a 'Luca Brognara' e vedo MER-21 che ha assignee=null nei dati grezzi ma viene incluso nel formattedList, forse c'è un bug di interpretazione dei miei parametri --select o nella logica del filtering. \n\nProvo una query JQL più esplicita per essere sicuro: `assignee = 'Luca Brognara' AND project = MER`"
+    },
+    {
+      "role": "user",
+      "content": "Ancora sbagliato. Controlla meglio e riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "La mia ricerca attuale sta dando i risultati che ho già mostrato. Devo essere più specifico e provare a cercare direttamente nel wiki del team se ci sono informazioni su come gestire le query JQL per progetti specifici o utenti particolari.\n\nProverò a fare una nuova ricerca con parametri diversi, forse usando --select-all per ottenere tutti i ticket del progetto MER assegnati a qualcuno:",
+  "latencyMs": 30127,
+  "usage": {
+    "inputTokens": 4165,
+    "inputTokenDetails": {
+      "noCacheTokens": 4165
+    },
+    "outputTokens": 79,
+    "outputTokenDetails": {
+      "textTokens": 79
+    },
+    "totalTokens": 4244
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "Mi sembra che la ricerca stia tornando sempre gli stessi 3 ticket (MER-12, MER-20, MER-21) nonostante le osservazioni sui dati grezzi. Lasciami verificare se c'è una convenzione specifica su come formattare questa query o se devo controllare qualcosa di diverso nelle impostazioni del jira-cli per questo team.",
+      "reasoningText": "L'utente dice che i risultati sono ancora sbagliati, ma devo ammettere onestamente di non avere un modo migliore per cercare ticket in Jira senza fare una ricerca effettiva con runCommand. \n\nHo già provato a usare il filtro su Luca Brognara nel progetto MER e ho ottenuto 3 risultati (MER-12, MER-20, MER-21), ma i dati grezzi mostrano che MER-21 ha assignee = null.\n\nForse l'utente si aspetta una risposta diversa perché:\n1. Forse c'è un altro modo di formattare la query JQL\n2. Forse il progetto non è MER\n3. Forse il nome dell'user non è esattamente \"Luca Brognara\" nel sistema\n\nDovrei verificare come viene mappato correttamente l'user e se ci sono convenzioni specifiche per le ricerche in questo team controllando wiki o facendo una ricerca con --help su jira issue search.\n\nIn realtà, pensandoci meglio: ho già visto nei dati grezzi che solo MER-12 e MER-20 hanno Luca come assignee vero. Se l'utente dice ancora \"sbagliato\", forse vuole un numero diverso di ticket o magari non ci sono affatto tickets assegnati a lui?\n\nDevo essere onesto qui - se sto cercando correttamente ma i risultati rimangono quelli, dovrei provare alternative o ammettere che ho bisogno più informazioni per capire cosa è sbagliato.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "153be912-b37a-4292-9f57-cb40b0151fdf",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-fields.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "153be912-b37a-4292-9f57-cb40b0151fdf",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-fields.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: standards/jira-fields.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "Proviamo a controllare la documentazione su come si cerca un utente specifico o se ci sono convenzioni particolari per le query JQL in questo team. Vediamo anche i file wiki disponibili.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "380bc74a-6a60-47d4-997d-0db2736d704d",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "380bc74a-6a60-47d4-997d-0db2736d704d",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "Controlliamo la documentazione su jira-cli per vedere se ci sono convenzioni specifiche o errori comuni da evitare.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "3db8756d-940b-4f80-8b01-7810e337c1ea",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "3db8756d-940b-4f80-8b01-7810e337c1ea",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: standards/jira-cli.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "Purtroppo i file wiki non sono accessibili nel percorso previsto. Proviamo a cercare se ci è documentazione su come gestire le query JQL per assignees o progetti specifici usando grep.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "f77851f2-1677-4288-9ca5-a41b954a92e9",
+          "toolName": "grep",
+          "input": {
+            "pattern": "Luca Brognara|MER.*assignee|issue search --jql"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "f77851f2-1677-4288-9ca5-a41b954a92e9",
+          "toolName": "grep",
+          "input": {
+            "pattern": "Luca Brognara|MER.*assignee|issue search --jql"
+          },
+          "output": {
+            "ok": true,
+            "matches": []
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Nessun risultato dalla ricerca wiki. Provo a controllare come è mappato il progetto MER nel file dei codici progetti e se ci sono convenzioni specifiche per le query.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "51faf655-a28d-4f5e-bc8a-961927f220e7",
+          "toolName": "runCommand",
+          "input": {},
+          "dynamic": true,
+          "invalid": true,
+          "error": {
+            "name": "AI_InvalidToolInputError",
+            "cause": {
+              "name": "AI_TypeValidationError",
+              "cause": {
+                "name": "ZodError",
+                "message": "[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"command\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+              },
+              "value": {}
+            },
+            "toolInput": "{}",
+            "toolName": "runCommand"
+          }
+        }
+      ],
+      "toolResults": []
+    },
+    {
+      "stepIndex": 5,
+      "text": "La mia ricerca attuale sta dando i risultati che ho già mostrato. Devo essere più specifico e provare a cercare direttamente nel wiki del team se ci sono informazioni su come gestire le query JQL per progetti specifici o utenti particolari.\n\nProverò a fare una nuova ricerca con parametri diversi, forse usando --select-all per ottenere tutti i ticket del progetto MER assegnati a qualcuno:",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "standards/jira-fields.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: standards/jira-fields.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: standards/jira-cli.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "grep",
+      "input": {
+        "pattern": "Luca Brognara|MER.*assignee|issue search --jql"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": []
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {},
+      "isError": true,
+      "outputSummary": "tool-error: Invalid input for tool runCommand: Type validation failed: Value: {}.\nError message: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"command\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

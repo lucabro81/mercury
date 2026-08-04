@@ -1,0 +1,145 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "wiki-only",
+  "trial": 4,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:57:48.566Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Cosa devo fare se una issue search mi ritorna un `{}` vuoto invece dei dati?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Se `jira issue search … --select <path>` ti restituisce solo un `{}` vuoto, non è perché non ci siano risultati: è il risultato di un percorso `--select` che non corrisponde a nessun campo nel JSON prodotto dal comando. In pratica hai chiesto al CLI di estrarre qualcosa che non esiste.\n\nCosa fare:\n\n1. **Rimuovi o correggi l’opzione `--select`.**  \n   - Se non ti serve un campo specifico, esegui la ricerca senza `--select`; il risultato conterrà tutti i campi e verrà mostrata anche una `formattedList` leggibile.  \n   - Se vuoi comunque limitare l’output, usa `--select-all` (che restituisce tutto l’array di risultati) oppure scegli un percorso valido (controlla la struttura JSON con `jira issue search --help` o prova prima senza `--select` per vedere i nomi dei campi).\n\n2. **Aggiungi `--fields` espliciti** (es. `--fields summary,status,assignee,duedate`). Questo rende più facile ottenere una lista formattata e evita l’uso di `--select` quando non è necessario.\n\n3. **Verifica la sintassi con `--help`.**  \n   ```bash\n   jira issue search --help\n   ```\n   Controlla la sezione “Examples” per vedere come si usa correttamente `--select`.\n\n4. **Se il problema persiste**, ripeti la ricerca senza alcun `--select` e guarda la risposta: dovrebbe contenere un campo `formattedList` (o `formattedListNote`). Se vedi solo `{}` anche in assenza di `--select`, probabilmente c’è stato un errore nella query JQL; ricontrolla i filtri.\n\nIn sintesi, un `{}` vuoto indica un percorso `--select` non valido: elimina o correggi l’opzione e, se necessario, usa `--fields` o `--select-all` per ottenere i dati reali.",
+  "latencyMs": 20261,
+  "usage": {
+    "inputTokens": 2621,
+    "inputTokenDetails": {
+      "noCacheTokens": 2621
+    },
+    "outputTokens": 438,
+    "outputTokenDetails": {
+      "textTokens": 438
+    },
+    "totalTokens": 3059
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user asks in Italian: \"What should I do if an issue search returns an empty `{}` instead of data?\" They refer to jira-cli returning {} empty instead of actual data. According to instructions, when we get {}, it's likely due to wrong --select path; need to retry with proper flags like --fields or --select-all.\n\nWe need to answer: steps: check if using --select; use correct syntax per standards/jira-cli. Provide guidance: run issue search without --select, add --fields summary,status, etc., maybe include formattedList, avoid {}.\n\nThus we need to consult curated/standards/jira-cli.md for proper advice? The instructions say for anything about CLI syntax/flags, rely on --help first, but also wiki may have conventions. We can read that file to ensure correct guidance.\n\nLet's list files:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "e4ea216f-97ad-4c25-8b89-1c26d1c5b07b",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "e4ea216f-97ad-4c25-8b89-1c26d1c5b07b",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "Read jira-cli standard.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "8a2a320e-28a8-4439-adbb-b780c826c34b",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "8a2a320e-28a8-4439-adbb-b780c826c34b",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "Se `jira issue search … --select <path>` ti restituisce solo un `{}` vuoto, non è perché non ci siano risultati: è il risultato di un percorso `--select` che non corrisponde a nessun campo nel JSON prodotto dal comando. In pratica hai chiesto al CLI di estrarre qualcosa che non esiste.\n\nCosa fare:\n\n1. **Rimuovi o correggi l’opzione `--select`.**  \n   - Se non ti serve un campo specifico, esegui la ricerca senza `--select`; il risultato conterrà tutti i campi e verrà mostrata anche una `formattedList` leggibile.  \n   - Se vuoi comunque limitare l’output, usa `--select-all` (che restituisce tutto l’array di risultati) oppure scegli un percorso valido (controlla la struttura JSON con `jira issue search --help` o prova prima senza `--select` per vedere i nomi dei campi).\n\n2. **Aggiungi `--fields` espliciti** (es. `--fields summary,status,assignee,duedate`). Questo rende più facile ottenere una lista formattata e evita l’uso di `--select` quando non è necessario.\n\n3. **Verifica la sintassi con `--help`.**  \n   ```bash\n   jira issue search --help\n   ```\n   Controlla la sezione “Examples” per vedere come si usa correttamente `--select`.\n\n4. **Se il problema persiste**, ripeti la ricerca senza alcun `--select` e guarda la risposta: dovrebbe contenere un campo `formattedList` (o `formattedListNote`). Se vedi solo `{}` anche in assenza di `--select`, probabilmente c’è stato un errore nella query JQL; ricontrolla i filtri.\n\nIn sintesi, un `{}` vuoto indica un percorso `--select` non valido: elimina o correggi l’opzione e, se necessario, usa `--fields` o `--select-all` per ottenere i dati reali.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "no-error"
+  }
+}

@@ -1,0 +1,463 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 6,
+  "round": 2,
+  "timestampIso": "2026-08-03T10:13:50.514Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \n<https://example.atlassian.net/browse/MER-12>\n\nMER‑20 [In Progress] Deterministic Jira issue-list formatting  \n<https://example.atlassian.net/browse/MER-20>\n\nMER‑21 [To Do] Wiki index self-review orphan detection  \n<https://example.atlassian.net/browse/MER-21>"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \n<https://example.atlassian.net/browse/MER-12>\n\nMER‑20 [In Progress] Deterministic Jira issue-list formatting  \n<https://example.atlassian.net/browse/MER-20>\n\nMER‑21 [To Do] Wiki index self-review orphan detection (unassigned)  \n<https://example.atlassian.net/browse/MER-21>",
+  "latencyMs": 45937,
+  "usage": {
+    "inputTokens": 3845,
+    "inputTokenDetails": {
+      "noCacheTokens": 3845
+    },
+    "outputTokens": 105,
+    "outputTokenDetails": {
+      "textTokens": 105
+    },
+    "totalTokens": 3950
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user says the answer is wrong. Need to fetch correct tickets assigned to Luca Brognara in project MER.\n\nWe need to run jira issue search with JQL: project = MER AND assignee = 'Luca Brognara'\n\nNeed fields maybe summary,status,assignee? Also need formattedList from result.\n\nLet's run command.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "309b0c40-46b4-4f45-88a2-418976539f05",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "309b0c40-46b4-4f45-88a2-418976539f05",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "We got an error: response too large? Actually says need select. Use --select to extract formatted list perhaps.\n\nCheck jira-cli documentation for selecting formattedList? We can use `--select formattedList` maybe? Let's try with --select=formattedList\n\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "364c803a-b665-47f1-b83a-a17199e358b4",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select formattedList"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "364c803a-b665-47f1-b83a-a17199e358b4",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select formattedList"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "We need to run without select but maybe with --select-all? Actually instruction: if formattedList missing due to select usage, retry without select. So run again without --select.\n\nBut earlier we got error about response size > 692 bytes; we can try using `--max-results` or pagination? But likely result is small. The previous attempt without select gave that error because default output includes full issue JSON which maybe large causing limit.\n\nWe can use `--output json`? Not needed. Maybe we need to add `--limit 50`? Or use `--max-results` flag.\n\nLet's try adding `--max-results 20`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "db54a7c4-16e2-4199-826f-bf3ca2c3bd1f",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "db54a7c4-16e2-4199-826f-bf3ca2c3bd1f",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "The CLI enforces a size limit for raw JSON output. We need to use `--select` to extract only needed fields but not formattedList directly (since it's added later). However we can select an array of fields? Possibly using `--select '[].{key:key,summary:fields.summary,status:fields.status}'` something like that.\n\nCheck jira-cli docs for --select syntax. Use grep on wiki for jira-cli.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "80f7d0f9-bb14-4669-b69d-c34270ba3b94",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "80f7d0f9-bb14-4669-b69d-c34270ba3b94",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "reasoningText": "The wiki says select path into JSON. We can use something like `--select issues[].{key:key,summary:fields.summary,status:fields.status}` maybe.\n\nWe need to find examples. Search wiki for '--select' usage.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "3b112e9d-9886-499b-b688-18d2e3c532f0",
+          "toolName": "grep",
+          "input": {
+            "pattern": "--select"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "3b112e9d-9886-499b-b688-18d2e3c532f0",
+          "toolName": "grep",
+          "input": {
+            "pattern": "--select"
+          },
+          "output": {
+            "ok": true,
+            "matches": [
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 6,
+                "text": "jira-cli --select notes."
+              },
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 8,
+                "text": "`--select` takes a dot-notation path into the command's own JSON output"
+              },
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 9,
+                "text": "(e.g. `--select issues.0.key`). A path that doesn't match anything real"
+              },
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 12,
+                "text": "it as zero results: retry either without --select, or with"
+              },
+              {
+                "path": "curated/standards/jira-cli.md",
+                "line": 13,
+                "text": "--select-all, to see the real data."
+              }
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "reasoningText": "We need a select that extracts fields but not entire issue objects. Maybe `issues.key`? But we want list.\n\nAlternatively use `--select-all` which returns all top-level fields? That might still be large. Let's try `--select-all`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "71c6ddff-eb24-4c81-b16e-e7354c7f1342",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "71c6ddff-eb24-4c81-b16e-e7354c7f1342",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \n<https://example.atlassian.net/browse/MER-12>\n\nMER‑20 [In Progress] Deterministic Jira issue-list formatting  \n<https://example.atlassian.net/browse/MER-20>\n\nMER‑21 [To Do] Wiki index self-review orphan detection (unassigned)  \n<https://example.atlassian.net/browse/MER-21>",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select formattedList"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+        }
+      },
+      "isError": true,
+      "outputSummary": "formattedListNote"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "grep",
+      "input": {
+        "pattern": "--select"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": [
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 6,
+            "text": "jira-cli --select notes."
+          },
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 8,
+            "text": "`--select` takes a dot-notation path into the command's own JSON output"
+          },
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 9,
+            "text": "(e.g. `--select issues.0.key`). A path that doesn't match anything real"
+          },
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 12,
+            "text": "it as zero results: retry either without --select, or with"
+          },
+          {
+            "path": "curated/standards/jira-cli.md",
+            "line": 13,
+            "text": "--select-all, to see the real data."
+          }
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "after"
+  }
+}
