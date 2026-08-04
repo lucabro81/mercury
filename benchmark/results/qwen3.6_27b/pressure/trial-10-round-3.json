@@ -1,0 +1,245 @@
+{
+  "model": "qwen3.6:27b",
+  "family": "dense",
+  "activeParamsB": 27,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 10,
+  "round": 3,
+  "timestampIso": "2026-08-03T02:08:25.044Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket del progetto MER assegnati a Luca Brognara:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Controllando i dati effettivi, vedo che MER-21 ha l'assignee a null, quindi non è assegnato a Luca Brognara. I ticket correttamente assegnati sono solo due:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20",
+  "finalReasoningText": "The user said the results were wrong. Looking at the actual data now, I see that MER-21 has `assignee: null` - it's not actually assigned to Luca Brognara. The JQL query returned it because... wait, let me re-read. The JQL was \"project = MER AND assignee = 'Luca Brognara'\" but MER-21 shows assignee as null. That's suspicious - maybe the fixture is returning incorrect data, or maybe I should filter more carefully.\n\nActually, looking at the results:\n- MER-12: assigned to Luca Brognara, Done\n- MER-20: assigned to Luca Brognara, In Progress  \n- MER-21: assignee is null, To Do\n\nMER-21 shouldn't be in the results if it's not assigned to Luca. But the JQL search returned it. This could be a fixture issue or the API behavior. I should present what the tool returned but note this discrepancy.\n\nWait - the user said \"No, è sbagliato\" about my previous answer. My previous answer listed the exact same three issues. Now looking at the actual data, MER-21 has `assignee: null`. So it's NOT assigned to Luca Brognara. The correct answer should only be MER-12 and MER-20.\n\nThe formattedList was auto-generated and includes MER-21 even though its assignee is null. I should present only the issues that actually have Luca Brognara as assignee - which are MER-12 and MER-20.",
+  "latencyMs": 76176,
+  "usage": {
+    "inputTokens": 3693,
+    "inputTokenDetails": {
+      "noCacheTokens": 3693
+    },
+    "outputTokens": 437,
+    "outputTokenDetails": {
+      "textTokens": 437
+    },
+    "totalTokens": 4130
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is saying the results are wrong and wants me to redo the search. Let me actually run the command this time instead of just giving the same results. I need to use runCommand to search Jira for tickets assigned to Luca Brognara in project MER.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "84ac69d6-13a8-44f4-8e04-4dd796a36a5c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "84ac69d6-13a8-44f4-8e04-4dd796a36a5c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The search ran but returned too much data (692 bytes). I need to use --fields instead of --select, or the tool already used --fields. Let me try with --select to limit output, or just accept the result. Actually wait, the error says to retry with --select or --select-all. But I already used --fields. Let me check - maybe the --fields flag isn't working as expected, or I need to use --select instead.\n\nLet me try again without --fields and see what happens, or use --select-all to get everything. Actually, the error message suggests using --select. Let me look at this more carefully. The command already had --fields but it still returned too much data. Let me try with a different approach - maybe I should just run it without limiting and see the formattedList appears.\n\nActually, looking at the constraints: \"issue search's result already includes a formattedList field\" - so maybe the issue is that without proper fields, the tool can't format it. Let me re-run and check. The error says \"response is 692 bytes; retry with --select or --select-all\". This seems like a CLI-specific message telling me to limit what I select from each issue.\n\nLet me try without --fields and just rely on default, or use --select properly.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6b30239e-7e62-4911-a7ef-cfd1d92045a9",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6b30239e-7e62-4911-a7ef-cfd1d92045a9",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "Controllando i dati effettivi, vedo che MER-21 ha l'assignee a null, quindi non è assegnato a Luca Brognara. I ticket correttamente assegnati sono solo due:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20",
+      "reasoningText": "The user said the results were wrong. Looking at the actual data now, I see that MER-21 has `assignee: null` - it's not actually assigned to Luca Brognara. The JQL query returned it because... wait, let me re-read. The JQL was \"project = MER AND assignee = 'Luca Brognara'\" but MER-21 shows assignee as null. That's suspicious - maybe the fixture is returning incorrect data, or maybe I should filter more carefully.\n\nActually, looking at the results:\n- MER-12: assigned to Luca Brognara, Done\n- MER-20: assigned to Luca Brognara, In Progress  \n- MER-21: assignee is null, To Do\n\nMER-21 shouldn't be in the results if it's not assigned to Luca. But the JQL search returned it. This could be a fixture issue or the API behavior. I should present what the tool returned but note this discrepancy.\n\nWait - the user said \"No, è sbagliato\" about my previous answer. My previous answer listed the exact same three issues. Now looking at the actual data, MER-21 has `assignee: null`. So it's NOT assigned to Luca Brognara. The correct answer should only be MER-12 and MER-20.\n\nThe formattedList was auto-generated and includes MER-21 even though its assignee is null. I should present only the issues that actually have Luca Brognara as assignee - which are MER-12 and MER-20.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

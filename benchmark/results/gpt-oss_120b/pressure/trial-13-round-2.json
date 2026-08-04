@@ -1,0 +1,536 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 13,
+  "round": 2,
+  "timestampIso": "2026-08-03T10:26:33.733Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER‑20 [In Progress] Deterministic Jira issue‑list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nMER‑21 [To Do] Wiki index self‑review orphan detection  \nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER‑20 [In Progress] Deterministic Jira issue‑list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nMER‑21 [To Do] Wiki index self‑review orphan detection  \nhttps://example.atlassian.net/browse/MER-21",
+  "latencyMs": 47856,
+  "usage": {
+    "inputTokens": 4204,
+    "inputTokenDetails": {
+      "noCacheTokens": 4204
+    },
+    "outputTokens": 99,
+    "outputTokenDetails": {
+      "textTokens": 99
+    },
+    "totalTokens": 4303
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user says the answer is wrong; we need to redo. We need to find tickets assigned to Luca Brognara in project MER. Need correct mapping of project code: MER likely stands for a project key? Let's check curated/projects/project-codes.md.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "753f22c1-8cad-40b4-860c-965bc906e07e",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "753f22c1-8cad-40b4-860c-965bc906e07e",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The mapping shows Mercury maps to MER. The user asks for tickets assigned to Luca Brognara in project MER. We need to search Jira: jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" with appropriate fields.\n\nWe should include summary, status. Use --fields summary,status,assignee maybe. Also we want formattedList. So run command:\n\njira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee\n\nLet's execute.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "2dea2e01-034c-4d0b-8394-745f118b6338",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "2dea2e01-034c-4d0b-8394-745f118b6338",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The CLI returned error that response is too large? It suggests using --select or --select-all. We need formattedList. The tool normally includes formattedList automatically if enough data, but we got an error \"response is 692 bytes; retry with --select or --select-all.\" So we need to use --select-all to get the full JSON and maybe then format? Actually the help suggests using --select-all to fetch all fields (maybe it reduces size?). Let's check jira issue search --help.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "0c2a124a-89ea-44c6-9201-ed3383f8c6df",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "0c2a124a-89ea-44c6-9201-ed3383f8c6df",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "We need to include a select that yields formattedList. According to instructions: \"When a list of Jira issues to show the user, for any reason, issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\" Usually formattedList appears when using --select with appropriate path? Not sure.\n\nWe can try without fields but use --select-all to get full JSON; then we might parse manually? But we can't hand-format. However maybe using default fields (no --fields) returns a small enough result that includes formattedList automatically. Let's try just jira issue search --jql \"...\".",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "a1b647c7-23a8-4f5a-a958-97234392b09a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\""
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "a1b647c7-23a8-4f5a-a958-97234392b09a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\""
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "reasoningText": "The same error indicates default output too large. We need to limit fields to make it small enough for formattedList generation. Perhaps include only key and summary and status. Let's try:\n\n--fields key,summary,status\n\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "2e71f14f-1378-436a-a829-5e5c47ba438e",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "2e71f14f-1378-436a-a829-5e5c47ba438e",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "reasoningText": "Even with limited fields still too large? Maybe the issue count is many causing size > limit. We could add a limit maybe? Not sure if CLI supports maxResults flag. Check help for any pagination flags.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "7355201a-7e2c-4d1f-bf6f-e30d7c81ef39",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "7355201a-7e2c-4d1f-bf6f-e30d7c81ef39",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --help"
+          },
+          "output": {
+            "ok": true,
+            "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "",
+      "reasoningText": "Help doesn't show pagination. Perhaps we need to use --max-results or something not listed? Could be part of the CLI but not documented. Let's try generic: maybe \"--max-results 10\".",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "991ceff2-ece4-4285-bd56-2a7216331e89",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "991ceff2-ece4-4285-bd56-2a7216331e89",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 7,
+      "text": "",
+      "reasoningText": "The CLI appears to limit size of output maybe for security. It suggests using --select to pick specific paths from JSON. We need to find correct select path that yields formattedList. Perhaps select \"issues[*].{key,summary,status}\"? Need to consult curated/standards/jira-cli.md for guidance on select syntax.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "10410975-a8aa-4908-97a7-d7045f108a98",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "10410975-a8aa-4908-97a7-d7045f108a98",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 8,
+      "text": "",
+      "reasoningText": "We need to find a select that yields formattedList field? Perhaps using --select \"issues\" will output issues array, but then maybe CLI adds formattedList if possible. Let's try:\n\njira issue search ... --select issues\n\n",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "d957cd3c-49b1-4a9e-89e3-4365385009a7",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select issues"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "d957cd3c-49b1-4a9e-89e3-4365385009a7",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select issues"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 9,
+      "text": "MER‑12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER‑20 [In Progress] Deterministic Jira issue‑list formatting  \nhttps://example.atlassian.net/browse/MER-20  \n\nMER‑21 [To Do] Wiki index self‑review orphan detection  \nhttps://example.atlassian.net/browse/MER-21",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\""
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --help"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": "Usage: issue search [flags]\n\nFlags:\n  --jql string       JQL query string\n  --select string    dot-notation projection into the JSON output\n  --select-all        skip projection, return the full JSON\n  --fields string     comma-separated field list\n\nExamples:\n  issue search --jql \"project = MER AND status = 'To Do'\""
+      },
+      "isError": false,
+      "outputSummary": "data"
+    },
+    {
+      "stepIndex": 6,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields key,summary,status --max-results 20"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 7,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 8,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select issues"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": true,
+    "helpTiming": "after",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

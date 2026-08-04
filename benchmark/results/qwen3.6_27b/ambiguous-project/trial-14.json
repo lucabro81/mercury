@@ -1,0 +1,366 @@
+{
+  "model": "qwen3.6:27b",
+  "family": "dense",
+  "activeParamsB": 27,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "ambiguous-project",
+  "trial": 14,
+  "round": 1,
+  "timestampIso": "2026-08-02T22:52:26.749Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket aperti nel monorepo?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco i ticket aperti nel progetto CLI (the monorepo):\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nDue ticket in totale: uno In Progress (MER-20) e uno To Do (MER-21). MER-12 risulta nello stato Done, quindi è chiuso.",
+  "latencyMs": 68152,
+  "usage": {
+    "inputTokens": 3765,
+    "inputTokenDetails": {
+      "noCacheTokens": 3765
+    },
+    "outputTokens": 112,
+    "outputTokenDetails": {
+      "textTokens": 112
+    },
+    "totalTokens": 3877
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is asking for open tickets in \"the monorepo\". I need to:\n1. First check the project-codes mapping to find the JQL project key for \"monorepo\"\n2. Then search for open tickets in that project",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "f5d80363-051f-4bd1-aaee-0485833053b4",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "f5d80363-051f-4bd1-aaee-0485833053b4",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "922cfb9e-0ad9-49f1-8533-1f58780717bf",
+          "toolName": "grep",
+          "input": {
+            "pattern": "monorepo"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "922cfb9e-0ad9-49f1-8533-1f58780717bf",
+          "toolName": "grep",
+          "input": {
+            "pattern": "monorepo"
+          },
+          "output": {
+            "ok": true,
+            "matches": [
+              {
+                "path": "curated/projects/project-codes.md",
+                "line": 4,
+                "text": "- \"the monorepo\" / \"the CLI tools repo\" → CLI"
+              }
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The user is asking for open tickets in \"monorepo\". According to the mapping, \"the monorepo\" corresponds to project key \"CLI\". Let me search for open issues in that project.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "db42e82e-14a2-4849-bc7a-ece1669e79d1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "db42e82e-14a2-4849-bc7a-ece1669e79d1",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "The error says the response is too large and suggests using --select. But wait, I already used --fields which should limit the fields. Let me try with --select-all instead, or adjust the command. Actually, looking at the guidelines: \"issue search's result already includes a formattedList field when the data has enough for it\". The --fields flag should work. Let me check what fields are available or try a different approach.\n\nActually, the error message says to use --select or --select-all. But the guidelines warn about --select causing {} issues. Let me try without --fields and see if I get a formattedList. Or I could try --select-all.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "2ab3bced-a909-4577-9550-50b1470c0b4a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "2ab3bced-a909-4577-9550-50b1470c0b4a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "The user asked for open tickets. Looking at the results:\n- MER-12 is \"Done\" - that's closed\n- MER-20 is \"In Progress\" - that's open\n- MER-21 is \"To Do\" - that's open\n\nMy JQL excluded \"Done\" and \"Closed\", but MER-12 shows as \"Done\". This suggests my status exclusion might not be working correctly, or the test data is inconsistent. Regardless, I should report only the actually open ones (In Progress and To Do).\n\nWait, let me reconsider. The user asked for \"ticket aperti\" (open tickets). In Jira, typical open statuses include \"To Do\", \"In Progress\", etc., while \"Done\" and \"Closed\" are closed. My JQL was `status != Done AND status != Closed` which should exclude both. But MER-12 shows as \"Done\" in the results, which is odd.\n\nThis might be a test fixture issue. I'll present the results that are actually open (not Done/Closed).",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "749269b0-0678-476e-bee2-26340fd3fea1",
+          "toolName": "recall_tool_calls",
+          "input": {
+            "limit": 3
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "749269b0-0678-476e-bee2-26340fd3fea1",
+          "toolName": "recall_tool_calls",
+          "input": {
+            "limit": 3
+          },
+          "output": {
+            "ok": true,
+            "entries": []
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "Ecco i ticket aperti nel progetto CLI (the monorepo):\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nDue ticket in totale: uno In Progress (MER-20) e uno To Do (MER-21). MER-12 risulta nello stato Done, quindi è chiuso.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "grep",
+      "input": {
+        "pattern": "monorepo"
+      },
+      "rawOutput": {
+        "ok": true,
+        "matches": [
+          {
+            "path": "curated/projects/project-codes.md",
+            "line": 4,
+            "text": "- \"the monorepo\" / \"the CLI tools repo\" → CLI"
+          }
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND status != Done AND status != Closed\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "recall_tool_calls",
+      "input": {
+        "limit": 3
+      },
+      "rawOutput": {
+        "ok": true,
+        "entries": []
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

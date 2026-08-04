@@ -1,0 +1,356 @@
+{
+  "model": "gemma4:12b",
+  "family": "dense",
+  "activeParamsB": 12,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "ambiguous-project",
+  "trial": 7,
+  "round": 1,
+  "timestampIso": "2026-08-02T18:39:15.577Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket aperti nel monorepo?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco i ticket aperti nel monorepo (CLI):\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21",
+  "finalReasoningText": "The query returned three issues for project `CLI`. Note: the JQL was `project = CLI` and I filtered by status category (though it seems even a 'Done' item was included in my logic, or rather, the search results provided the list). Wait, the prompt asked for \"aperti\" (open).\nIn the result:\n1. MER-12 is [Done] - not open.\n2. MER-20 is [In Progress] - open.\n3. MER-21 is [To Do] - open.\n\nI should filter out the ones that are \"Done\" since the user asked for \"aperti\".\nThe results show:\nMER-12 (Done)\nMER-20 (In Progress)\nMER-21 (To Do)\n\nI will report the items that are not marked as \"Done\".",
+  "latencyMs": 87455,
+  "usage": {
+    "inputTokens": 4579,
+    "inputTokenDetails": {
+      "noCacheTokens": 4579
+    },
+    "outputTokens": 265,
+    "outputTokenDetails": {
+      "textTokens": 265
+    },
+    "totalTokens": 4844
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is asking for open issues in \"monorepo\".\nI need to:\n1.  Find the project key for \"monorepo\" using `curated/projects/project-codes.md`.\n2.  Search for open issues in that project using `jira issue search`.\n\nFirst, I'll check the project codes.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "c70072f8-2307-43ad-9990-c59d3de5af10",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "c70072f8-2307-43ad-9990-c59d3de5af10",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The user is asking for open tickets in the \"monorepo\".\nI should check if there is a mapping for \"monorepo\" in the wiki first.\nI tried to read `projects/project-codes.md` but it failed because I used the wrong path (it's inside `curated/`). The instruction says: \"If the user refers to a project by an informal name... check curated/projects/project-codes.md\".\n\nWait, looking at my internal instructions:\n\"If the user refers to a project by an informal name (e.g., \"the monorepo\") rather than its JQL project key, check curated/projects/project-codes.md for the mapping FIRST, before guessing a key or running a keyword search.\"\n\nThe path I used was `projects/project-codes.md`. Since these are internal files and I'm an assistant, the root is usually at `curated/` or similar? No, the instruction says: \"If you refer to a project by an informal name... check curated/projects/project-codes.md\". My tool call was `read_file(path='projects/project-codes.md')`. The instructions say \"relative to the vault root\", and since the documents are in `curated/`, I should have used `curated/projects/project-codes.md` or the system might handle it? No, usually I need the full path.\n\nWait, looking at my capabilities:\n`read_file(path: \"Read a wiki document by path (relative to the vault root, e.g. \\\"curated/standards/jira-fields.md\\\" ...)\")`.\nSo `projects/project-codes.md` is not valid if it's inside `curated/`.\n\nI will try `curated/projects/project-codes.md`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "7d850b5d-da6a-47f5-b702-ceadecd0d401",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "7d850b5d-da6a-47f5-b702-ceadecd0d401",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The user asked for \"monorepo\" tickets. I need to find the project key first.\nThe mapping shows `\"the monorepo\"` $\\rightarrow$ `CLI`.\nNow I search for open issues in project `CLI`.\nOpen usually means status not 'Done' or similar, but typically and most safely just searching by project key if no specific \"open\" filter is given unless it refers to a standard. Actually, the prompt asks for \"aperti\" (open). In Jira JQL, this often translates to `status != Done` or `statusCategory != Done`.\nHowever, I should check `curated/standards/jira-cli.md` or similar if there are specific conventions for \"open\". Since I don't see a standard defined yet for what counts as \"open\", and the request is simple, I will fetch all issues in project CLI that aren't closed (if possible) or just show all current ones and let the user decide? No, usually I should try to filter.\nLet's search for `project = CLI` and include fields like summary, status, assignee.\n\nWait, \"aperti\" means open. I'll stick to a standard check if available. Since I don't have clear instructions on what defines \"open\", I'll just look at all issues in the project unless there is a specific definition.\nActually, common practice for \"open\" tickets in Jira without more context is `statusCategory != Done`.\n\nWait, let me check the prompt again: \"You must use runCommand to get real data\".\nI will perform the search on project `CLI`.The user asked \"Quali sono i ticket aperti nel monorepo?\" (What are the open tickets in the monorepo?).\n1.  Identify the project key for \"monorepo\" using `curated/projects/project-codes.md`. It is `CLI`.\n2.  Search for issues in project `CLI` with status not closed. Standard JQL for \"open\" items is often `statusCategory != Done` or simply excluding a specific closed status, but I'll start by fetching the issues from that project and showing them. Since I have no specifics on what \"aperti\" means beyond standard logic, I'll look for all tickets in project CLI.\n\nWait, I should check if there are any specific notes about how to find \"open\" tickets.\nI will first perform the search for project `CLI`.The user wants open tickets in the monorepo.\nFrom `curated/projects/project-codes.md`, \"the monorepo\" is mapped to `CLI`.\nI will now list the issues in the `CLI` project. I'll use `statusCategory != Done` as a standard check for \"open\", or if that's not clear, just list all and assume it implies active ones. But usually, items that aren't 'Closed' are considered open.\nActually, since I don't have a specific definition of \"open\" in the wiki yet, I will query project `CLI`. I should include `--fields summary,status,assignee` to make it readable as per instructions.I will search for issues in project CLI that are not closed/done. I'll use a standard JQL like `project = CLI AND statusCategory != Done`. If \"Done\" isn't the only terminal state, this is usually safer than specific names. Or just `project = CLI` if I want to see all and filter manually? No, I should try to fulfill the request directly.\n\nWait, let me double check the standard for open issues in my local instructions. There are none specifically mentioned for \"open\" as a keyword without a status name.\nI will run: `jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee`\n\nWait, I should confirm if there's anything about project names or statuses in the wiki first? No, just checking the code map was enough for the project key.\nI will run the command now.The user wants to know which issues are open in \"the monorepo\".\nFrom `curated/projects/project-codes.md`, I have determined that \"the monorepo\" corresponds to the JQL project key `CLI`.\nI will search for items where status is not finished (using standard Jira categories) or simply any issue in that project if specific criteria aren't clear, but usually \"aperti\" means active ones. I will provide a list of issues in the CLI project.The user wants to know about open tickets in the monorepo.\nI have identified the project key `CLI` from the wiki.\nI will now search for those tickets.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "92b95636-ca15-4ca3-9f36-105ab03f4c45",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "92b95636-ca15-4ca3-9f36-105ab03f4c45",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "5772fea1-66b9-4d45-9fa9-83f5ef289cdf",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "5772fea1-66b9-4d45-9fa9-83f5ef289cdf",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "6ee6dc32-cf95-420e-9fc7-a0b17309eedc",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "6ee6dc32-cf95-420e-9fc7-a0b17309eedc",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "Ecco i ticket aperti nel monorepo (CLI):\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21",
+      "reasoningText": "The query returned three issues for project `CLI`. Note: the JQL was `project = CLI` and I filtered by status category (though it seems even a 'Done' item was included in my logic, or rather, the search results provided the list). Wait, the prompt asked for \"aperti\" (open).\nIn the result:\n1. MER-12 is [Done] - not open.\n2. MER-20 is [In Progress] - open.\n3. MER-21 is [To Do] - open.\n\nI should filter out the ones that are \"Done\" since the user asked for \"aperti\".\nThe results show:\nMER-12 (Done)\nMER-20 (In Progress)\nMER-21 (To Do)\n\nI will report the items that are not marked as \"Done\".",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND statusCategory != Done\" --fields summary,status,assignee --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

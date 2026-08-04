@@ -1,0 +1,396 @@
+{
+  "model": "gemma4:12b",
+  "family": "dense",
+  "activeParamsB": 12,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 15,
+  "round": 1,
+  "timestampIso": "2026-08-02T20:20:29.639Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "I found the following issues assigned to Luca Brognara in project MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nNote: MER-21 is also in the project but is currently unassigned.",
+  "latencyMs": 46501,
+  "usage": {
+    "inputTokens": 3862,
+    "inputTokenDetails": {
+      "noCacheTokens": 3862
+    },
+    "outputTokens": 104,
+    "outputTokenDetails": {
+      "textTokens": 104
+    },
+    "totalTokens": 3966
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is asking for issues assigned to \"Luca Brognara\" in project \"MER\".\nI need to:\n1.  Determine if \"MER\" is an informal name and find its key. I'll check `projects/project-codes`.\n2.  Run a `jira issue search` with JQL `project = <KEY> AND assignee = 'Luca Brognara'`.\n3.  Include fields to get enough information for the output (e.g., summary, status).\n\nFirst step: Check project codes.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "3dacb5cf-bd42-4887-b9ce-fddc1c5922f2",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "3dacb5cf-bd42-4887-b9ce-fddc1c5922f2",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The user is asking for issues assigned to \"Luca Brognara\" in project \"MER\". I need to check if \"MER\" maps to a specific key in `projects/project-codes.md`. The previous attempt failed because the path was `projects/project-codes` while the file is actually `projects/project-codes.md`. Let me try again with the correct extension or just list files first to see what's available if it fails. Actually, the prompt says \"check curated/projects/project-codes.md\".\n\nWait, I saw a failure in my thought trace above. The tool output was `{\"ok\":false,\"error\":\"Error: path not accessible: projects/project-codes.md\"}`. This might be because of how I phrased the path or if it's actually just `projects/project_codes`? No, the prompt says `curated/projects/project-codes.md`.\n\nLet me check the file list first to be sure.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "d150d12a-9516-4630-970e-dcb0d6328f04",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "d150d12a-9516-4630-970e-dcb0d6328f04",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "7e8efa52-d612-4627-a1ba-51ba28ce41eb",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "7e8efa52-d612-4627-a1ba-51ba28ce41eb",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "The user asked for \"MER\". The file `curated/projects/project-codes.md` shows:\n`- \"Mercury\" / \"the assistant\" → MER`\n\nWait, the list says `\"Mercury\" / \"the assistant\" → MER`. This means the *informal* name is Mercury and it maps to the key `MER`. So if the user asks for project \"MER\", they are likely using the JQL key directly or a very close match. If I look at the mapping:\nInformal: \"Mercury\" / \"the assistant\" -> Key: MER.\nSo if they say \"MER\", it's already the key.\n\nThe prompt says \"If the user refers to a project by an informal name (e.g., 'the monorepo') rather than its JQL project key, check curated/projects/project-codes.md for the mapping FIRST\".\nUser said: \"nel progetto MER\" (in project MER). This is very close to the key.\n\nNow I need to find issues in `MER` assigned to `Luca Brognara`.\nJQL: `project = \"MER\" AND assignee = \"Luca Brognara\"`\n\nI'll run: `jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nWait, if there are multiple issues, I should use `--fields`. If it results in a `formattedList`, I should use that.The user asked for tickets assigned to Luca Brognara in project MER. The project code check showed that \"MER\" is the key used for Mercury/the assistant. Now I will query Jira for these issues.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "b3be53e2-e674-4382-a583-7225e85cfd2f",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "b3be53e2-e674-4382-a583-7225e85cfd2f",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "8014482d-57c6-4a9f-8fa8-6f57901a35ac",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "8014482d-57c6-4a9f-8fa8-6f57901a35ac",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "a712b62b-20e8-4208-9cfd-ecf9b7e2e435",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --select-all --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "a712b62b-20e8-4208-9cfd-ecf9b7e2e435",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --select-all --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "I found the following issues assigned to Luca Brognara in project MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nNote: MER-21 is also in the project but is currently unassigned.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = 'MER' AND assignee = 'Luca Brognara'\" --select-all --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

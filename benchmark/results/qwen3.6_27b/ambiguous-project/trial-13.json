@@ -1,0 +1,525 @@
+{
+  "model": "qwen3.6:27b",
+  "family": "dense",
+  "activeParamsB": 27,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "ambiguous-project",
+  "trial": 13,
+  "round": 1,
+  "timestampIso": "2026-08-02T22:51:18.590Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket aperti nel monorepo?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "La ricerca nel progetto CLI (il monorepo) ha restituito tre ticket in totale. Due di questi sono ancora aperti:\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nIl terzo ticket, MER-12 \"Fix Ollama think crash on unsupported models\", è già in stato Done.\n\nNota: tutti i ticket restituiti hanno prefix MER anziché CLI, il che potrebbe indicare una configurazione della fixture di test non allineata con i project key reali.",
+  "finalReasoningText": "OK, so the fixture data doesn't have CLI issues, it only has MER issues. The search for \"project = CLI\" is returning MER issues, which suggests this is test fixture data that's not actually respecting the project filter. \n\nLooking at the results:\n- MER-12 [Done] - this is done/closed\n- MER-20 [In Progress] - this is open\n- MER-21 [To Do] - this is open\n\nSo the open tickets (excluding Done/Closed) would be:\n- MER-20 [In Progress] Deterministic Jira issue-list formatting\n- MER-21 [To Do] Wiki index self-review orphan detection\n\nBut wait, these are MER issues not CLI issues. The fixture seems to return the same data regardless of project filter. I should present what the API returns, which shows no CLI-specific issues but rather MER issues.\n\nActually, looking at this more carefully - the fixture is returning MER issues when I search for CLI. This could mean:\n1. There are no CLI issues in the system\n2. The fixture doesn't properly filter by project\n\nI should report what I found - that there appear to be no open tickets specifically in the CLI project (the monorepo), since all returned issues are MER-prefixed. Or maybe the fixture is just limited and these ARE the CLI issues despite having MER keys? That doesn't make sense.\n\nLet me check if there's a way to search specifically by key pattern... Actually, let me just report what I found. The JQL search for project = CLI returned only MER-* issues, which suggests either the CLI project has no issues or the fixture data is limited. Among the three issues returned, two are open (not Done/Closed):\n- MER-20 [In Progress] Deterministic Jira issue-list formatting\n- MER-21 [To Do] Wiki index self-review orphan detection\n\nActually wait - these all have MER- keys but were returned for project=CLI query. \n\nThe fixture might be misconfigured or the CLI project could genuinely be empty. Regardless, I'll work with what's actually returned and note the two open issues among them.",
+  "latencyMs": 117057,
+  "usage": {
+    "inputTokens": 4306,
+    "inputTokenDetails": {
+      "noCacheTokens": 4306
+    },
+    "outputTokens": 604,
+    "outputTokenDetails": {
+      "textTokens": 604
+    },
+    "totalTokens": 4910
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is asking about open tickets in \"the monorepo\". I need to:\n1. First check the project-codes mapping to find the JQL project key for \"monorepo\"\n2. Then search for open tickets in that project\n\nLet me start by reading the project codes mapping.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "84cfe20e-c655-4ac9-8929-bbbea9d53b1f",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "84cfe20e-c655-4ac9-8929-bbbea9d53b1f",
+          "toolName": "read_file",
+          "input": {
+            "path": "projects/project-codes.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: projects/project-codes.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "2b998167-c723-4603-9cd5-875f60284adb",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "2b998167-c723-4603-9cd5-875f60284adb",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "I need to access the project-codes file with the correct path (curated/...)",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "c73727ca-7f41-4a23-8ec0-12d2c43f6c2c",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "c73727ca-7f41-4a23-8ec0-12d2c43f6c2c",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/projects/project-codes.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "",
+      "reasoningText": "Good, so \"the monorepo\" maps to the project key `CLI`. Now I need to search for open tickets in that project. Let me search for issues where project = CLI and status is not closed/done.\n\nI should use JQL like: `project = CLI AND status != Done AND status != Closed` or similar. But first, let me check what statuses exist. Actually, a simpler approach is to search for issues that are not in resolved statuses. Let me try: `project = CLI AND status NOT IN (Done, Closed)`\n\nLet me run the search with appropriate fields.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "03583f14-e13d-4541-ab2f-518dbe6bd93c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "03583f14-e13d-4541-ab2f-518dbe6bd93c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "",
+      "reasoningText": "The response says to use --select or --select-all. Let me check the jira-cli standards for the correct syntax.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "c5ab9a29-8a92-4c73-8b98-5b2ab2d23ab4",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "c5ab9a29-8a92-4c73-8b98-5b2ab2d23ab4",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "jira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 5,
+      "text": "",
+      "reasoningText": "The user is asking about open tickets in \"the monorepo\". I need to:\n1. First check the project code mapping - already done, it's \"CLI\"\n2. Then search for open tickets in that project\n\nLet me run the search again with --select-all to get all data.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "e16bb4cb-ae0d-40c7-987f-4d704e6787cb",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "e16bb4cb-ae0d-40c7-987f-4d704e6787cb",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 6,
+      "text": "The results returned MER issues instead of CLI issues, which is unexpected. Let me verify by searching for all issues in the CLI project regardless of status.",
+      "reasoningText": "Wait, these are MER issues not CLI issues. The JQL said \"project = CLI\" but it returned MER issues. This seems like a test fixture issue - the API is returning mock data that doesn't respect the project filter. Let me try without the status filter to see what projects actually exist.\n\nActually, looking at the results, all three issues have key starting with \"MER-\", not \"CLI-\". So either:\n1. The CLI project has no open tickets and it's showing MER tickets (unlikely)\n2. There's something wrong with the search\n\nLet me try searching specifically for CLI project to see what's there.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "c9b81ae9-0a68-4049-bfbb-c04865657a5c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "c9b81ae9-0a68-4049-bfbb-c04865657a5c",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = CLI\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 7,
+      "text": "La ricerca nel progetto CLI (il monorepo) ha restituito tre ticket in totale. Due di questi sono ancora aperti:\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21\n\nIl terzo ticket, MER-12 \"Fix Ollama think crash on unsupported models\", è già in stato Done.\n\nNota: tutti i ticket restituiti hanno prefix MER anziché CLI, il che potrebbe indicare una configurazione della fixture di test non allineata con i project key reali.",
+      "reasoningText": "OK, so the fixture data doesn't have CLI issues, it only has MER issues. The search for \"project = CLI\" is returning MER issues, which suggests this is test fixture data that's not actually respecting the project filter. \n\nLooking at the results:\n- MER-12 [Done] - this is done/closed\n- MER-20 [In Progress] - this is open\n- MER-21 [To Do] - this is open\n\nSo the open tickets (excluding Done/Closed) would be:\n- MER-20 [In Progress] Deterministic Jira issue-list formatting\n- MER-21 [To Do] Wiki index self-review orphan detection\n\nBut wait, these are MER issues not CLI issues. The fixture seems to return the same data regardless of project filter. I should present what the API returns, which shows no CLI-specific issues but rather MER issues.\n\nActually, looking at this more carefully - the fixture is returning MER issues when I search for CLI. This could mean:\n1. There are no CLI issues in the system\n2. The fixture doesn't properly filter by project\n\nI should report what I found - that there appear to be no open tickets specifically in the CLI project (the monorepo), since all returned issues are MER-prefixed. Or maybe the fixture is just limited and these ARE the CLI issues despite having MER keys? That doesn't make sense.\n\nLet me check if there's a way to search specifically by key pattern... Actually, let me just report what I found. The JQL search for project = CLI returned only MER-* issues, which suggests either the CLI project has no issues or the fixture data is limited. Among the three issues returned, two are open (not Done/Closed):\n- MER-20 [In Progress] Deterministic Jira issue-list formatting\n- MER-21 [To Do] Wiki index self-review orphan detection\n\nActually wait - these all have MER- keys but were returned for project=CLI query. \n\nThe fixture might be misconfigured or the CLI project could genuinely be empty. Regardless, I'll work with what's actually returned and note the two open issues among them.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "read_file",
+      "input": {
+        "path": "projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: projects/project-codes.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/projects/project-codes.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "Informal project name to JQL project key mapping.\n\n- \"Mercury\" / \"the assistant\" → MER\n- \"the monorepo\" / \"the CLI tools repo\" → CLI\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 4,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "jira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 5,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI AND status NOT IN (Done, Closed)\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    },
+    {
+      "stepIndex": 6,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = CLI\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "before"
+  }
+}

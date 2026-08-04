@@ -1,0 +1,145 @@
+{
+  "model": "gpt-oss:120b",
+  "family": "moe",
+  "activeParamsB": 3.6,
+  "quant": "MXFP4",
+  "think": true,
+  "testCase": "wiki-only",
+  "trial": 10,
+  "round": 1,
+  "timestampIso": "2026-08-03T09:59:39.988Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Cosa devo fare se una issue search mi ritorna un `{}` vuoto invece dei dati?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "If `jira issue search … --select <path>` gives only a bare `{}` it means the\nselected JSON path didn’t exist in the command’s output.  \nThe result isn’t “no issues”; it’s just an empty object because the `--select`\nexpression was wrong.\n\n**What to do**\n\n1. **Remove `--select` (or use `--select-all`).** Run the same search without a\n   specific path so the CLI can return the full issue list; this will also\n   generate the `formattedList` field you can show the user.\n2. **Check the JSON shape.** If you still need a specific field, first run the\n   search (without `--select`) and inspect the output or use `jq`‑style paths to\n   see which keys actually exist (e.g. look at `issues[0]` for fields like\n   `key`, `summary`, `status`).  \n3. **Use a valid path.** Once you know the correct hierarchy, retry with a\n   proper `--select` such as `issues.0.key` or `issues.*.fields.summary`.\n4. **Verify with `--help`.** If you’re unsure about the syntax, run\n   `jira issue search --help`; the help section shows the correct usage of\n   `--select`.\n\nIn short: when you get `{}`, rerun the search without a selective path (or with\n`--select-all`) to retrieve real data, then adjust the `--select` expression\nbased on the actual JSON structure.",
+  "latencyMs": 32236,
+  "usage": {
+    "inputTokens": 2532,
+    "inputTokenDetails": {
+      "noCacheTokens": 2532
+    },
+    "outputTokens": 330,
+    "outputTokenDetails": {
+      "textTokens": 330
+    },
+    "totalTokens": 2862
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user asks in Italian: \"What should I do if an issue search returns an empty `{}` instead of data?\" They refer to jira-cli returning {} due to wrong --select. According to instructions, we need to consult wiki standards/jira-cli for guidance, then answer the question with steps. Need to use wiki tools to read curated/standards/jira-cli.md. Let's list files.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "95148261-bd2c-4774-8e22-ce57b2885683",
+          "toolName": "list_files",
+          "input": {}
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "95148261-bd2c-4774-8e22-ce57b2885683",
+          "toolName": "list_files",
+          "input": {},
+          "output": {
+            "ok": true,
+            "files": [
+              "curated/projects/project-codes.md",
+              "curated/standards/jira-cli.md"
+            ]
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "Now read the jira-cli file.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "64d19f68-de0a-4d17-a87d-d949ff0041ea",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "64d19f68-de0a-4d17-a87d-d949ff0041ea",
+          "toolName": "read_file",
+          "input": {
+            "path": "curated/standards/jira-cli.md"
+          },
+          "output": {
+            "ok": true,
+            "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "If `jira issue search … --select <path>` gives only a bare `{}` it means the\nselected JSON path didn’t exist in the command’s output.  \nThe result isn’t “no issues”; it’s just an empty object because the `--select`\nexpression was wrong.\n\n**What to do**\n\n1. **Remove `--select` (or use `--select-all`).** Run the same search without a\n   specific path so the CLI can return the full issue list; this will also\n   generate the `formattedList` field you can show the user.\n2. **Check the JSON shape.** If you still need a specific field, first run the\n   search (without `--select`) and inspect the output or use `jq`‑style paths to\n   see which keys actually exist (e.g. look at `issues[0]` for fields like\n   `key`, `summary`, `status`).  \n3. **Use a valid path.** Once you know the correct hierarchy, retry with a\n   proper `--select` such as `issues.0.key` or `issues.*.fields.summary`.\n4. **Verify with `--help`.** If you’re unsure about the syntax, run\n   `jira issue search --help`; the help section shows the correct usage of\n   `--select`.\n\nIn short: when you get `{}`, rerun the search without a selective path (or with\n`--select-all`) to retrieve real data, then adjust the `--select` expression\nbased on the actual JSON structure.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "list_files",
+      "input": {},
+      "rawOutput": {
+        "ok": true,
+        "files": [
+          "curated/projects/project-codes.md",
+          "curated/standards/jira-cli.md"
+        ]
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "curated/standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": true,
+        "content": "---\ntype: curated\nlast_updated: 2026-08-02\n---\n\njira-cli --select notes.\n\n`--select` takes a dot-notation path into the command's own JSON output\n(e.g. `--select issues.0.key`). A path that doesn't match anything real\nin that JSON returns a bare `{}` — not an error, not \"no matches\", just\nan empty object. If you get `{}` back from `issue search`, don't treat\nit as zero results: retry either without --select, or with\n--select-all, to see the real data.\n\n"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": false,
+    "usedCurrentUser": false,
+    "formattedListAvailable": false,
+    "formattedListRelayed": false,
+    "handFormatted": false,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "no-error"
+  }
+}

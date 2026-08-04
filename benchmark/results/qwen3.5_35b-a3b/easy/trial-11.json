@@ -1,0 +1,318 @@
+{
+  "model": "qwen3.5:35b-a3b",
+  "family": "moe",
+  "activeParamsB": 3,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "easy",
+  "trial": 11,
+  "round": 1,
+  "timestampIso": "2026-08-03T08:51:08.736Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20",
+  "latencyMs": 25993,
+  "usage": {
+    "inputTokens": 3612,
+    "inputTokenDetails": {
+      "noCacheTokens": 3612
+    },
+    "outputTokens": 77,
+    "outputTokenDetails": {
+      "textTokens": 77
+    },
+    "totalTokens": 3689
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user is asking for tickets assigned to Luca Brognara in project MER, so I'll use issue search with JQL filtering by assignee name and project key.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "063c80d6-511e-401c-8ef6-3bc0d652f1ac",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "063c80d6-511e-401c-8ef6-3bc0d652f1ac",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "I need to retry without the `--select` flag so that jira can return the full data and Mercury can generate a proper `formattedList`.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "05084f35-1d46-4501-80b0-c8e0a4cf17c7",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "05084f35-1d46-4501-80b0-c8e0a4cf17c7",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "I need to use `--select` properly. Based on the error, I should try with a different select syntax that includes summary so formattedList can be generated. Let me check how to structure this correctly using an appropriate --select value.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "15ff91d6-ad7f-4b02-a2a6-5fb3beef61b2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "15ff91d6-ad7f-4b02-a2a6-5fb3beef61b2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "Let me try using `--select-all` instead:",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "491e28e7-f1bf-4460-8e8b-dd5ec498c815",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select-all --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "491e28e7-f1bf-4460-8e8b-dd5ec498c815",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --select-all --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "text": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models  \nhttps://example.atlassian.net/browse/MER-12  \n\nMER-20 [In Progress] Deterministic Jira issue-list formatting  \nhttps://example.atlassian.net/browse/MER-20",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+        }
+      },
+      "isError": true,
+      "outputSummary": "formattedListNote"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --select ALL_BY_STATUS=true --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "formattedListNote": "Could not build a formatted issue list from this result. Note: formattedList/formattedListNote are added by Mercury to runCommand's result after jira runs — they are not part of jira's own JSON and can never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a formatted list, retry without --select (or with --select-all, or --fields including summary)."
+        }
+      },
+      "isError": true,
+      "outputSummary": "formattedListNote"
+    },
+    {
+      "stepIndex": 3,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --select-all --jql \"assignee = 'Luca Brognara' AND project = MER\" --fields summary,status,assignee,duedate"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": true,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": false,
+    "wikiTiming": "never"
+  }
+}

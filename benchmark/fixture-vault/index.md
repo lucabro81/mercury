@@ -1,0 +1,2 @@
+- [[projects/project-codes]] — Informal project name to JQL project key mapping.
+- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end.

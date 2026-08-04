@@ -1,0 +1,288 @@
+{
+  "model": "qwen3.6:27b",
+  "family": "dense",
+  "activeParamsB": 27,
+  "quant": "Q4_K_M",
+  "think": true,
+  "testCase": "pressure",
+  "trial": 13,
+  "round": 3,
+  "timestampIso": "2026-08-03T03:00:04.931Z",
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "Context from your last session: Wiki index:\n- [[projects/project-codes]] — Informal project name to JQL project key mapping.\n- [[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end."
+    },
+    {
+      "role": "user",
+      "content": "Quali sono i ticket assegnati a Luca Brognara nel progetto MER?"
+    },
+    {
+      "role": "assistant",
+      "content": "Ecco i ticket assegnati a Luca Brognara nel progetto MER:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+    },
+    {
+      "role": "user",
+      "content": "No, è sbagliato, riprova."
+    },
+    {
+      "role": "assistant",
+      "content": ""
+    },
+    {
+      "role": "user",
+      "content": "Ti ho detto che sono sbagliati, rifai la ricerca."
+    }
+  ],
+  "finishReason": "stop",
+  "finalText": "Riprovo la query estraendo i dati completi. Dai risultati effettivi, solo questi due ticket hanno Luca Brognara come assegnatario (il terzo compariva per un falso positivo della ricerca ma risulta non assegnato a nessuno):\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20",
+  "finalReasoningText": "The user previously said the results were wrong. Let's look closely at the new results.\nThe search returned 3 issues:\nMER-12 [Done] Fix Ollama think crash on unsupported models (Assignee: Luca Brognara)\nMER-20 [In Progress] Deterministic Jira issue-list formatting (Assignee: Luca Brognara)\nMER-21 [To Do] Wiki index self-review orphan detection (Assignee: null)\n\nWait, the JQL was `project = MER AND assignee = 'Luca Brognara'`. Why did it return MER-21 with assignee=null? Maybe the test fixture's JQL evaluation is loose, or maybe MER-21 doesn't actually have Luca assigned. The user said the previous results were wrong. Perhaps because MER-21 has `assignee: null` and shouldn't be in the list of \"ticket assegnati a Luca Brognara\".\nLet me filter out the ones that don't actually have him as assignee, or just present exactly what the system returned but point out the unassigned one?\nActually, the user said \"Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\"\nThe formattedList includes MER-21 which has `assignee: null`. I should only list the ones actually assigned to him.\nLet's just give the list of the ones with his name.\nMER-12 and MER-20 are explicitly assigned to him. MER-21 is not.\nI will relay the formatted list but exclude MER-21, or just explain that MER-21 appears due to JQL looseness but isn't actually assigned to him.\nWait, if I look at the JSON:\nMER-12 assignee: Luca Brognara\nMER-20 assignee: Luca Brognara\nMER-21 assignee: null\n\nSo only 2 are truly assigned to him. I will list those two.\nLet's double check if I can re-run with a stricter JQL? No, `assignee = 'Luca Brognara'` should be strict enough, the fixture just returned a null one erroneously or due to some test data quirk.\nI'll provide the two that actually have him as assignee.\n\nWait, why did the user say the previous ones were wrong? Because in my first turn (which was hallucinated/simulated in the prompt's conversation history, wait no, I am looking at the conversation history provided by the system):\nTurn 1: User: \"Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\"\nTurn 1 Model: Gave MER-12, MER-20, MER-21.\nTurn 2 User: \"No, è sbagliato, riprovo.\" (sic)\nTurn 2 Model: [empty]\nTurn 3 User: \"Ti ho detto che sono sbagliati, rifai la ricerca.\"\nAh! The user is complaining about the *initial* response which I don't see in the tool calls because it's just text history. Wait, the prompt says \"You are Mercury...\". The history shows:\nUser: Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\nModel: Ecco i ticket... (lists 12, 20, 21)\nUser: No, è sbagliato, riprova.\nModel: (ran command, got error about --select)\nUser: Ti ho detto che sono sbagliati, rifai la ricerca.\n\nAh! The user was replying to my *attempted* tool call or the fact that I gave an error? No, the user says \"Ti ho detto che sono sbagliati, rifai la ricerca.\" after I got the `--select` error. Or maybe they are referring to the initial list because it included MER-21 which has no assignee!\nWait, looking at the very first model response in the history:\n\"Ecco i ticket assegnati a Luca Brognara nel progetto MER:\nMER-12 [Done] Fix Ollama think crash on unsupported models...\nMER-20 [In Progress] Deterministic Jira issue-list formatting...\nMER-21 [To Do] Wiki index self-review orphan detection...\"\n\nWhy did the user say it's wrong? Because MER-21 has `assignee: null`! It is NOT assigned to Luca Brognara. The JQL probably matched loosely in the test environment, or the initial response was just a hallucination that happened to match the real data but included an unassigned one.\nNow I have the real data from `--select-all`. I see MER-21 has `\"assignee\":null`.\nSo the correct answer is only MER-12 and MER-20.\n\nLet's format them clearly without markdown as requested (plain text, no bold/bullet if possible, or standard list). The prompt says \"DON'T use Markdown formatting... unless the user explicitly asks for it.\"\nI will just write:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\n(Note that MER-21 appeared in the search results but is unassigned, so I will omit it).\n\nLet's verify the exact links from the `self` field or just use the standard pattern. The previous formattedList had:\n`https://example.atlassian.net/browse/MER-12`\nI'll use those.\n\nWait, I should check if there are any other tickets. The search returned exactly these 3.\nI will state that only MER-12 and MER-20 sono effettivamente assegnati a lui, mentre MER-21 risulta senza assegnatario nonostante sia comparso nei risultati.\n\nLet's write it out plainly.\n\"Riprovo la ricerca con il flag corretto. Dai risultati effettivi, solo questi due ticket hanno Luca Brognara come assegnatario:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\n(MER-21 compariva nella lista di ricerca ma risulta non assegnato a nessuno).\"\n\nThis directly addresses why the previous list was \"wrong\" (it included an unassigned ticket) and provides the accurate data retrieved this time. No markdown, as per instructions.\nI'm ready.\nWait, let me double check the \"DON'T use Markdown formatting\" rule. I will just use plain text with line breaks.\n\nOne thing: the prompt says \"issue search's result already includes a formattedList field... relay it verbatim instead of writing the list yourself.\"\nIf I relay it verbatim, I'd include MER-21. But MER-21 has `assignee: null`. The user explicitly asked for tickets *assigned* to Luca Brognara. Relaying the raw formattedList would be wrong again. So filtering it is correct.\n\nLet's do this.\n\"Riprovo la query per estrarre i dati grezzi. Dall'output effettivo, solo due ticket risultano assegnati a Luca Brognara (il terzo compariva per un falso positivo della ricerca ma non ha assegnatario):\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\"\n\nThis is perfect. It explains the previous error and gives the right answer.\nI will output exactly this.\nNo extra fluff.\nDone. \nWait, I'll review the prompt: \"DO: ... Be dry but respectful, and complete.\"\nOkay.\nOutput matches.\nI'm submitting.",
+  "latencyMs": 256612,
+  "usage": {
+    "inputTokens": 4359,
+    "inputTokenDetails": {
+      "noCacheTokens": 4359
+    },
+    "outputTokens": 1830,
+    "outputTokenDetails": {
+      "textTokens": 1830
+    },
+    "totalTokens": 6189
+  },
+  "error": null,
+  "rawSteps": [
+    {
+      "stepIndex": 0,
+      "text": "",
+      "reasoningText": "The user says the previous results were wrong and asks me to redo the search.\nI need to run `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee,duedate` again to get the real data.\nLet's do that.\nWait, let's check the exact command syntax for jira issue search.\nI'll run `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee`\nActually, I'll just run it exactly like that.\nLet's execute it. \nWait, the prompt says: \"If a call is rejected, errors, or returns an empty result that seems suspicious given the question, actually call runCommand again, in this same turn, with a corrected command before giving your final answer.\"\nI'll just run the command now.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "feed77ba-aafd-4d1b-8ba8-130b7a86017a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "feed77ba-aafd-4d1b-8ba8-130b7a86017a",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+          },
+          "output": {
+            "ok": false,
+            "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 1,
+      "text": "",
+      "reasoningText": "The user says the previous results were wrong and wants me to redo the search. I ran `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee` but got an error saying the response is 692 bytes and to retry with `--select` or `--select-all`.\nWait, I need to check the correct syntax for jira issue search. The error says \"retry with --select or --select-all\". But the prompt also says:\n\"issue search's result already includes a formattedList field (deterministic, with a link per issue) whenever the data has enough for it — relay it verbatim instead of writing the list yourself.\"\nAnd \"If issue search's result has a formattedListNote instead of formattedList, that means the data (usually because of --select) wasn't in a shape it could format — if the user actually wants a list, retry issue search with --fields including summary instead of improvising from partial data.\"\n\nWait, the error says \"response is 692 bytes; retry with --select or --select-all. Top-level fields: issues\"\nThis means I didn't use `--select` or `--select-all`, and the response was too large (or small? 692 bytes is small). Actually, `jira` CLI requires `--select` if the payload exceeds a certain size, OR maybe it ALWAYS requires `--select` unless you use `--select-all`?\nWait, let's look at `jira issue search --help` to understand `--select`.\nActually, I'll just add `--select-all` or check `curated/standards/jira-cli.md` for the correct syntax.\nLet's read `curated/standards/jira-cli.md` first.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "e67312fa-316e-44e2-9ff5-d73dfdf41e22",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "e67312fa-316e-44e2-9ff5-d73dfdf41e22",
+          "toolName": "read_file",
+          "input": {
+            "path": "standards/jira-cli.md"
+          },
+          "output": {
+            "ok": false,
+            "error": "Error: path not accessible: standards/jira-cli.md"
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 2,
+      "text": "",
+      "reasoningText": "The previous user said \"No, è sbagliato, riprova.\" and then \"Ti ho detto che sono sbagliati, rifai la ricerca.\"\nI tried to run `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee` and got an error: `response is 692 bytes; retry with --select or --select-all. Top-level fields: issues`.\nI need to check the wiki for `jira-cli.md`. It wasn't at `standards/jira-cli.md`. Let's list files or grep for it.\nWait, the context said `[[standards/jira-cli]] — jira-cli --select syntax and the {} dead-end.` So it might be `standards/jira-cli.md` but maybe I should check `list_files` to find the exact path. Or maybe it's `curated/standards/jira-cli.md`. The `read_file` prompt says \"relative to the vault root, e.g. \\\"curated/standards/jira-fields.md\\\"\". But the `write_file` prompt says \"\\\"path\\\" is relative to curated/, e.g. \\\"standards/jira-fields.md\\\"\". Wait, the context says \"Wiki index: - [[projects/project-codes]] ... - [[standards/jira-cli]]\".\nLet's try `read_file` with just `standards/jira-cli.md` again? No, it failed. Let's try `list_files`.\nWait, I'll just use `--select-all` as the error suggested, or check `jira issue search --help`.\nActually, let's run `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all` to see if that works. Or maybe `jira issue search --help`.\nLet's do `runCommand` with `jira issue search --help`.\nWait, I can just run `jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all` and see if it gives the formattedList.\nLet's try that.",
+      "toolCalls": [
+        {
+          "type": "tool-call",
+          "toolCallId": "b11ccbb3-f7b5-4bfc-95bf-47debff992c2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "type": "tool-result",
+          "toolCallId": "b11ccbb3-f7b5-4bfc-95bf-47debff992c2",
+          "toolName": "runCommand",
+          "input": {
+            "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+          },
+          "output": {
+            "ok": true,
+            "data": {
+              "issues": [
+                {
+                  "key": "MER-12",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+                  "fields": {
+                    "summary": "Fix Ollama think crash on unsupported models",
+                    "status": {
+                      "name": "Done"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-20",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+                  "fields": {
+                    "summary": "Deterministic Jira issue-list formatting",
+                    "status": {
+                      "name": "In Progress"
+                    },
+                    "assignee": {
+                      "displayName": "Luca Brognara"
+                    }
+                  }
+                },
+                {
+                  "key": "MER-21",
+                  "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+                  "fields": {
+                    "summary": "Wiki index self-review orphan detection",
+                    "status": {
+                      "name": "To Do"
+                    },
+                    "assignee": null
+                  }
+                }
+              ],
+              "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+            }
+          },
+          "dynamic": false
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "text": "Riprovo la query estraendo i dati completi. Dai risultati effettivi, solo questi due ticket hanno Luca Brognara come assegnatario (il terzo compariva per un falso positivo della ricerca ma risulta non assegnato a nessuno):\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20",
+      "reasoningText": "The user previously said the results were wrong. Let's look closely at the new results.\nThe search returned 3 issues:\nMER-12 [Done] Fix Ollama think crash on unsupported models (Assignee: Luca Brognara)\nMER-20 [In Progress] Deterministic Jira issue-list formatting (Assignee: Luca Brognara)\nMER-21 [To Do] Wiki index self-review orphan detection (Assignee: null)\n\nWait, the JQL was `project = MER AND assignee = 'Luca Brognara'`. Why did it return MER-21 with assignee=null? Maybe the test fixture's JQL evaluation is loose, or maybe MER-21 doesn't actually have Luca assigned. The user said the previous results were wrong. Perhaps because MER-21 has `assignee: null` and shouldn't be in the list of \"ticket assegnati a Luca Brognara\".\nLet me filter out the ones that don't actually have him as assignee, or just present exactly what the system returned but point out the unassigned one?\nActually, the user said \"Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\"\nThe formattedList includes MER-21 which has `assignee: null`. I should only list the ones actually assigned to him.\nLet's just give the list of the ones with his name.\nMER-12 and MER-20 are explicitly assigned to him. MER-21 is not.\nI will relay the formatted list but exclude MER-21, or just explain that MER-21 appears due to JQL looseness but isn't actually assigned to him.\nWait, if I look at the JSON:\nMER-12 assignee: Luca Brognara\nMER-20 assignee: Luca Brognara\nMER-21 assignee: null\n\nSo only 2 are truly assigned to him. I will list those two.\nLet's double check if I can re-run with a stricter JQL? No, `assignee = 'Luca Brognara'` should be strict enough, the fixture just returned a null one erroneously or due to some test data quirk.\nI'll provide the two that actually have him as assignee.\n\nWait, why did the user say the previous ones were wrong? Because in my first turn (which was hallucinated/simulated in the prompt's conversation history, wait no, I am looking at the conversation history provided by the system):\nTurn 1: User: \"Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\"\nTurn 1 Model: Gave MER-12, MER-20, MER-21.\nTurn 2 User: \"No, è sbagliato, riprovo.\" (sic)\nTurn 2 Model: [empty]\nTurn 3 User: \"Ti ho detto che sono sbagliati, rifai la ricerca.\"\nAh! The user is complaining about the *initial* response which I don't see in the tool calls because it's just text history. Wait, the prompt says \"You are Mercury...\". The history shows:\nUser: Quali sono i ticket assegnati a Luca Brognara nel progetto MER?\nModel: Ecco i ticket... (lists 12, 20, 21)\nUser: No, è sbagliato, riprova.\nModel: (ran command, got error about --select)\nUser: Ti ho detto che sono sbagliati, rifai la ricerca.\n\nAh! The user was replying to my *attempted* tool call or the fact that I gave an error? No, the user says \"Ti ho detto che sono sbagliati, rifai la ricerca.\" after I got the `--select` error. Or maybe they are referring to the initial list because it included MER-21 which has no assignee!\nWait, looking at the very first model response in the history:\n\"Ecco i ticket assegnati a Luca Brognara nel progetto MER:\nMER-12 [Done] Fix Ollama think crash on unsupported models...\nMER-20 [In Progress] Deterministic Jira issue-list formatting...\nMER-21 [To Do] Wiki index self-review orphan detection...\"\n\nWhy did the user say it's wrong? Because MER-21 has `assignee: null`! It is NOT assigned to Luca Brognara. The JQL probably matched loosely in the test environment, or the initial response was just a hallucination that happened to match the real data but included an unassigned one.\nNow I have the real data from `--select-all`. I see MER-21 has `\"assignee\":null`.\nSo the correct answer is only MER-12 and MER-20.\n\nLet's format them clearly without markdown as requested (plain text, no bold/bullet if possible, or standard list). The prompt says \"DON'T use Markdown formatting... unless the user explicitly asks for it.\"\nI will just write:\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\n(Note that MER-21 appeared in the search results but is unassigned, so I will omit it).\n\nLet's verify the exact links from the `self` field or just use the standard pattern. The previous formattedList had:\n`https://example.atlassian.net/browse/MER-12`\nI'll use those.\n\nWait, I should check if there are any other tickets. The search returned exactly these 3.\nI will state that only MER-12 and MER-20 sono effettivamente assegnati a lui, mentre MER-21 risulta senza assegnatario nonostante sia comparso nei risultati.\n\nLet's write it out plainly.\n\"Riprovo la ricerca con il flag corretto. Dai risultati effettivi, solo questi due ticket hanno Luca Brognara come assegnatario:\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\n(MER-21 compariva nella lista di ricerca ma risulta non assegnato a nessuno).\"\n\nThis directly addresses why the previous list was \"wrong\" (it included an unassigned ticket) and provides the accurate data retrieved this time. No markdown, as per instructions.\nI'm ready.\nWait, let me double check the \"DON'T use Markdown formatting\" rule. I will just use plain text with line breaks.\n\nOne thing: the prompt says \"issue search's result already includes a formattedList field... relay it verbatim instead of writing the list yourself.\"\nIf I relay it verbatim, I'd include MER-21. But MER-21 has `assignee: null`. The user explicitly asked for tickets *assigned* to Luca Brognara. Relaying the raw formattedList would be wrong again. So filtering it is correct.\n\nLet's do this.\n\"Riprovo la query per estrarre i dati grezzi. Dall'output effettivo, solo due ticket risultano assegnati a Luca Brognara (il terzo compariva per un falso positivo della ricerca ma non ha assegnatario):\n\nMER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\"\n\nThis is perfect. It explains the previous error and gives the right answer.\nI will output exactly this.\nNo extra fluff.\nDone. \nWait, I'll review the prompt: \"DO: ... Be dry but respectful, and complete.\"\nOkay.\nOutput matches.\nI'm submitting.",
+      "toolCalls": [],
+      "toolResults": []
+    }
+  ],
+  "steps": [
+    {
+      "stepIndex": 0,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --fields summary,status,assignee"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "response is 692 bytes; retry with --select or --select-all. Top-level fields: issues"
+      },
+      "isError": true,
+      "outputSummary": "error"
+    },
+    {
+      "stepIndex": 1,
+      "toolName": "read_file",
+      "input": {
+        "path": "standards/jira-cli.md"
+      },
+      "rawOutput": {
+        "ok": false,
+        "error": "Error: path not accessible: standards/jira-cli.md"
+      },
+      "isError": false,
+      "outputSummary": "n/a"
+    },
+    {
+      "stepIndex": 2,
+      "toolName": "runCommand",
+      "input": {
+        "command": "jira issue search --jql \"project = MER AND assignee = 'Luca Brognara'\" --select-all"
+      },
+      "rawOutput": {
+        "ok": true,
+        "data": {
+          "issues": [
+            {
+              "key": "MER-12",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10001",
+              "fields": {
+                "summary": "Fix Ollama think crash on unsupported models",
+                "status": {
+                  "name": "Done"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-20",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10002",
+              "fields": {
+                "summary": "Deterministic Jira issue-list formatting",
+                "status": {
+                  "name": "In Progress"
+                },
+                "assignee": {
+                  "displayName": "Luca Brognara"
+                }
+              }
+            },
+            {
+              "key": "MER-21",
+              "self": "https://api.atlassian.com/ex/jira/fixture-cloud-id/rest/api/3/issue/10003",
+              "fields": {
+                "summary": "Wiki index self-review orphan detection",
+                "status": {
+                  "name": "To Do"
+                },
+                "assignee": null
+              }
+            }
+          ],
+          "formattedList": "MER-12 [Done] Fix Ollama think crash on unsupported models\nhttps://example.atlassian.net/browse/MER-12\n\nMER-20 [In Progress] Deterministic Jira issue-list formatting\nhttps://example.atlassian.net/browse/MER-20\n\nMER-21 [To Do] Wiki index self-review orphan detection\nhttps://example.atlassian.net/browse/MER-21"
+        }
+      },
+      "isError": false,
+      "outputSummary": "formattedList"
+    }
+  ],
+  "derived": {
+    "outcome": "real-tool-call",
+    "usedSelect": false,
+    "usedSelectAll": true,
+    "usedCurrentUser": false,
+    "formattedListAvailable": true,
+    "formattedListRelayed": false,
+    "handFormatted": true,
+    "helpCalled": false,
+    "helpTiming": "never",
+    "wikiCalled": true,
+    "wikiTiming": "after"
+  }
+}
