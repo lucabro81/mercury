@@ -1,5 +1,11 @@
 # mercury
 
+## 0.15.4
+
+### Patch Changes
+
+- Fix: the GB10 redeploy script could silently reuse an old, cached CLI binary instead of picking up a newly published release, because Docker's build cache doesn't know a CLI's upstream version changed. Redeploy now always rebuilds without cache.
+
 ## 0.15.3
 
 ### Patch Changes
