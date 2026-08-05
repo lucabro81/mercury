@@ -1,5 +1,11 @@
 # mercury
 
+## 0.15.3
+
+### Patch Changes
+
+- 6455d48: Fix: Mercury could build a Jira query with `assignee = currentUser()` when asked about "my tickets" — since Mercury talks to Jira as its own service account, that always means Mercury's own (empty) backlog, never the person actually asking. It now uses their real name instead.
+
 ## 0.15.2
 
 ### Patch Changes
