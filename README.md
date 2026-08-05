@@ -9,6 +9,7 @@
   - [Rebuilding](#rebuilding)
   - [Viewing logs](#viewing-logs)
   - [Using the terminal REPL](#using-the-terminal-repl)
+  - [Getting a shell to test CLIs directly](#getting-a-shell-to-test-clis-directly)
   - [Stopping everything](#stopping-everything)
   - [Wiki vault maintenance](#wiki-vault-maintenance)
   - [Inspecting Qdrant](#inspecting-qdrant)
@@ -108,6 +109,20 @@ Type a question and Mercury answers, streaming the response as it generates and 
 ```bash
 docker compose logs -f mercury
 ```
+
+### Getting a shell to test CLIs directly
+
+The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a `cli-configs/*.json` allowlist. For that, open a shell in the running container instead:
+
+```bash
+docker compose exec mercury bash
+```
+
+The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them.
+
+`exit` or `Ctrl+D` leaves the shell and drops you back on the host. The container keeps running, since `exec` just attaches a second process to it, unlike the REPL's `Ctrl+C`, which stops the whole thing.
+
+If the container isn't up yet, `docker compose run --rm mercury bash` opens one instead, and exiting it removes that one-off container without touching anything else.
 
 ### Stopping everything
 
