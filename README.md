@@ -240,7 +240,13 @@ git pull && docker compose up -d --build
 
 ### CLI credentials without a host installation
 
-The four CLIs (Jira, Bitbucket, Google Chat, atlassian-admin) normally read their auth from `~/.config/<cli-name>` on whatever machine runs them, which is fine in dev where you already use them outside Mercury too. A remote host usually has none of that. Instead, `.env` can carry each CLI's config as a base64-encoded tar (`JIRA_CLI_CONFIG_TAR_B64` and friends, see `.env.example` for how to generate one from a machine that already has valid credentials): `scripts/docker-entrypoint.sh` decodes it into a persistent volume the first time that volume is empty, then leaves it alone. A CLI refreshing its own token during a run writes back to that same volume, so the refresh survives a redeploy instead of reverting to the original blob every time.
+The four CLIs (Jira, Bitbucket, Google Chat, atlassian-admin) normally read their auth from `~/.config/<cli-name>` on whatever machine runs them, which is fine in dev where you already use them outside Mercury too. A remote host usually has none of that. Instead, `.env` can carry each CLI's config as a base64-encoded tar (`JIRA_CLI_CONFIG_TAR_B64` and friends, see `.env.example` for how to generate one from a machine that already has valid credentials, or run `scripts/create-credentials.sh <cli-name>` there to copy it straight to the clipboard): `scripts/docker-entrypoint.sh` decodes it into a persistent volume the first time that CLI's own subdirectory is empty, then leaves it alone. A CLI refreshing its own token during a run writes back to that same volume, so the refresh survives a redeploy instead of reverting to the original blob every time.
+
+That "only the first time" check cuts both ways, though: once a CLI's subdirectory exists, even empty or broken from a bad first attempt, the entrypoint never touches it again, silently. Fixing `.env` and redeploying afterward does nothing, since as far as the entrypoint's concerned that CLI's already set up. Clear just that one subdirectory to force a re-materialization on the next start:
+
+```bash
+scripts/reset-cli-credentials.sh jira-cli
+```
 
 ### Resetting memory
 
@@ -255,6 +261,8 @@ Each wipes its own named volume and lets Mercury reinitialize it empty on the ne
 
 - **`vault.sh`** — maintenance CLI for the wiki vault, run manually. See [Wiki vault maintenance](#wiki-vault-maintenance).
 - **`reset-qdrant.sh`** / **`reset-wiki.sh`** — wipe one memory layer after a confirmation prompt, run manually. See [Resetting memory](#resetting-memory).
+- **`reset-cli-credentials.sh`** — wipe one CLI's leftover subdirectory in the `cli-credentials` volume after a confirmation prompt, run manually. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
+- **`create-credentials.sh`** — bundles one CLI's `~/.config/<cli-name>` into a base64 tar on the clipboard, run manually on a machine that already has valid credentials. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
 - **`redeploy-gb10.sh`** — `git pull` then `docker compose up -d --build`, run manually on a remote deployment. See [Redeploying](#redeploying).
 - **`install-clis.sh`** — fetches the CLI binaries from CLI-monorepo. Runs automatically at image build time, never by hand.
 - **`docker-entrypoint.sh`** — the container's actual entrypoint: materializes CLI credentials from `.env` if the volume's still empty, then starts Mercury. Runs automatically at container start. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
