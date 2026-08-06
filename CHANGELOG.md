@@ -1,5 +1,12 @@
 # mercury
 
+## 0.15.6
+
+### Patch Changes
+
+- Jira issue lists Mercury shows you are now always included in the reply, regardless of whether the model chose to relay them — delivery no longer depends on the model's own text generation.
+- Removed a stale project-status note from CLAUDE.md.
+
 ## 0.15.5
 
 ### Patch Changes
