@@ -1,5 +1,11 @@
 # mercury
 
+## 0.15.5
+
+### Patch Changes
+
+- Fix: a CLI's credentials could get stuck after a bad first deploy attempt. The container only extracts a CLI's credentials from `.env` the first time its config directory doesn't exist yet, so fixing `.env` and redeploying afterward silently did nothing once that directory existed, even empty or broken. Added a script to clear one CLI's leftover directory so it gets re-extracted on the next start, plus a companion script to generate the base64 credential blob for `.env` in the first place.
+
 ## 0.15.4
 
 ### Patch Changes
