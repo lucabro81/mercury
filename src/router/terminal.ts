@@ -120,15 +120,20 @@ export async function startTerminalRepl(
   writePrompt();
   for await (const line of input) {
     let streamed = false;
+    let streamedText = "";
     const onChunk = (chunk: string) => {
       streamed = true;
+      streamedText += chunk;
       output.write(chunk, { newline: false });
     };
     try {
       const result = await handleInput(line, onChunk);
-      // If chunks were already written live, the line just needs closing
-      // with a newline — writing `result` again would duplicate the text.
-      output.write(streamed ? "" : result);
+      // If chunks were already written live, only the part of `result`
+      // that wasn't streamed still needs writing — normally nothing (an
+      // empty slice), but turn-runner.ts can append text after generation
+      // finishes (see format-list-splice.ts), which was never streamed and
+      // would otherwise be silently dropped.
+      output.write(streamed ? result.slice(streamedText.length) : result);
     } catch (err) {
       if (streamed) {
         output.write("");

@@ -21,7 +21,7 @@
  * enabled on a given instance and passes it into `createCliTool`
  * alongside the real `runCli`.
  */
-import { tool } from "ai";
+import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli, CliResult } from "./cli-executor.ts";
@@ -113,6 +113,23 @@ export function matchCommand(args: string[], config: CliConfig): CommandMatch {
  * model-readable rejection message, e.g. `"issue search, issue get"`. */
 export function formatPrefixes(prefixes: string[][]): string {
   return prefixes.map((p) => p.join(" ")).join(", ");
+}
+
+/**
+ * Removes `formattedList` from a tool result's `data` before it reaches the
+ * model — it's a deterministic, user-facing artifact that the orchestration
+ * layer appends directly to the final reply (see
+ * `src/router/format-list-splice.ts`), never something the model needs to
+ * read or reproduce. `formattedListNote` (the failure-path field, telling
+ * the model why formatting couldn't happen and how to retry) is left
+ * untouched — the model does need to see and act on that one.
+ */
+export function omitFormattedListForModel(output: unknown): unknown {
+  if (typeof output !== "object" || output === null) return output;
+  const data = (output as { data?: unknown }).data;
+  if (typeof data !== "object" || data === null || !("formattedList" in data)) return output;
+  const { formattedList: _formattedList, ...rest } = data as Record<string, unknown>;
+  return { ...(output as Record<string, unknown>), data: rest };
 }
 
 /**
@@ -231,6 +248,7 @@ export function createCliTool(
       const postProcess = match.postProcess ? opts.postProcessors?.[match.postProcess] : undefined;
       return postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
     },
+    toModelOutput: ({ output }) => ({ type: "json", value: omitFormattedListForModel(output) as JSONValue }),
   });
 
   return { runCommand };

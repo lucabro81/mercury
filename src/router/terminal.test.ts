@@ -132,6 +132,30 @@ describe("startTerminalRepl", () => {
     expect(output.lines).toEqual([PROMPT, "echo: hi", PROMPT]);
   });
 
+  // Regression: turn-runner.ts can append text after generation finishes
+  // (splicing in a deterministic formattedList the model didn't relay, see
+  // format-list-splice.ts) — that appended text was never streamed via
+  // onChunk, so it must still reach the terminal instead of being silently
+  // dropped by the old "streamed ⇒ write nothing more" assumption.
+  it("writes the part of the result that wasn't streamed, when handleInput appends more after streaming", async () => {
+    const output = fakeOutput();
+    const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {
+      onChunk("Hel");
+      onChunk("lo");
+      return "Hello\n\nMER-1\nhttps://x";
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.calls).toEqual([
+      { text: PROMPT, newline: false },
+      { text: "Hel", newline: false },
+      { text: "lo", newline: false },
+      { text: "\n\nMER-1\nhttps://x", newline: true },
+      { text: PROMPT, newline: false },
+    ]);
+  });
+
   it("ends the streamed line before printing an error, when handleInput streams then rejects", async () => {
     const output = fakeOutput();
     const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {

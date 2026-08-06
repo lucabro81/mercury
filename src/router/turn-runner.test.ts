@@ -250,6 +250,66 @@ describe("createTurnRunner", () => {
     expect(sink.finalized).toEqual(["the final answer"]);
   });
 
+  // The model never sees formattedList (omitFormattedListForModel strips it
+  // before it reaches the model's context, see cli-tool.ts) — delivery is
+  // guaranteed here instead, off the raw tool-result output onStepFinish
+  // captures, independent of what the model's own text says.
+  test("appends a formattedList the model's final text omitted", async () => {
+    const sink = baseSink();
+    const step: StepInfo = {
+      toolCalls: [],
+      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      content: [],
+    };
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async (_history, _input, deps) => {
+        deps.onStepFinish?.(step);
+        return "Here you go.";
+      },
+    });
+
+    await runner(baseTurn(), sink);
+
+    expect(sink.finalized).toEqual(["Here you go.\n\nMER-1\nhttps://x"]);
+  });
+
+  test("does not duplicate a formattedList the model already relayed verbatim", async () => {
+    const sink = baseSink();
+    const step: StepInfo = {
+      toolCalls: [],
+      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      content: [],
+    };
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async (_history, _input, deps) => {
+        deps.onStepFinish?.(step);
+        return "Here you go:\n\nMER-1\nhttps://x";
+      },
+    });
+
+    await runner(baseTurn(), sink);
+
+    expect(sink.finalized).toEqual(["Here you go:\n\nMER-1\nhttps://x"]);
+  });
+
   // Regression test: getOrCreateHistory (which can run the context-primer's
   // Qdrant query for a brand-new tracked session) used to be called before
   // the try/finally — a failure there left the sink's own stuck-note timer

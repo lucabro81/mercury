@@ -12,6 +12,7 @@
 import type { LanguageModel, Tool } from "ai";
 import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
+import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
@@ -84,7 +85,8 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         },
         onUsage: sink.onUsage,
       });
-      await sink.finalize(text);
+      const finalText = spliceFormattedLists(text, collectFormattedLists(steps));
+      await sink.finalize(finalText);
     } finally {
       sink.dispose();
     }
