@@ -61,8 +61,6 @@ mercury/
 └── package.json
 ```
 
-M1 (Jira read-only path, Layer 1 memory, terminal channel, Google Chat channel) is implemented and verified live on both channels — see `CLAUDE.local.md` for current milestone status and what M2 adds. `memory/`, `wiki/`, `cron/` stay empty (`.gitkeep` only) until then.
-
 ## Versioning & changelog
 
 SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md` is public — same audience as README/ARCHITECTURE.md.
