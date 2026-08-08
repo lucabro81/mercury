@@ -878,5 +878,36 @@ describe("createTurnRunner", () => {
         expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
       });
     });
+
+    // A long discarded list embedded raw in every log line, uncapped, is an
+    // unstructured blob on every occurrence — cap it, same convention the
+    // terminal debug view already uses (truncateForDisplay, tool-log.ts).
+    describe("discard log length cap", () => {
+      test("truncates a long discarded text instead of logging it in full", async () => {
+        const logged: string[] = [];
+        const longFlaggedText = "- MER-1 Fix\n- MER-2 Add".padEnd(5000, ".");
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => "Both are still open.",
+          logDiscardedIssueListFn: (message) => logged.push(message),
+          runTurnFn: async () => longFlaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(logged).toHaveLength(1);
+        expect(logged[0]!.length).toBeLessThan(longFlaggedText.length);
+        expect(logged[0]).toContain("truncated");
+      });
+    });
   });
 });

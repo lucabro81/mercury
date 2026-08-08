@@ -19,6 +19,30 @@ import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
 
+/**
+ * Cap on how much of a discarded issue-list turn's original text gets
+ * embedded in `logDiscardedIssueListFn`'s message — a long restated list,
+ * logged in full on every discard, is an unstructured blob with no bound.
+ * Larger than the terminal debug view's own inline cap (`MAX_INLINE_CHARS`,
+ * 600, in `src/index.ts`) since this is a diagnostic line meant to be
+ * grepped later, not a live view competing for terminal space.
+ */
+const MAX_LOGGED_ISSUE_LIST_CHARS = 2000;
+
+/**
+ * Truncates plain text for a log line, same spirit as `tool-log.ts`'s
+ * `truncateForDisplay` (bounded length, a marker noting the real total)
+ * but deliberately not that function itself: `truncateForDisplay`
+ * JSON.stringifies its input, which is right for arbitrary structured
+ * values but wrong here — it would escape newlines and wrap the message
+ * in quotes, turning an easily-greppable restated list into unreadable
+ * escaped JSON for no benefit, since this is already plain text.
+ */
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}… (truncated, ${text.length} chars total)`;
+}
+
 export type TurnRunnerDeps = {
   model: LanguageModel;
   /** Both variants, precomposed by the composition root; selected per turn by `turn.multiUser`. */
@@ -111,13 +135,13 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
           correctedText = stillFlagged ? ISSUE_LIST_CORRECTION_FALLBACK : corrected;
           logDiscardedIssueList(
             `[issue-list-correction] discarded model text that looked like a rendered issue list ` +
-              `(${stillFlagged ? "corrector output was still flagged; used fixed fallback" : "replaced with corrector's rewrite"}): ${text}`,
+              `(${stillFlagged ? "corrector output was still flagged; used fixed fallback" : "replaced with corrector's rewrite"}): ${truncateText(text, MAX_LOGGED_ISSUE_LIST_CHARS)}`,
           );
         } catch (err) {
           // Corrector is a quality enhancement, not a delivery guarantee — a failure here shouldn't
           // throw away an otherwise-good, already-generated answer. Degrade to the original text.
           logDiscardedIssueList(
-            `[issue-list-correction] corrector call failed, kept original text: ${String(err instanceof Error ? err.message : err)}`,
+            `[issue-list-correction] corrector call failed, kept original text: ${truncateText(String(err instanceof Error ? err.message : err), MAX_LOGGED_ISSUE_LIST_CHARS)}`,
           );
         }
       }
