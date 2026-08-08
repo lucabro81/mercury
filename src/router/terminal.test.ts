@@ -156,6 +156,34 @@ describe("startTerminalRepl", () => {
     ]);
   });
 
+  // Regression: turn-runner.ts's issue-list correction can REPLACE the model's
+  // text (a corrector rewrite, or the fixed fallback), not just append to it —
+  // the result no longer extends what was already streamed, so the old
+  // "streamed ⇒ always slice off streamedText.length" assumption produced a
+  // meaningless slice. The already-streamed text can't be un-printed, so the
+  // real final answer must be shown in full instead, clearly marked.
+  it("writes the full result with a correction marker, when it no longer extends what was streamed", async () => {
+    const output = fakeOutput();
+    const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {
+      onChunk("Hel");
+      onChunk("lo, here are the tickets: MER-1, MER-2");
+      return "Ecco i risultati.\n\nMER-1\nhttps://x";
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.calls).toEqual([
+      { text: PROMPT, newline: false },
+      { text: "Hel", newline: false },
+      { text: "lo, here are the tickets: MER-1, MER-2", newline: false },
+      {
+        text: "\n\n[risposta corretta rispetto a quanto già mostrato sopra]\n\nEcco i risultati.\n\nMER-1\nhttps://x",
+        newline: true,
+      },
+      { text: PROMPT, newline: false },
+    ]);
+  });
+
   it("ends the streamed line before printing an error, when handleInput streams then rejects", async () => {
     const output = fakeOutput();
     const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {

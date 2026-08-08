@@ -128,12 +128,24 @@ export async function startTerminalRepl(
     };
     try {
       const result = await handleInput(line, onChunk);
-      // If chunks were already written live, only the part of `result`
-      // that wasn't streamed still needs writing — normally nothing (an
-      // empty slice), but turn-runner.ts can append text after generation
-      // finishes (see format-list-splice.ts), which was never streamed and
-      // would otherwise be silently dropped.
-      output.write(streamed ? result.slice(streamedText.length) : result);
+      if (!streamed) {
+        output.write(result);
+      } else if (result.startsWith(streamedText)) {
+        // The common case: nothing was streamed beyond what handleInput
+        // returns, or turn-runner.ts only appended text after generation
+        // finished (e.g. format-list-splice.ts's formattedList) — the
+        // already-streamed prefix is still there, so only the new suffix
+        // needs writing.
+        output.write(result.slice(streamedText.length));
+      } else {
+        // The final result no longer extends what was already streamed —
+        // e.g. turn-runner.ts's issue-list correction replaced the text
+        // with a rewrite or the fixed fallback. What's already printed
+        // can't be un-printed, so show the real final answer in full
+        // instead of a slice computed against text that isn't there
+        // anymore.
+        output.write(`\n\n[risposta corretta rispetto a quanto già mostrato sopra]\n\n${result}`);
+      }
     } catch (err) {
       if (streamed) {
         output.write("");
