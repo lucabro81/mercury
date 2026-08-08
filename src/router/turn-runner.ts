@@ -122,6 +122,10 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         }
       }
 
+      if (correctedText !== text) {
+        history.replaceLastAssistantMessage(correctedText);
+      }
+
       const finalText = spliceFormattedLists(correctedText, collectFormattedLists(steps));
       await sink.finalize(finalText);
     } finally {

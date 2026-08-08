@@ -5,12 +5,14 @@ import type { InboundTurn, TurnSink } from "./provider.ts";
 import type { SessionHistory } from "../session/history.ts";
 import type { StepInfo } from "../session/step-info.ts";
 
-function fakeHistory(): SessionHistory {
+function fakeHistory(overrides: Partial<SessionHistory> = {}): SessionHistory {
   return {
     addUserMessage: async () => {},
     addAssistantMessage: async () => {},
+    replaceLastAssistantMessage: () => {},
     getMessages: () => [],
     getCharCount: () => 0,
+    ...overrides,
   };
 }
 
@@ -726,6 +728,105 @@ describe("createTurnRunner", () => {
       await runner(baseTurn(), sink);
 
       expect(receivedModels).toEqual([model]);
+    });
+
+    // Without this, the duplicated-list version the feature exists to
+    // eliminate would permanently survive in SessionHistory — the model
+    // would see and imitate its own "successful" past restatement on the
+    // next turn, and Layer-3 capture (which reads the same history) would
+    // persist it too.
+    describe("persisting the corrected text into history", () => {
+      test("does not call replaceLastAssistantMessage when the model's text isn't flagged", async () => {
+        const replaced: string[] = [];
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          runTurnFn: async () => "Here you go.",
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(replaced).toEqual([]);
+      });
+
+      test("calls replaceLastAssistantMessage with the corrector's rewrite when flagged and corrected", async () => {
+        const replaced: string[] = [];
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => "Both are still open.",
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(replaced).toEqual(["Both are still open."]);
+      });
+
+      test("calls replaceLastAssistantMessage with the fixed fallback when the corrector's output is still flagged", async () => {
+        const replaced: string[] = [];
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => flaggedText,
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(replaced).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
+      });
+
+      test("does not call replaceLastAssistantMessage when the corrector call throws (nothing changed, nothing to persist)", async () => {
+        const replaced: string[] = [];
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => {
+            throw new Error("ollama unreachable");
+          },
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(replaced).toEqual([]);
+      });
     });
   });
 });
