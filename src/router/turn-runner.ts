@@ -13,6 +13,8 @@ import type { LanguageModel, Tool } from "ai";
 import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
+import { looksLikeIssueList, ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";
+import { createIssueListCorrector } from "../session/issue-list-corrector.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
@@ -46,12 +48,27 @@ export type TurnRunnerDeps = {
   recordStepFn?: typeof recordStep;
   /** Test seam; defaults to the real `runTurn`. */
   runTurnFn?: typeof runTurn;
+  /** Test seam; defaults to the real `createIssueListCorrector`, bound once to `model`. */
+  correctIssueListFn?: typeof createIssueListCorrector;
+  /**
+   * Test seam; defaults to `console.log`. Called once whenever the
+   * issue-list heuristic (`looksLikeIssueList`) causes a discard of the
+   * model's own text — either the corrector rewrote it, its own output was
+   * still flagged and the fixed fallback was used instead, or the
+   * corrector call itself failed. Carries the ORIGINAL (pre-correction)
+   * text. Exists purely to measure real-world frequency before investing
+   * further (a second reviewer agent, general hallucination detection).
+   */
+  logDiscardedIssueListFn?: (message: string) => void;
   /** Test seam; defaults to `Date.now`. */
   now?: () => number;
 };
 
 /** Builds the shared `HandleTurn` every provider's driver calls once it has a real message to run through the model. */
 export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
+  const correctIssueList = (deps.correctIssueListFn ?? createIssueListCorrector)(deps.model);
+  const logDiscardedIssueList = deps.logDiscardedIssueListFn ?? ((message: string) => console.log(message));
+
   return async (turn: InboundTurn, sink: TurnSink): Promise<void> => {
     const tracked = turn.userId !== undefined;
     if (tracked) {
@@ -85,7 +102,27 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         },
         onUsage: sink.onUsage,
       });
-      const finalText = spliceFormattedLists(text, collectFormattedLists(steps));
+
+      let correctedText = text;
+      if (looksLikeIssueList(text)) {
+        try {
+          const corrected = await correctIssueList(text);
+          const stillFlagged = looksLikeIssueList(corrected);
+          correctedText = stillFlagged ? ISSUE_LIST_CORRECTION_FALLBACK : corrected;
+          logDiscardedIssueList(
+            `[issue-list-correction] discarded model text that looked like a rendered issue list ` +
+              `(${stillFlagged ? "corrector output was still flagged; used fixed fallback" : "replaced with corrector's rewrite"}): ${text}`,
+          );
+        } catch (err) {
+          // Corrector is a quality enhancement, not a delivery guarantee — a failure here shouldn't
+          // throw away an otherwise-good, already-generated answer. Degrade to the original text.
+          logDiscardedIssueList(
+            `[issue-list-correction] corrector call failed, kept original text: ${String(err instanceof Error ? err.message : err)}`,
+          );
+        }
+      }
+
+      const finalText = spliceFormattedLists(correctedText, collectFormattedLists(steps));
       await sink.finalize(finalText);
     } finally {
       sink.dispose();

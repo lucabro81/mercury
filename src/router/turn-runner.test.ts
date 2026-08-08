@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createTurnRunner } from "./turn-runner.ts";
+import { ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";
 import type { InboundTurn, TurnSink } from "./provider.ts";
 import type { SessionHistory } from "../session/history.ts";
 import type { StepInfo } from "../session/step-info.ts";
@@ -548,5 +549,183 @@ describe("createTurnRunner", () => {
     expect(registered).toEqual([]);
     expect(captured).toEqual([]);
     expect(historyTrackForCapture).toBe(false);
+  });
+
+  describe("issue-list correction", () => {
+    // Runs strictly before spliceFormattedLists — proves the ordering by
+    // combining a flagged model text with a step carrying a formattedList
+    // and checking the final result is <corrector's rewrite>\n\n<formattedList>.
+    const formattedListStep: StepInfo = {
+      toolCalls: [],
+      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      content: [],
+    };
+    const flaggedText = "- MER-1 Fix the bug\n- MER-2 Add the feature";
+
+    test("does not call the corrector or log anything when the model's text isn't flagged", async () => {
+      let correctorCalled = false;
+      const logged: string[] = [];
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        correctIssueListFn: () => async (text) => {
+          correctorCalled = true;
+          return text;
+        },
+        logDiscardedIssueListFn: (message) => logged.push(message),
+        runTurnFn: async () => "Here you go.",
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(correctorCalled).toBe(false);
+      expect(logged).toEqual([]);
+      expect(sink.finalized).toEqual(["Here you go."]);
+    });
+
+    test("replaces flagged text with the corrector's rewrite, and logs the original", async () => {
+      const logged: string[] = [];
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        correctIssueListFn: () => async () => "Both are still open.",
+        logDiscardedIssueListFn: (message) => logged.push(message),
+        runTurnFn: async () => flaggedText,
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(sink.finalized).toEqual(["Both are still open."]);
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toContain(flaggedText);
+      expect(logged[0]).not.toContain("fixed fallback");
+    });
+
+    test("falls back to the fixed message when the corrector's own output is still flagged", async () => {
+      const logged: string[] = [];
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        correctIssueListFn: () => async () => flaggedText,
+        logDiscardedIssueListFn: (message) => logged.push(message),
+        runTurnFn: async () => flaggedText,
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toContain(flaggedText);
+      expect(logged[0]).toContain("fixed fallback");
+    });
+
+    test("degrades to the original text, and logs the failure, when the corrector call throws", async () => {
+      const logged: string[] = [];
+      const sink = baseSink();
+      let correctionsReceived: StepInfo[] | undefined;
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async (steps) => {
+          correctionsReceived = steps;
+        },
+        logStep: () => {},
+        correctIssueListFn: () => async () => {
+          throw new Error("ollama unreachable");
+        },
+        logDiscardedIssueListFn: (message) => logged.push(message),
+        runTurnFn: async () => flaggedText,
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(sink.finalized).toEqual([flaggedText]);
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toContain("ollama unreachable");
+      // The turn otherwise completes normally — a corrector failure isn't a turn failure.
+      expect(sink.disposed).toBe(true);
+      expect(correctionsReceived).toEqual([]);
+    });
+
+    test("runs correction before formattedList splicing", async () => {
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        correctIssueListFn: () => async () => "Both are still open.",
+        logDiscardedIssueListFn: () => {},
+        runTurnFn: async (_history, _input, deps) => {
+          deps.onStepFinish?.(formattedListStep);
+          return flaggedText;
+        },
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(sink.finalized).toEqual(["Both are still open.\n\nMER-1\nhttps://x"]);
+    });
+
+    test("correctIssueListFn is called with deps.model", async () => {
+      const receivedModels: unknown[] = [];
+      const model = { id: "fake-model" } as any;
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        correctIssueListFn: (m) => {
+          receivedModels.push(m);
+          return async () => "Both are still open.";
+        },
+        logDiscardedIssueListFn: () => {},
+        runTurnFn: async () => flaggedText,
+      });
+
+      await runner(baseTurn(), sink);
+
+      expect(receivedModels).toEqual([model]);
+    });
   });
 });
