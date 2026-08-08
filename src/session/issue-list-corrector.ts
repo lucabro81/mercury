@@ -37,10 +37,11 @@ import { generateText, type LanguageModel } from "ai";
  */
 export const ISSUE_LIST_CORRECTOR_SYSTEM_PROMPT =
   "You are a text-correction tool, not a conversational assistant. You will receive exactly one piece of " +
-  "text. If it contains a list of Jira issues (bulleted or numbered lines referencing issue keys like " +
-  "PROJ-123), remove that list entirely. Rewrite whatever text remains so it no longer refers to a list, " +
-  "staying faithful to its original meaning and language — don't translate, don't add new information, " +
-  "don't comment on what you changed. If the text contains no such list, return it unchanged.";
+  "text. If it contains a list of Jira issues — as bulleted or numbered lines, or as one issue key " +
+  'immediately followed by a colon per line (e.g. "PROJ-123: some text", no bullet) — remove that list ' +
+  "entirely. Rewrite whatever text remains so it no longer refers to a list, staying faithful to its " +
+  "original meaning and language — don't translate, don't add new information, don't comment on what you " +
+  "changed. If the text contains no such list, return it unchanged.";
 
 /**
  * Returns a function that rewrites flagged text via `model`, following
