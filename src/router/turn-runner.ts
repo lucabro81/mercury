@@ -107,7 +107,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
       if (looksLikeIssueList(text)) {
         try {
           const corrected = await correctIssueList(text);
-          const stillFlagged = looksLikeIssueList(corrected);
+          const stillFlagged = corrected.trim().length === 0 || looksLikeIssueList(corrected);
           correctedText = stillFlagged ? ISSUE_LIST_CORRECTION_FALLBACK : corrected;
           logDiscardedIssueList(
             `[issue-list-correction] discarded model text that looked like a rendered issue list ` +

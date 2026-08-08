@@ -828,5 +828,55 @@ describe("createTurnRunner", () => {
         expect(replaced).toEqual([]);
       });
     });
+
+    // The corrector's own instruction is to remove the list and preserve
+    // the rest — if a turn's whole text was just the list, the rewrite can
+    // legitimately come back empty. Nothing about that means "the rewrite
+    // succeeded"; treat it the same as still being flagged.
+    describe("empty corrector rewrite", () => {
+      test("falls back to the fixed message when the corrector returns an empty string", async () => {
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => "",
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
+      });
+
+      test("falls back to the fixed message when the corrector returns whitespace only", async () => {
+        const sink = baseSink();
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => "   \n  ",
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
+      });
+    });
   });
 });
