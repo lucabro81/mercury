@@ -1,5 +1,11 @@
 # mercury
 
+## 0.16.0
+
+### Minor Changes
+
+- Mercury now detects when a reply restates a Jira issue list in free text (duplicating the deterministic issue list already appended to the message) and rewrites it via an isolated correction pass, falling back to a fixed message if the rewrite still looks like a list. The deterministic issue list itself is unaffected either way.
+
 ## 0.15.6
 
 ### Patch Changes
