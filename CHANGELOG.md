@@ -1,5 +1,11 @@
 # mercury
 
+## 0.16.2
+
+### Patch Changes
+
+- Added a visible status indicator while a reply's issue-list correction step is running (dim text on the terminal, a status card on Google Chat) — previously this ran silently, especially noticeable on Google Chat where nothing else was shown while it was in flight.
+
 ## 0.16.1
 
 ### Patch Changes
