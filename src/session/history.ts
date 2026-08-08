@@ -37,6 +37,18 @@ export type SessionHistory = {
   /** Appends an assistant turn, summarizing first if this push crosses the threshold. */
   addAssistantMessage(content: string): Promise<void>;
   /**
+   * Overwrites the most recently added message with `content`, in place,
+   * if it exists and is an assistant message — used when a turn's
+   * assistant text is corrected after already being recorded (see
+   * turn-runner.ts's issue-list correction). No-ops if there is no last
+   * message, or if it isn't an assistant message (defensive; shouldn't
+   * happen given how this is called). Deliberately synchronous and skips
+   * the summarization threshold check entirely: this replaces content
+   * already counted by the original `addAssistantMessage` call, it isn't
+   * new content being added.
+   */
+  replaceLastAssistantMessage(content: string): void;
+  /**
    * The messages to feed into the next model call: the current summary
    * (if one exists, as a synthetic leading message) followed by the raw
    * messages accumulated since the last summarization.
@@ -126,6 +138,12 @@ export function createSessionHistory(
   return {
     addUserMessage: (content) => add({ role: "user", content }),
     addAssistantMessage: (content) => add({ role: "assistant", content }),
+    replaceLastAssistantMessage: (content) => {
+      const last = rawMessages[rawMessages.length - 1];
+      if (last?.role === "assistant") {
+        rawMessages[rawMessages.length - 1] = { role: "assistant", content };
+      }
+    },
     getMessages,
     getCharCount: () => getMessages().reduce((sum, m) => sum + m.content.length, 0),
   };

@@ -196,4 +196,55 @@ describe("createSessionHistory", () => {
       expect(history.getCharCount()).toBe("Context from your last session: hello".length);
     });
   });
+
+  // Used by turn-runner.ts to persist a corrected assistant turn (see
+  // issue-list correction) after it was already recorded — without this,
+  // the duplicated-list version the feature exists to eliminate would
+  // permanently survive in the model's own future context.
+  describe("replaceLastAssistantMessage", () => {
+    it("overwrites the last message's content when it's an assistant message", async () => {
+      const history = createSessionHistory(fakeSummarizer());
+      await history.addUserMessage("hi");
+      await history.addAssistantMessage("raw duplicated list");
+
+      history.replaceLastAssistantMessage("corrected text");
+
+      expect(history.getMessages()).toEqual([
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "corrected text" },
+      ]);
+    });
+
+    it("no-ops when there are no messages yet", () => {
+      const history = createSessionHistory(fakeSummarizer());
+      history.replaceLastAssistantMessage("corrected text");
+      expect(history.getMessages()).toEqual([]);
+    });
+
+    it("no-ops when the last message is a user message", async () => {
+      const history = createSessionHistory(fakeSummarizer());
+      await history.addAssistantMessage("hello");
+      await history.addUserMessage("what about MER-1?");
+
+      history.replaceLastAssistantMessage("corrected text");
+
+      expect(history.getMessages()).toEqual([
+        { role: "assistant", content: "hello" },
+        { role: "user", content: "what about MER-1?" },
+      ]);
+    });
+
+    it("does not call summarize, even when the replacement alone would exceed MAX_HISTORY_CHARS", async () => {
+      const calls: Message[][] = [];
+      const history = createSessionHistory(fakeSummarizer({ calls }));
+      await history.addAssistantMessage("short");
+
+      history.replaceLastAssistantMessage("x".repeat(MAX_HISTORY_CHARS + 1));
+
+      expect(calls.length).toBe(0);
+      expect(history.getMessages()).toEqual([
+        { role: "assistant", content: "x".repeat(MAX_HISTORY_CHARS + 1) },
+      ]);
+    });
+  });
 });
