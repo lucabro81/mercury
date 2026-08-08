@@ -1,5 +1,11 @@
 # mercury
 
+## 0.16.3
+
+### Patch Changes
+
+- Fixed a system-prompt instruction that told the model to compare a formattedListNote result against formattedList — the model never sees the formattedList field at all, so that phrasing invited confused reasoning about a comparison it can't actually make.
+
 ## 0.16.2
 
 ### Patch Changes
