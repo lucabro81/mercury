@@ -30,6 +30,13 @@ import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
 const MAX_LOGGED_ISSUE_LIST_CHARS = 2000;
 
 /**
+ * Fixed toolCallId passed to onToolStart/onToolFinish for the correction
+ * step's status indicator — fixed, not generated, because at most one
+ * correction ever runs per turn (no risk of two concurrent ids colliding).
+ */
+const CORRECTION_STATUS_ID = "issue-list-correction";
+
+/**
  * Truncates plain text for a log line, same spirit as `tool-log.ts`'s
  * `truncateForDisplay` (bounded length, a marker noting the real total)
  * but deliberately not that function itself: `truncateForDisplay`
@@ -129,10 +136,17 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
 
       let correctedText = text;
       if (looksLikeIssueList(text)) {
+        // Reuses the same onToolStart/onToolFinish machinery already shared with
+        // real tool calls and Layer-3 capture pings (registerCaptureCallback,
+        // below) — no new TurnSink field needed: terminal's dim-print and Google
+        // Chat's status-card patching both already handle any (label, detail?,
+        // toolCallId?) triple generically.
+        sink.onToolStart("Sto verificando la risposta…", undefined, CORRECTION_STATUS_ID);
         try {
           const corrected = await correctIssueList(text);
           const stillFlagged = corrected.trim().length === 0 || looksLikeIssueList(corrected);
           correctedText = stillFlagged ? ISSUE_LIST_CORRECTION_FALLBACK : corrected;
+          sink.onToolFinish?.(CORRECTION_STATUS_ID, stillFlagged ? "failed" : "success");
           logDiscardedIssueList(
             `[issue-list-correction] discarded model text that looked like a rendered issue list ` +
               `(${stillFlagged ? "corrector output was still flagged; used fixed fallback" : "replaced with corrector's rewrite"}): ${truncateText(text, MAX_LOGGED_ISSUE_LIST_CHARS)}`,
@@ -140,6 +154,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         } catch (err) {
           // Corrector is a quality enhancement, not a delivery guarantee — a failure here shouldn't
           // throw away an otherwise-good, already-generated answer. Degrade to the original text.
+          sink.onToolFinish?.(CORRECTION_STATUS_ID, "failed");
           logDiscardedIssueList(
             `[issue-list-correction] corrector call failed, kept original text: ${truncateText(String(err instanceof Error ? err.message : err), MAX_LOGGED_ISSUE_LIST_CHARS)}`,
           );

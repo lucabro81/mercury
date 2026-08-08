@@ -909,5 +909,113 @@ describe("createTurnRunner", () => {
         expect(logged[0]).toContain("truncated");
       });
     });
+
+    // Reuses the same onToolStart/onToolFinish machinery already shared with
+    // real tool calls and Layer-3 capture pings (see registerCaptureCallback
+    // above) — no new TurnSink field, so terminal's dim-print and Google
+    // Chat's status-card patching both pick this up for free.
+    describe("status indicator for the correction step", () => {
+      test("does not call onToolStart/onToolFinish for the correction id when the text isn't flagged", async () => {
+        const started: unknown[][] = [];
+        const finished: unknown[][] = [];
+        const sink = baseSink({
+          onToolStart: (...args) => started.push(args),
+          onToolFinish: (...args) => finished.push(args),
+        });
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          runTurnFn: async () => "Here you go.",
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(started).toEqual([]);
+        expect(finished).toEqual([]);
+      });
+
+      test("reports success when the text is flagged and cleanly corrected", async () => {
+        const started: unknown[][] = [];
+        const finished: unknown[][] = [];
+        const sink = baseSink({
+          onToolStart: (...args) => started.push(args),
+          onToolFinish: (...args) => finished.push(args),
+        });
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => "Both are still open.",
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(started).toEqual([["Sto verificando la risposta…", undefined, "issue-list-correction"]]);
+        expect(finished).toEqual([["issue-list-correction", "success"]]);
+      });
+
+      test("reports failed when the corrector's output is still flagged (fixed fallback used)", async () => {
+        const finished: unknown[][] = [];
+        const sink = baseSink({ onToolFinish: (...args) => finished.push(args) });
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => flaggedText,
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(finished).toEqual([["issue-list-correction", "failed"]]);
+      });
+
+      test("reports failed when the corrector call throws", async () => {
+        const finished: unknown[][] = [];
+        const sink = baseSink({ onToolFinish: (...args) => finished.push(args) });
+        const runner = createTurnRunner({
+          model: {} as any,
+          systemPrompts: { singleUser: "s", multiUser: "m" },
+          buildTools: () => ({}),
+          getOrCreateHistory: () => fakeHistory(),
+          trackSession: () => {},
+          registerCaptureCallback: () => {},
+          maybeCapture: async () => {},
+          processToolCorrections: async () => {},
+          logStep: () => {},
+          correctIssueListFn: () => async () => {
+            throw new Error("ollama unreachable");
+          },
+          logDiscardedIssueListFn: () => {},
+          runTurnFn: async () => flaggedText,
+        });
+
+        await runner(baseTurn(), sink);
+
+        expect(finished).toEqual([["issue-list-correction", "failed"]]);
+      });
+    });
   });
 });
