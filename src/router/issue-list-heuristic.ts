@@ -11,15 +11,27 @@
  */
 
 /**
- * A line starting with a list marker (`-`, `*`, `•`, `1.`, `1)`) followed
- * by something shaped like a Jira issue key (`[A-Z][A-Z0-9]*-\d+`, the
- * same shape as `issue.key` in `issue-list-formatter.ts`). Deliberately
- * requires the marker to lead the line: the deterministic `formattedList`
- * (see `formatOneIssue` there) never emits one — it starts directly with
- * the key — so this can only ever match the model's own free-form
- * rendition, never the code-built list itself.
+ * A line that looks like one item of a rendered issue list, in either of
+ * two shapes seen in practice:
+ *
+ * 1. A list marker (`-`, `*`, `•`, `1.`, `1)`) followed by something
+ *    shaped like a Jira issue key (`[A-Z][A-Z0-9]*-\d+`, the same shape as
+ *    `issue.key` in `issue-list-formatter.ts`) anywhere in the line.
+ * 2. A line starting directly with an issue key immediately followed by a
+ *    colon (`KEY: text`, no marker at all) — confirmed live 2026-08-08:
+ *    asked for "one line each", the model rendered exactly this shape and
+ *    the marker-only version of this regex missed it entirely.
+ *
+ * Deliberately excludes the deterministic `formattedList`'s own shape
+ * either way: `formatOneIssue` (see `issue-list-formatter.ts`) never
+ * emits a leading marker, and never puts a colon directly after the key —
+ * its line is `KEY [status] summary` or, when there's no status, plain
+ * `KEY summary` (key, space, text — no colon). Neither shape 1 nor shape 2
+ * above can match that, so this can only ever match the model's own
+ * free-form rendition, never the code-built list itself.
  */
-const ISSUE_LIST_LINE = /^[ \t]*(?:[-*•]|\d+[.)])[ \t]+.*\b[A-Z][A-Z0-9]*-\d+\b/gm;
+const ISSUE_LIST_LINE =
+  /^[ \t]*(?:(?:[-*•]|\d+[.)])[ \t]+.*\b[A-Z][A-Z0-9]*-\d+\b|[A-Z][A-Z0-9]*-\d+:[ \t]+\S)/gm;
 
 /**
  * Flags text that looks like a rendered issue list: at least two lines

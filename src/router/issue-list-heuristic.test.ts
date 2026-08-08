@@ -66,6 +66,39 @@ describe("looksLikeIssueList", () => {
     expect(looksLikeIssueList(formattedList)).toBe(false);
   });
 
+  // Regression: formatOneIssue omits the "[status]" segment entirely when the issue has no status
+  // (see issue-list-formatter.ts) — the deterministic line then reads "KEY Summary", key directly
+  // followed by a space, no colon. Must still never be flagged.
+  it("returns false for formattedList's no-status shape (key, space, summary — no colon, no bracket)", () => {
+    const formattedList =
+      "MER-1 Fix the bug\nhttps://webcomperio.atlassian.net/browse/MER-1\n\n" +
+      "MER-2 Add the feature\nhttps://webcomperio.atlassian.net/browse/MER-2";
+    expect(looksLikeIssueList(formattedList)).toBe(false);
+  });
+
+  // Real production case (confirmed live, 2026-08-08): asked to give "one line each" for a set of
+  // tickets, the model rendered "KEY: text" per line — no bullet, no number, just the key immediately
+  // followed by a colon. The original marker-only regex missed this entirely, letting a real
+  // restated list through undetected.
+  it("returns true for two colon-separated 'KEY: text' lines with no leading marker", () => {
+    expect(
+      looksLikeIssueList(
+        "SUP-2485: I soggetti da CLIC mostrano l'ID invece dell'intestazione corretta.\n" +
+          "SUP-2479: Presenza di intestazioni duplicate per entità provenienti da fonte RBBC.",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for a single colon-separated 'KEY: text' line (below the threshold)", () => {
+    expect(looksLikeIssueList("SUP-2485: I soggetti da CLIC mostrano l'ID invece dell'intestazione.")).toBe(false);
+  });
+
+  it("returns false for a lowercase key immediately followed by a colon", () => {
+    expect(
+      looksLikeIssueList("sup-2485: some text here.\nsup-2479: some other text here."),
+    ).toBe(false);
+  });
+
   // Regression: a shared module-level `g`-flagged regex used with .test()/.exec() carries lastIndex
   // state across calls — production calls this function twice per turn (original text, then the
   // corrector's output), so a stateful implementation would silently misbehave on the second call.
