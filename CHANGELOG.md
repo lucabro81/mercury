@@ -1,5 +1,11 @@
 # mercury
 
+## 0.16.1
+
+### Patch Changes
+
+- Fixed several bugs in the issue-list correction feature introduced in 0.16.0: a corrected reply could render incorrectly on the terminal channel when it replaced (rather than extended) already-streamed text, the corrected text wasn't persisted into conversation history, the correction prompt didn't recognize one of the list shapes it's meant to catch, an empty rewrite could produce a blank reply, and the discard log line had no length cap.
+
 ## 0.16.0
 
 ### Minor Changes
