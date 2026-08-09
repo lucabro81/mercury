@@ -48,11 +48,13 @@ mercury/
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
 │   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
 │   ├── router/
+│   │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
 │   │   ├── terminal.ts         # REPL channel
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers
 │   │   └── channels/           # Google Chat channel (discovery + per-space listen)
 │   ├── memory/                # Layer 3 — episodic store (Qdrant)
 │   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
+│   ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)
 │   └── cron/                  # idle-session scanner
 ├── Dockerfile
 ├── docker-compose.yml
@@ -72,8 +74,9 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 ## Operational notes
 
 - **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags
+- Full install/run/deploy commands live in [README.md](README.md), not duplicated here — this file covers stack and conventions only
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
-- Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime
+- Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime. `bun test` runs the full suite
 - `scripts/install-clis.sh` always resolves the latest release **per crate** via the GitHub API (independent releases per CLI, not a single repo-wide "latest"), and picks the right asset for the current OS/arch (`linux-x86_64`, `linux-arm64`, `macos-arm64`) — runs at build-time in the Dockerfile, not by hand
 - **Base image is Debian (`oven/bun:1`), not Alpine — reopens D-13.** The CLI binaries are dynamically linked glibc binaries, not static. Verified twice (x86_64 and arm64 builds): Alpine's `gcompat` shim doesn't implement the full glibc resolver (`__res_init` missing) — the CLIs fail to run on Alpine even with `gcompat` installed, regardless of matching architecture. Confirmed the CLIs run natively on Debian with zero compatibility layer. Image size difference is small (~330MB base vs ~290MB Alpine) since the Bun runtime itself dominates the size, not the OS base — not worth the fragility of chasing partial glibc shims
 - Dockerfile is multi-stage: `curl`/`jq` (needed only to download the CLI binaries) live in a separate `clis` build stage, never in the final image — keeps their CVEs out of the running container
@@ -82,7 +85,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
 - **Wiki vault maintenance**: `bun run vault -- <command>` (wrapper: `scripts/vault.sh`). The vault is a Docker named volume (`WIKI_VAULT_PATH`), not a host path — there's nothing to `cd` into or open in an editor directly, every command runs through a one-off `docker compose run --rm -T mercury bun run src/wiki/vault-cli.ts` against the same volume the real service uses. Commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]` (body read from stdin, e.g. `cat note.md | bun run vault -- write-curated curated/standards/x.md`). Thin routing only, no new write/read logic — reuses `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee
 
-## Hard-won conventions (from M1, apply going forward)
+## Hard-won conventions
 
 - **An unhandled rejection in an un-awaited async loop kills the whole process**, not just the feature it belongs to — every channel/poller's loop body must be wrapped in try/catch and log on failure, never let one bad tick take down the rest of Mercury (observed live: a Google Chat discovery failure took the terminal REPL down with it, since both run in the same process)
 - **A long-running spawned process (`spawnLines`) must surface its own exit code and stderr** — a process that crashes on its own, silently, looks identical to a clean exit unless you check; `exited` must reject when the exit wasn't caused by the caller's own abort signal
