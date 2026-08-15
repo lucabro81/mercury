@@ -23,8 +23,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 2. **No agent framework.** Custom orchestration on top of Vercel AI SDK only.
 3. **Memory layers have boundaries.** In-context history is a prerequisite for basic functionality. Any external memory/knowledge store is an enrichment — the system must work correctly even when it's empty or unreachable.
 4. **Stateless container.** Anything that must survive a restart lives on an explicit external volume, never only in-process.
-5. **No infrastructure before measured need.** Don't add code, caches, classifiers, or abstractions for a hypothetical problem. If something seems to be missing, say so — don't build around it silently.
-6. **Irreversible actions require explicit confirmation.** An explicit one-time token the user has to send back — never a "probably fine" inferred by the model, and never a keyword the model has to relay or the user has to remember. Mercury is a registered Chat app on Google Chat, so confirming there is a button click on the card Mercury sends; on the terminal it's pasting the bare token back. Same underlying token/store mechanism either way — see ARCHITECTURE.md.
+5. **Irreversible actions require explicit confirmation.** An explicit one-time token the user has to send back — never a "probably fine" inferred by the model, and never a keyword the model has to relay or the user has to remember. Mercury is a registered Chat app on Google Chat, so confirming there is a button click on the card Mercury sends; on the terminal it's pasting the bare token back. Same underlying token/store mechanism either way — see ARCHITECTURE.md.
 
 ## What NOT to do
 
