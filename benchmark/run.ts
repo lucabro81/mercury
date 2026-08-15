@@ -10,8 +10,13 @@
  * actual prior answer, not a scripted one). No pass/fail judgment happens
  * here, only mechanical classification; reading the results is a separate,
  * manual step. Re-running overwrites the same trial/round's file in place;
- * copy the whole results/ dir first to keep an older run around for
- * comparison.
+ * at the end of every run, the whole results/ dir is zipped next to itself
+ * into results-<model-tags>-<unixtime>.zip (see archive-results.ts), model
+ * tags joined by "+" so the roster a given zip covers is visible in the
+ * file name itself — results/ is left untouched, so
+ * analyze-stats.ts/analyze-tool-sequences.ts keep reading the latest run
+ * with no path changes. That zip is the backup to fall back on if you want
+ * to compare against an older run later.
  *
  * `recall_tool_calls` is included in the real tool set for prompt/tool
  * fidelity (the baseline prompt describes it), but nothing in this harness
@@ -44,6 +49,7 @@ import { loadActiveCliConfigs } from "../src/tools/cli-config-loader.ts";
 import { createWikiTools } from "../src/wiki/wiki-tools.ts";
 import { createToolLogRecallTool } from "../src/session/tool-log-recall-tool.ts";
 import { buildContextPrimer } from "../src/session/context-primer.ts";
+import { archiveResults } from "./archive-results.ts";
 import { listWikiFilesInRoots, readWikiFileInRoots, readIndexFile } from "../src/wiki/wiki-read.ts";
 import type { Message } from "../src/session/history.ts";
 import type { StepInfo } from "../src/session/step-info.ts";
@@ -502,3 +508,16 @@ async function main(): Promise<void> {
 }
 
 await main();
+
+// A zip failure (e.g. `zip` not installed) shouldn't be treated as the run
+// itself failing — every trial's JSON is already safely on disk by now.
+// Model tags go in the archive's own file name (not just inside it) so the
+// roster a given zip covers is visible at a glance, without unzipping it.
+try {
+  const modelsSlug = MODELS.map((m) => sanitizeForPath(m.tag)).join("+");
+  const archiveFileName = `results-${modelsSlug}-${Math.floor(Date.now() / 1000)}.zip`;
+  const archivePath = await archiveResults(import.meta.dir, "results", archiveFileName);
+  console.log(`[archive] results/ zipped to ${archivePath}`);
+} catch (err) {
+  console.error(`[archive] failed: ${String(err)}`);
+}
