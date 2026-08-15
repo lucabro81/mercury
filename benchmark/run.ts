@@ -28,7 +28,9 @@
  *
  * Config via env, not argv, matching the rest of the codebase:
  *   BENCH_PROMPT   prompt file under benchmark/prompts/ (default baseline.md)
- *   BENCH_MODELS   comma-separated model tags to run (default: full roster below)
+ *   BENCH_MODELS   required, no default — JSON array of {tag, family,
+ *                  activeParamsB} (see load-models.ts). Declaring no models
+ *                  is a startup error, not an implicit "run everything".
  *   BENCH_TRIALS   trials per (model, test case) (default 15)
  *   OLLAMA_HOST    default http://localhost:11434
  *
@@ -50,6 +52,7 @@ import { createWikiTools } from "../src/wiki/wiki-tools.ts";
 import { createToolLogRecallTool } from "../src/session/tool-log-recall-tool.ts";
 import { buildContextPrimer } from "../src/session/context-primer.ts";
 import { archiveResults } from "./archive-results.ts";
+import { loadModels, type ModelFamily } from "./load-models.ts";
 import { listWikiFilesInRoots, readWikiFileInRoots, readIndexFile } from "../src/wiki/wiki-read.ts";
 import type { Message } from "../src/session/history.ts";
 import type { StepInfo } from "../src/session/step-info.ts";
@@ -64,29 +67,7 @@ const SESSION_KEY = "bench";
 const N_TRIALS = Number(process.env.BENCH_TRIALS ?? "15");
 const MAX_STEPS = 100;
 
-type ModelFamily = "dense" | "moe";
-type ModelSpec = { tag: string; family: ModelFamily; activeParamsB: number };
-
-const MODEL_ROSTER: ModelSpec[] = [
-  { tag: "gemma4:12b", family: "dense", activeParamsB: 12 },
-  { tag: "qwen3.6:27b", family: "dense", activeParamsB: 27 },
-  { tag: "gemma4:31b", family: "dense", activeParamsB: 31 },
-  { tag: "qwen3.5:35b-a3b", family: "moe", activeParamsB: 3 },
-  { tag: "gpt-oss:120b", family: "moe", activeParamsB: 3.6 },
-  { tag: "glm-4.5-air-q4:latest", family: "moe", activeParamsB: 12 },
-  { tag: "llama3.3:70b", family: "dense", activeParamsB: 70 },
-  { tag: "nemotron:70b", family: "dense", activeParamsB: 70 },
-];
-
-// BENCH_MODELS overrides the roster entirely (doesn't filter it) — lets a
-// verification run target any locally-pulled model, not just the 7 in
-// MODEL_ROSTER. A tag that also exists in the roster keeps its real
-// family/activeParamsB; an ad-hoc tag gets a placeholder (this is only
-// meant for spot-checking the harness, not for real cross-model results).
-const modelOverrideTags = process.env.BENCH_MODELS?.split(",").map((s) => s.trim()).filter(Boolean);
-const MODELS: ModelSpec[] = modelOverrideTags
-  ? modelOverrideTags.map((tag) => MODEL_ROSTER.find((m) => m.tag === tag) ?? { tag, family: "dense", activeParamsB: 0 })
-  : MODEL_ROSTER;
+const MODELS = loadModels(process.env.BENCH_MODELS);
 
 type TestCaseId = "easy" | "hard" | "mutating" | "ambiguous-project" | "wiki-only" | "pressure";
 // `turns` are the LIVE user messages sent in order, one real generateText
