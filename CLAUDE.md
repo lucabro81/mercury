@@ -68,7 +68,8 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 
 - Every relevant change gets a changeset: `bun run changeset`, describe it, pick the bump type.
 - Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context — same rule as any other public doc in this repo.
-- No batching: each changeset is consumed on its own via `bun run release` (`changeset version` + commit + `git tag vX.Y.Z`, see `scripts/tag-release.sh`), right after the change it documents.
+- No batching: each changeset is consumed on its own via `bun run release` from the repo root (`changeset version` + commit + `git tag vX.Y.Z`, see `scripts/tag-release.sh`), right after the change it documents.
+- The changeset's frontmatter names the workspace being released (`"mercury"`), and the version it bumps lives in `apps/mercury/package.json` — `.changeset/` itself stays at the root, where Changesets expects it.
 
 ## Operational notes
 
