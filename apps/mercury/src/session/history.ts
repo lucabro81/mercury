@@ -1,0 +1,150 @@
+/**
+ * Layer 1 conversation memory: a sliding window of raw messages that
+ * summarizes itself once it grows too large, instead of growing
+ * unbounded across a long conversation.
+ *
+ * Why it exists: without a bound, a multi-turn conversation eventually
+ * overflows the model's context window. This is the only memory layer
+ * Mercury has in M1 — Layer 2 (wiki) and Layer 3 (episodic/Qdrant) are
+ * later milestones, pure enrichment that the system must work without.
+ *
+ * Used by: `src/session/agent-turn.ts` (`runTurn`), which appends each
+ * turn's user/assistant messages here and reads `getMessages()` to build
+ * the prompt for the next generation call. `src/session/summarizer.ts`
+ * supplies the `summarize` function injected into `createSessionHistory`.
+ */
+
+/** A single turn's worth of conversation content. */
+export type Message = { role: "user" | "assistant"; content: string };
+
+/**
+ * Character-count threshold (not a real tokenizer count — a `chars/4`
+ * estimate is close enough given the wide margin in the model's context
+ * budget) above which the raw message history gets summarized and
+ * replaced. Exported so tests can construct fixtures that land exactly
+ * at, or just past, the boundary.
+ */
+export const MAX_HISTORY_CHARS = 60_000;
+
+/**
+ * Mutable conversation history for a single ongoing conversation
+ * (one per channel/space — see `src/index.ts`, never shared across
+ * conversations).
+ */
+export type SessionHistory = {
+  /** Appends a user turn, summarizing first if this push crosses the threshold. */
+  addUserMessage(content: string): Promise<void>;
+  /** Appends an assistant turn, summarizing first if this push crosses the threshold. */
+  addAssistantMessage(content: string): Promise<void>;
+  /**
+   * Overwrites the most recently added message with `content`, in place,
+   * if it exists and is an assistant message — used when a turn's
+   * assistant text is corrected after already being recorded (see
+   * turn-runner.ts's issue-list correction). No-ops if there is no last
+   * message, or if it isn't an assistant message (defensive; shouldn't
+   * happen given how this is called). Deliberately synchronous and skips
+   * the summarization threshold check entirely: this replaces content
+   * already counted by the original `addAssistantMessage` call, it isn't
+   * new content being added.
+   */
+  replaceLastAssistantMessage(content: string): void;
+  /**
+   * The messages to feed into the next model call: the current summary
+   * (if one exists, as a synthetic leading message) followed by the raw
+   * messages accumulated since the last summarization.
+   */
+  getMessages(): Message[];
+  /**
+   * Total character length of what `getMessages()` would currently
+   * return — a live read on how close this conversation is to
+   * `MAX_HISTORY_CHARS` (and so to triggering summarization). Exposed so
+   * a channel can show this to a human, e.g. to tell apart "the model
+   * lost track of something" from "the context is actually near full".
+   */
+  getCharCount(): number;
+};
+
+/** Wraps a summary string as the synthetic leading message `getMessages()` prepends. */
+function summaryMessage(summary: string): Message {
+  return { role: "assistant", content: `Earlier conversation summary: ${summary}` };
+}
+
+/**
+ * Wraps a primer string as the synthetic leading message `getMessages()`
+ * prepends ahead of any `summary` message. Distinct wording from
+ * `summaryMessage` on purpose — the primer describes the user's last
+ * *closed* session, not a summary of *this* one, and must not be confused
+ * with it.
+ */
+function primerMessage(primer: string): Message {
+  return { role: "assistant", content: `Context from your last session: ${primer}` };
+}
+
+/**
+ * Creates an empty `SessionHistory`.
+ *
+ * @param summarize - Called with the full raw message batch (including
+ *   the message that just crossed the threshold, plus any prior summary
+ *   re-injected as a leading message) whenever a single append pushes the
+ *   total content length over `MAX_HISTORY_CHARS`. Its return value
+ *   becomes the new summary, and the raw message array is cleared — the
+ *   threshold check runs after every individual append (not once per
+ *   turn), so the crossing point is caught precisely regardless of
+ *   whether it's the user or assistant message that tips it over.
+ * @param onBeforeCompress - Optional, called synchronously with the exact
+ *   same batch `summarize` is about to receive, right before it's
+ *   compressed out of the live context — a second, independent signal a
+ *   caller can mirror to somewhere durable (see `idle-session-cron.ts`'s
+ *   shared capture function) before that content stops being directly
+ *   visible to the model. Fire-and-forget on purpose: this function must
+ *   never block or fail Layer 1's own compression on an external write.
+ * @param primer - Optional, set once at creation from the user's last closed
+ *   session (see `context-primer.ts`). Held as its own state, entirely
+ *   independent from `summary`: it's never included in the batch passed to
+ *   `summarize`, so a real compression event can't paraphrase or drop it.
+ *   Leads `getMessages()` for the whole life of this history.
+ */
+export function createSessionHistory(
+  summarize: (messages: Message[]) => Promise<string>,
+  onBeforeCompress?: (messages: Message[]) => void,
+  primer?: string,
+): SessionHistory {
+  let rawMessages: Message[] = [];
+  let summary: string | null = null;
+
+  async function add(message: Message): Promise<void> {
+    rawMessages.push(message);
+
+    const total = rawMessages.reduce((sum, m) => sum + m.content.length, 0);
+    if (total > MAX_HISTORY_CHARS) {
+      const batch = summary ? [summaryMessage(summary), ...rawMessages] : rawMessages;
+      onBeforeCompress?.(batch);
+      summary = await summarize(batch);
+      rawMessages = [];
+    }
+  }
+
+  function getMessages(): Message[] {
+    const leading: Message[] = [];
+    if (primer) {
+      leading.push(primerMessage(primer));
+    }
+    if (summary) {
+      leading.push(summaryMessage(summary));
+    }
+    return [...leading, ...rawMessages];
+  }
+
+  return {
+    addUserMessage: (content) => add({ role: "user", content }),
+    addAssistantMessage: (content) => add({ role: "assistant", content }),
+    replaceLastAssistantMessage: (content) => {
+      const last = rawMessages[rawMessages.length - 1];
+      if (last?.role === "assistant") {
+        rawMessages[rawMessages.length - 1] = { role: "assistant", content };
+      }
+    },
+    getMessages,
+    getCharCount: () => getMessages().reduce((sum, m) => sum + m.content.length, 0),
+  };
+}

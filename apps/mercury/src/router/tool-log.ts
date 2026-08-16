@@ -1,0 +1,116 @@
+/**
+ * Helpers for the terminal channel's tool-call visibility (see
+ * `src/index.ts`'s `onStepFinish` wiring): tool results can be
+ * arbitrarily large — a single Jira issue search can return tens of KB
+ * of raw API JSON — so printing them in full on every turn isn't
+ * readable. `truncateForDisplay` bounds what gets printed live;
+ * `parseDumpCommand` + `writeDump` back the terminal-only `/dump`
+ * command, for when the full untruncated output is actually needed.
+ *
+ * This module is stateless and doesn't know about turns or sessions —
+ * `src/index.ts` owns the per-turn step history and decides when to call
+ * these.
+ */
+import { tmpdir } from "node:os";
+import type { StepInfo } from "../session/step-info.ts";
+
+/**
+ * Stringifies `value` as JSON, truncating to `maxChars` and appending a
+ * marker with the real total length and a pointer to `/dump` when it
+ * doesn't fit — so a human watching the terminal sees something bounded
+ * but still knows more is available and how to get it.
+ */
+export function truncateForDisplay(value: unknown, maxChars: number): string {
+  const json = JSON.stringify(value);
+  if (json.length <= maxChars) {
+    return json;
+  }
+  return `${json.slice(0, maxChars)}… (truncated, ${json.length} chars total — run /dump to write the full output to a file)`;
+}
+
+/**
+ * Builds the file `/dump` writes to when the user doesn't give an
+ * explicit path. Lands in the OS temp dir, not the process's cwd — in
+ * the Docker image that's `/app`, owned by root, where the `mercury`
+ * user can read/execute existing files but not create new ones (every
+ * default-path `/dump` failed with EACCES until this). Includes a
+ * timestamp (colons/dots replaced since they aren't valid in filenames
+ * on every filesystem) so repeated `/dump` calls land in separate files
+ * instead of silently overwriting a fixed default each time.
+ */
+export function defaultDumpPath(now: Date = new Date()): string {
+  return `${tmpdir()}/mercury-last-tools-${now.toISOString().replace(/[:.]/g, "-")}.json`;
+}
+
+/**
+ * Parses a `/dump [path]` command line. Returns null for anything that
+ * isn't exactly this command (including regular conversation input, and
+ * a slash-prefixed word that merely starts with "dump") — the caller
+ * uses this to tell a real command from a message meant for the model.
+ * `path` is undefined when none was given — the caller decides the
+ * default (see `defaultDumpPath`), since computing "now" here would make
+ * this function's output depend on when it happens to run.
+ */
+export function parseDumpCommand(line: string): { path: string | undefined } | null {
+  const match = line.trim().match(/^\/dump(?:\s+(\S+))?$/);
+  if (!match) {
+    return null;
+  }
+  return { path: match[1] };
+}
+
+/**
+ * Writes `steps` to `path` as indented JSON — human-readable, since this
+ * is the path a person opens by hand to inspect what a tool actually
+ * returned, not something machine-parsed downstream.
+ */
+export async function writeDump(path: string, steps: StepInfo[]): Promise<void> {
+  await Bun.write(path, JSON.stringify(steps, null, 2));
+}
+
+/**
+ * Describes what happened to the tool call identified by `toolCallId`
+ * within `step`: its result if it executed, the `tool-error` content
+ * part if it failed before executing (e.g. arguments that don't match
+ * the tool's schema — there's no `toolResults` entry for this case, it
+ * only shows up in `content`), or an explicit "(none)" if neither is
+ * present. Printing "(none)" for an actual failure was the bug this
+ * fixes — it read as "nothing happened" when something had, in fact,
+ * gone wrong and been silently dropped from view.
+ */
+export function describeToolOutcome(step: StepInfo, toolCallId: string, maxChars: number): string {
+  const result = step.toolResults.find((r) => r.toolCallId === toolCallId);
+  if (result) {
+    return `[tool result] ${truncateForDisplay(result.output, maxChars)}`;
+  }
+  const errorPart = step.content.find((p) => p.type === "tool-error" && p.toolCallId === toolCallId);
+  if (errorPart) {
+    return `[tool error] ${truncateForDisplay(errorPart.error, maxChars)}`;
+  }
+  return "[tool result] (none)";
+}
+
+/**
+ * Formats real token counts for display next to the terminal prompt:
+ * `usedTokens` is the real `inputTokens` the last turn's call reported
+ * (see `src/session/agent-turn.ts`'s `onUsage`), `maxTokens` is the
+ * context length Ollama actually has the model loaded with right now
+ * (see `src/model/context-size.ts`) — not an estimate, and not the
+ * model's architectural maximum, which can overstate what's really
+ * usable. A model degrading over a long conversation is hard to tell
+ * apart by eye from "the context is genuinely near full" — this gives a
+ * live number instead of having to guess.
+ *
+ * `maxTokens` is `null` before the model has been loaded at least once
+ * this process (nothing to report yet) — the denominator is omitted
+ * rather than showing a misleading `/~0k`. `usedTokens` is `undefined`
+ * before the first turn has completed, shown as `?` for the same reason.
+ */
+export function formatContextUsage(usedTokens: number | undefined, maxTokens: number | null): string {
+  const used = usedTokens === undefined ? "?" : Math.floor(usedTokens / 1000);
+  if (maxTokens === null) {
+    return `[~${used}k tokens] `;
+  }
+  const max = Math.floor(maxTokens / 1000);
+  return `[~${used}k/~${max}k tokens] `;
+}

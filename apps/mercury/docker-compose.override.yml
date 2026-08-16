@@ -1,0 +1,33 @@
+# Applied automatically by `docker compose up` on top of docker-compose.yml,
+# no flag required. Local development only — the base file stays faithful
+# to the real deployment (immutable image, no bind mount).
+services:
+  mercury:
+    volumes:
+      - ./src:/app/src
+      # ad-hoc: reuse the host's existing CLI auth instead of provisioning
+      # separate container credentials. Not :ro — jira-cli writes back to
+      # credentials.json when it refreshes an expired token.
+      - ~/.config/jira-cli:/home/mercury/.config/jira-cli
+      - ~/.config/bitbucket-cli:/home/mercury/.config/bitbucket-cli
+      - ~/.config/atlassian-admin-cli:/home/mercury/.config/atlassian-admin-cli
+      # google-chat stays in MERCURY_CLIS as a regular model-invocable CLI
+      # (messages list/delete, spaces list, users get — see
+      # cli-configs/google-chat.json) even though the Chat *channel*'s own
+      # transport no longer uses it at all (google-chat-app-client.ts talks
+      # to the REST API directly). Still needs its own auth like any other
+      # CLI here.
+      - ~/.config/google-chat-cli:/home/mercury/.config/google-chat-cli
+      # `env_file` (docker-compose.yml) only injects .env's values as
+      # container env vars at creation time — it doesn't put the file itself
+      # on the container's filesystem. The admin panel's Env tab (POC, see
+      # src/admin/) reads/writes the real .env directly, so it needs the
+      # actual file mounted, not just its values. Not :ro — it writes back.
+      - ./.env:/app/.env
+    command: ["bun", "run", "--watch", "src/index.ts"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # POC admin panel (ADMIN_PANEL_ENABLED/ADMIN_PANEL_PORT, see .env.example)
+      # — dev-only, no auth, see src/admin/server.ts.
+      - "${ADMIN_PANEL_PORT:-4000}:${ADMIN_PANEL_PORT:-4000}"
