@@ -51,7 +51,7 @@ The boundary that matters: Layer 1 is a prerequisite, Mercury doesn't function w
 
 ## Wiki vault
 
-The vault lives on its own Docker named volume, not inside the container's filesystem and not in this repo, so Mercury can be killed and redeployed without losing it. That also means it's not a path you can just open in an editor. `bun run vault -- <command>` runs a maintenance CLI inside a one-off container against the same volume: `list`, `read <path>`, `grep <pattern>`, `write-curated <curated/...path.md> [--author NAME]` with the body read from stdin. It only ever reaches `writeCuratedNote`, never the inferred-notes writer, for the same reason the model's own `write_file` tool doesn't either.
+The vault lives on its own Docker named volume, not inside the container's filesystem and not in this repo, so Mercury can be killed and redeployed without losing it. That also means it's not a path you can just open in an editor. `scripts/vault.sh <command>` runs a maintenance CLI inside a one-off container against the same volume: `list`, `read <path>`, `grep <pattern>`, `write-curated <curated/...path.md> [--author NAME]` with the body read from stdin. It only ever reaches `writeCuratedNote`, never the inferred-notes writer, for the same reason the model's own `write_file` tool doesn't either.
 
 The vault is its own git repository, initialized idempotently at every startup (`src/wiki/vault-init.ts`), so a wiped or brand-new volume never needs manual setup. Every write commits under Mercury's own git identity, passed inline on the git command rather than configured globally, so it works the same in a fresh checkout, in tests, or in any deployment.
 
