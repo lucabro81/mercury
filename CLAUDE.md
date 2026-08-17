@@ -33,9 +33,33 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 
 ## Repo structure
 
+Monorepo (Bun workspaces + Turborepo). Mercury is one app in it; the plugin
+packages will be siblings. Everything Mercury-specific — its Dockerfile, its
+compose files, its scripts — lives inside `apps/mercury/` rather than at the
+root, because Mercury happens to be the app with containers and a future app
+may have nothing to do with them.
+
 ```
-mercury/
-├── CLAUDE.md
+mercury/                       # repo root
+├── CLAUDE.md                  # these conventions — apply to every workspace
+├── README.md
+├── turbo.json
+├── .changeset/                # repo-level release state
+├── scripts/
+│   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
+├── packages/
+│   └── typescript-config/     # the shared Bun tsconfig every workspace extends
+└── apps/
+    └── mercury/               # ← everything below this line is relative to here
+```
+
+**Paths and commands in this file and in README.md are relative to
+`apps/mercury/`** unless they clearly aren't (`.changeset/`, `turbo.json`,
+`scripts/tag-release.sh`). `docker compose` in particular only works from
+there — the compose files never moved to the root.
+
+```
+apps/mercury/
 ├── docs/
 │   ...
 ├── scripts/
@@ -58,6 +82,8 @@ mercury/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── docker-compose.override.yml
+├── ARCHITECTURE.md
+├── CHANGELOG.md
 ├── .env.example
 └── package.json
 ```
