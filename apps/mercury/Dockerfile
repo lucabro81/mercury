@@ -16,7 +16,7 @@ WORKDIR /app
 # which CLIs to install is a per-deployment choice (MERCURY_CLIS in .env), not
 # baked into this script — see docker-compose.yml's build.args
 ARG MERCURY_CLIS=jira,bitbucket
-COPY scripts/install-clis.sh ./scripts/install-clis.sh
+COPY apps/mercury/scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 
 FROM oven/bun:1
@@ -37,19 +37,35 @@ RUN apt-get update && apt-get upgrade -y \
   && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -r mercury && useradd -r -g mercury mercury
+
+# The build context is the monorepo root, not this directory: bun.lock is a
+# single workspace-wide lockfile that only exists there, and
+# `bun install --frozen-lockfile` needs the root manifest plus every
+# workspace's own package.json to resolve against it. So the image mirrors
+# the repo layout — /app is the workspace root, /app/apps/mercury is this
+# app — and WORKDIR moves down to the app once install is done.
+#
+# The two mount points below stay at /app/wiki-vault and /app/cli-config,
+# outside the app directory: those are absolute paths the running config
+# already refers to, and moving them would silently break an existing
+# deployment's .env.
 WORKDIR /app
 
 # chown combined into the same layer as each COPY/install — a separate final
 # `chown -R /app` would duplicate every file already written in prior layers
 COPY --chown=mercury:mercury package.json bun.lock ./
+COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
+COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
 RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules
 
 COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
 
-COPY --chown=mercury:mercury src ./src
+COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
 
-COPY --chown=mercury:mercury scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
-RUN chmod +x ./scripts/docker-entrypoint.sh
+COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
+RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh
+
+WORKDIR /app/apps/mercury
 
 # Pre-creates the wiki-vault mount point with the right ownership before the
 # named volume is ever attached: a fresh named volume inherits its initial

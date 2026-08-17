@@ -4,7 +4,10 @@
 services:
   mercury:
     volumes:
-      - ./src:/app/src
+      # The image mirrors the monorepo layout, so the app's own files live
+      # under /app/apps/mercury while /app is the workspace root holding
+      # node_modules (see Dockerfile).
+      - ./src:/app/apps/mercury/src
       # ad-hoc: reuse the host's existing CLI auth instead of provisioning
       # separate container credentials. Not :ro — jira-cli writes back to
       # credentials.json when it refreshes an expired token.
@@ -23,7 +26,7 @@ services:
       # on the container's filesystem. The admin panel's Env tab (POC, see
       # src/admin/) reads/writes the real .env directly, so it needs the
       # actual file mounted, not just its values. Not :ro — it writes back.
-      - ./.env:/app/.env
+      - ./.env:/app/apps/mercury/.env
     command: ["bun", "run", "--watch", "src/index.ts"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
