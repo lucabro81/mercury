@@ -1,5 +1,44 @@
 import { describe, it, expect } from "bun:test";
-import { startTerminalRepl, PROMPT } from "./terminal.ts";
+import { startTerminalRepl, PROMPT, stdinIsSession } from "./terminal.ts";
+
+/**
+ * Regression: a Mercury started by `docker compose run` answered its piped
+ * question, reached EOF, ended the REPL loop — and then hung forever, because
+ * the crons and the admin server keep the event loop alive and nothing ever
+ * stopped them. `--rm` therefore never fired, and two abandoned containers
+ * were found still running, each a second consumer on the same Google Chat
+ * subscription.
+ *
+ * The fix keys off what stdin *is*, not off how many lines it delivered: a
+ * detached container gets /dev/null and must stay up as a daemon, while a TTY
+ * or a pipe means a human session whose EOF is the end of the process's work.
+ * Counting turns instead would leave `docker compose run` + immediate Ctrl+D
+ * hanging exactly as before.
+ */
+describe("stdinIsSession", () => {
+  it("is true for an interactive terminal", () => {
+    expect(stdinIsSession({ isTTY: true, fstat: () => ({ isFIFO: () => false }) })).toBe(true);
+  });
+
+  it("is true for a pipe, the shape `docker compose run -T` with piped input gets", () => {
+    expect(stdinIsSession({ isTTY: false, fstat: () => ({ isFIFO: () => true }) })).toBe(true);
+  });
+
+  it("is false for /dev/null, the shape a detached container gets", () => {
+    expect(stdinIsSession({ isTTY: false, fstat: () => ({ isFIFO: () => false }) })).toBe(false);
+  });
+
+  it("is false when stdin cannot be stat'd at all, rather than throwing", () => {
+    expect(
+      stdinIsSession({
+        isTTY: false,
+        fstat: () => {
+          throw new Error("EBADF");
+        },
+      }),
+    ).toBe(false);
+  });
+});
 
 function fakeOutput() {
   const lines: string[] = [];

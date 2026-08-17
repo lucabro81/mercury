@@ -25,6 +25,7 @@
  * answer takes.
  */
 import * as readline from "node:readline";
+import { fstatSync } from "node:fs";
 
 /**
  * Writes to the real process stdout. Appends a newline by default — the
@@ -42,6 +43,43 @@ function realOutputWrite(s: string, opts?: { newline?: boolean }): void {
  * start of a new question were visually indistinguishable.
  */
 export const PROMPT = "> ";
+
+/**
+ * Whether this process's stdin is a real interactive session rather than a
+ * detached container's empty stdin — i.e. whether reaching EOF on it means
+ * "the person driving this is done" or merely "there was never anyone there".
+ *
+ * The composition root uses this to decide whether the REPL ending should
+ * shut the whole process down. It has to, because the REPL loop below always
+ * ends: on a detached `docker compose up -d` stdin is already closed, so it
+ * ends immediately having read nothing, and the process must nonetheless keep
+ * serving Google Chat. What actually distinguishes the two is the *kind* of
+ * stdin, not how much came through it — `docker compose run` followed by an
+ * immediate Ctrl+D is a real session that delivered zero lines, and counting
+ * lines would leave exactly that case hanging.
+ *
+ * A TTY is an interactive session; a FIFO is `docker compose run -T` with
+ * something piped in; `/dev/null` (what Docker attaches when nothing is) is a
+ * character device that is neither, and means daemon. An fd that can't be
+ * stat'd at all is treated as no session — the conservative answer, since
+ * getting this wrong in that direction only leaves a process running, while
+ * the opposite would kill a live deployment.
+ */
+export function stdinIsSession(opts?: {
+  isTTY?: boolean;
+  fstat?: (fd: number) => { isFIFO(): boolean };
+}): boolean {
+  const isTTY = opts?.isTTY ?? process.stdin.isTTY;
+  if (isTTY) {
+    return true;
+  }
+  const fstat = opts?.fstat ?? ((fd: number) => fstatSync(fd));
+  try {
+    return fstat(0).isFIFO();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Runs the REPL loop: read a line, pass it to `handleInput`, write the

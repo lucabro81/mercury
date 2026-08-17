@@ -27,6 +27,7 @@ import { buildSystemPrompt } from "./session/system-prompt.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
+import { stdinIsSession } from "./router/terminal.ts";
 import {
   truncateForDisplay,
   describeToolOutcome,
@@ -258,7 +259,7 @@ const idleCron = startIdleSessionCron(
     checkIntervalMs: Number(process.env.SESSION_IDLE_CHECK_INTERVAL_MS ?? String(60_000)),
   },
 );
-void idleCron; // kept alive for the process lifetime; no shutdown hook exists yet (same as the rest of Mercury today)
+// Held, not discarded: see the shutdown block at the bottom of this file.
 
 // How many new messages (since the last capture) a live Google Chat
 // session needs before captureIncrement mirrors them to Qdrant, instead of
@@ -387,7 +388,7 @@ const selfReviewCron = startSelfReviewCron(
     log: (msg) => console.error(`[cron] ${msg}`),
   },
 );
-void selfReviewCron; // kept alive for the process lifetime, same as idleCron
+// Held, not discarded, same as idleCron.
 
 // runCommand's confirm-required branch stages a command per-session (see
 // createCliTool's opts) — the tool itself must therefore be rebuilt fresh
@@ -511,9 +512,10 @@ if (googleChatSubscription) {
 // never started unless explicitly enabled, so it never touches the real
 // deployment path. Runs in-process, reusing the already-constructed
 // qdrant client, activeCliConfigs, model, and vault path directly.
+let adminServer: ReturnType<typeof startAdminServer> | undefined;
 if (process.env.ADMIN_PANEL_ENABLED === "true") {
   const adminPort = Number(process.env.ADMIN_PANEL_PORT ?? "4000");
-  startAdminServer({
+  adminServer = startAdminServer({
     port: adminPort,
     vaultPath: wikiVaultPath,
     model,
@@ -539,3 +541,41 @@ await createTerminalProvider({
   ollamaHost,
   ollamaModel,
 }).start(handleTurn);
+
+// The REPL above always resolves — on a detached container stdin is already
+// closed, so it ends immediately having read nothing, and Mercury must keep
+// serving Google Chat. When stdin was a real session (a TTY, or a pipe from
+// `docker compose run -T`), its EOF instead means this process is done, and
+// everything holding the event loop open has to be released or the process
+// hangs forever: both cron intervals, the admin server's listening socket,
+// and Google Chat's StreamingPull. Observed live before this existed — a
+// `docker compose run --rm` that answered its question and then never exited,
+// leaving `--rm` unfired and a second Chat consumer alive on the same
+// subscription.
+//
+// The explicit exit at the end is deliberate, and is not a substitute for the
+// shutdown above it. Releasing every subsystem Mercury owns is not enough to
+// end the process: measured against this exact build, the trace below runs to
+// completion and the process still never exits, because the Qdrant client and
+// the Ollama provider both keep pooled keep-alive sockets open and neither
+// exposes a way to dispose of them. So the order matters — stop everything
+// that could be mid-flight first, then exit to drop the third-party sockets
+// that nothing here can reach. Exiting *instead* of stopping would be the
+// fragile version: it would kill an in-flight Layer-3 capture or a running
+// cron tick with no trace.
+// Each step is traced: a shutdown that stalls is otherwise indistinguishable
+// from one that never started, and both look like "the container is still
+// running". The trace names the last subsystem that reported done, so the one
+// that hung is the next one.
+if (stdinIsSession()) {
+  console.error("[shutdown] terminal session ended, releasing subsystems");
+  idleCron.stop();
+  console.error("[shutdown] idle cron stopped");
+  selfReviewCron.stop();
+  console.error("[shutdown] self-review cron stopped");
+  adminServer?.stop();
+  console.error("[shutdown] admin server stopped");
+  await chatProvider?.stop();
+  console.error("[shutdown] google chat stopped");
+  process.exit(0);
+}
