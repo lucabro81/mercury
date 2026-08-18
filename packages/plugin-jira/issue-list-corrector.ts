@@ -1,32 +1,25 @@
 /**
  * Isolated, context-free LLM call that rewrites text flagged by
- * `looksLikeIssueList` (see `../router/issue-list-heuristic.ts`) — the
- * model's own free-text restatement of a Jira issue list, which
- * duplicates the deterministic `formattedList` already appended in code.
+ * `looksLikeIssueList` (see `./issue-list-heuristic.ts`) — the model's own
+ * free-text restatement of a Jira issue list, which duplicates the
+ * deterministic `formattedList` already appended in code.
  *
  * Deliberately context-free: this call receives ONLY the flagged text,
  * no conversation history, no tools, no system prompt beyond the one
  * narrow instruction below. A corrector that never saw the raw ticket
  * data has nothing to "want" to re-list — same reasoning as why
- * `formattedList` itself is hidden from the main model (see
- * `omitFormattedListForModel` in `../tools/cli-tool.ts`), applied to a
+ * `formattedList` itself is hidden from the main model
+ * (`omitFormattedListForModel` in the core's `cli-tool.ts`), applied to a
  * second, smaller model call instead of the main turn.
  *
  * Uses plain `"ai"`'s `generateText`, not `ai-sdk-ollama`'s enhanced
- * version — deliberate, not an oversight: the documented empty-text-
- * after-tool-call Ollama quirk (why `agent-turn.ts` and
- * `self-review-runner.ts` use `ai-sdk-ollama` instead) only affects
- * tool-calling turns. This call passes no `tools`, exactly like
- * `summarizer.ts`/`episodic-summarizer.ts` already rely on for the same
- * reason.
+ * version — deliberate: the documented empty-text-after-tool-call Ollama
+ * quirk only affects tool-calling turns, and this call passes no `tools`.
  *
- * No dedicated test file, same justification as those two files: this is
- * one line of glue around `generateText`, not worth mocking deeply. The
- * decision logic — when to call this, what to do with its output or a
- * failure — is tested where it actually lives, in `../router/turn-runner.ts`.
- *
- * Used by: `src/router/turn-runner.ts`, via the injectable
- * `correctIssueListFn` test seam.
+ * Moved out of the core (`apps/mercury/src/session/issue-list-corrector.ts`)
+ * in step 2.4 together with the heuristic and the guard that drives it: the
+ * prompt is Jira-specific, so it belongs to the plugin. The composition root
+ * (or a test) injects the resulting function into `createIssueListGuard`.
  */
 import { generateText, type LanguageModel } from "ai";
 

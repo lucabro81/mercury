@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { looksLikeIssueList } from "./issue-list-heuristic.ts";
+import { looksLikeIssueList } from "@mercury/plugin-jira";
 
 describe("looksLikeIssueList", () => {
   it("returns false for plain prose with no markers", () => {

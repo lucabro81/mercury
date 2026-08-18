@@ -1,7 +1,7 @@
 /**
- * Guarantees a Jira `formattedList` (see
- * `src/tools/jira/issue-list-formatter.ts`) reaches the user regardless of
- * whether the model chose to relay it — the model never even sees the
+ * Guarantees a `formattedList` a plugin's post-processor attached (see
+ * `@mercury/plugin-jira`'s issue-list formatter) reaches the user regardless
+ * of whether the model chose to relay it — the model never even sees the
  * field (`omitFormattedListForModel` strips it before it reaches the
  * model's context, see `src/tools/cli-tool.ts`), so these two functions
  * work off the raw tool-result `output` captured by `onStepFinish`, which

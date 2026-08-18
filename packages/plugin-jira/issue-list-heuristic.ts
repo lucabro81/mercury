@@ -2,12 +2,16 @@
  * Cheap, code-level detector for "the model wrote its own rendition of a
  * Jira issue list" — the specific duplication problem that survives even
  * after the deterministic `formattedList` is hidden from the model and
- * appended in code (see `format-list-splice.ts`): the model still has the
- * raw `issues` data for legitimate analysis, and sometimes restates it as
- * a bulleted/numbered list instead of just commenting on it. Used both as
- * the gate deciding whether to invoke the corrector (`issue-list-corrector.ts`)
- * and, unchanged, to re-check the corrector's own output — see
- * `turn-runner.ts`.
+ * appended in code (see the core's `format-list-splice.ts`): the model still
+ * has the raw `issues` data for legitimate analysis, and sometimes restates
+ * it as a bulleted/numbered list instead of just commenting on it. Used both
+ * as the gate deciding whether the plugin's post-turn guard engages and,
+ * unchanged, to re-check the corrector's own output (see `issue-list-guard.ts`).
+ *
+ * Moved out of the core (`apps/mercury/src/router/issue-list-heuristic.ts`) in
+ * step 2.4: it is Jira-shaped (the `[A-Z][A-Z0-9]*-\d+` issue-key regex) and
+ * belongs to the plugin, behind the generic post-turn-guard extension point
+ * the core now exposes.
  */
 
 /**
@@ -52,8 +56,8 @@ export function looksLikeIssueList(text: string): boolean {
 
 /**
  * Last-resort reply when the corrector's own output still looks like a
- * rendered issue list (see `turn-runner.ts`) — never let a still-broken
+ * rendered issue list (see `issue-list-guard.ts`) — never let a still-broken
  * free-text answer reach the user. `formattedList` still gets appended
- * after this, unaffected either way.
+ * after this by the core, unaffected either way.
  */
 export const ISSUE_LIST_CORRECTION_FALLBACK = "Ecco i risultati.";

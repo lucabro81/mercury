@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createTurnRunner } from "./turn-runner.ts";
-import { ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";
+import { createTurnRunner, type PostTurnGuard } from "./turn-runner.ts";
 import type { InboundTurn, TurnSink } from "./provider.ts";
 import type { SessionHistory } from "../session/history.ts";
 import type { StepInfo } from "../session/step-info.ts";
@@ -553,22 +552,33 @@ describe("createTurnRunner", () => {
     expect(historyTrackForCapture).toBe(false);
   });
 
-  describe("issue-list correction", () => {
-    // Runs strictly before spliceFormattedLists — proves the ordering by
-    // combining a flagged model text with a step carrying a formattedList
-    // and checking the final result is <corrector's rewrite>\n\n<formattedList>.
+  // The core runs plugin-contributed post-turn guards generically — it knows
+  // nothing about what any guard does. These tests exercise that mechanism
+  // with synthetic guards; the Jira issue-list guard's own behaviour (the
+  // looksLikeIssueList gate, the corrector, the fallback, the log messages)
+  // is tested against @mercury/plugin-jira in issue-list-guard.jira.test.ts,
+  // and end-to-end delivery in jira-behavior.test.ts.
+  describe("post-turn guards", () => {
     const formattedListStep: StepInfo = {
       toolCalls: [],
       toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
       content: [],
     };
-    const flaggedText = "- MER-1 Fix the bug\n- MER-2 Add the feature";
 
-    test("does not call the corrector or log anything when the model's text isn't flagged", async () => {
-      let correctorCalled = false;
-      const logged: string[] = [];
-      const sink = baseSink();
-      const runner = createTurnRunner({
+    function makeGuard(overrides: Partial<PostTurnGuard> = {}): PostTurnGuard {
+      return {
+        statusLabel: "Checking…",
+        statusId: "guard-1",
+        shouldRun: () => true,
+        run: async (text) => ({ text, outcome: "success" }),
+        ...overrides,
+      };
+    }
+
+    function baseDeps(
+      overrides: Partial<Parameters<typeof createTurnRunner>[0]> = {},
+    ): Parameters<typeof createTurnRunner>[0] {
+      return {
         model: {} as any,
         systemPrompts: { singleUser: "s", multiUser: "m" },
         buildTools: () => ({}),
@@ -578,444 +588,211 @@ describe("createTurnRunner", () => {
         maybeCapture: async () => {},
         processToolCorrections: async () => {},
         logStep: () => {},
-        correctIssueListFn: () => async (text) => {
-          correctorCalled = true;
-          return text;
-        },
-        logDiscardedIssueListFn: (message) => logged.push(message),
-        runTurnFn: async () => "Here you go.",
-      });
+        runTurnFn: async () => "model text",
+        ...overrides,
+      };
+    }
+
+    test("delivers the model's text unchanged when no guards are registered", async () => {
+      const sink = baseSink();
+      const runner = createTurnRunner(baseDeps({ runTurnFn: async () => "untouched" }));
+      await runner(baseTurn(), sink);
+      expect(sink.finalized).toEqual(["untouched"]);
+    });
+
+    test("skips a guard whose shouldRun returns false — no run, no status, no log, text unchanged", async () => {
+      const started: unknown[] = [];
+      const logged: string[] = [];
+      let ran = false;
+      const sink = baseSink({ onToolStart: (...a) => started.push(a) });
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "Here you go.",
+          logPostTurnGuardFn: (m) => logged.push(m),
+          postTurnGuards: [
+            makeGuard({
+              shouldRun: () => false,
+              run: async (t) => {
+                ran = true;
+                return { text: t, outcome: "success" };
+              },
+            }),
+          ],
+        }),
+      );
 
       await runner(baseTurn(), sink);
 
-      expect(correctorCalled).toBe(false);
+      expect(ran).toBe(false);
+      expect(started).toEqual([]);
       expect(logged).toEqual([]);
       expect(sink.finalized).toEqual(["Here you go."]);
     });
 
-    test("replaces flagged text with the corrector's rewrite, and logs the original", async () => {
+    test("runs an engaged guard: fires its status label/id, replaces the text, forwards its log", async () => {
+      const started: unknown[] = [];
+      const finished: unknown[] = [];
       const logged: string[] = [];
-      const sink = baseSink();
-      const runner = createTurnRunner({
-        model: {} as any,
-        systemPrompts: { singleUser: "s", multiUser: "m" },
-        buildTools: () => ({}),
-        getOrCreateHistory: () => fakeHistory(),
-        trackSession: () => {},
-        registerCaptureCallback: () => {},
-        maybeCapture: async () => {},
-        processToolCorrections: async () => {},
-        logStep: () => {},
-        correctIssueListFn: () => async () => "Both are still open.",
-        logDiscardedIssueListFn: (message) => logged.push(message),
-        runTurnFn: async () => flaggedText,
-      });
+      const sink = baseSink({ onToolStart: (...a) => started.push(a), onToolFinish: (...a) => finished.push(a) });
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "original",
+          logPostTurnGuardFn: (m) => logged.push(m),
+          postTurnGuards: [
+            makeGuard({
+              statusLabel: "Sto verificando…",
+              statusId: "g",
+              run: async () => ({ text: "rewritten", outcome: "success", log: "did a thing" }),
+            }),
+          ],
+        }),
+      );
 
       await runner(baseTurn(), sink);
 
-      expect(sink.finalized).toEqual(["Both are still open."]);
-      expect(logged).toHaveLength(1);
-      expect(logged[0]).toContain(flaggedText);
-      expect(logged[0]).not.toContain("fixed fallback");
+      expect(started).toEqual([["Sto verificando…", undefined, "g"]]);
+      expect(finished).toEqual([["g", "success"]]);
+      expect(logged).toEqual(["did a thing"]);
+      expect(sink.finalized).toEqual(["rewritten"]);
     });
 
-    test("falls back to the fixed message when the corrector's own output is still flagged", async () => {
+    test("forwards a guard's failed outcome to onToolFinish, and still delivers its text", async () => {
+      const finished: unknown[] = [];
+      const sink = baseSink({ onToolFinish: (...a) => finished.push(a) });
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "original",
+          postTurnGuards: [makeGuard({ statusId: "g", run: async () => ({ text: "fallback", outcome: "failed" }) })],
+        }),
+      );
+
+      await runner(baseTurn(), sink);
+
+      expect(finished).toEqual([["g", "failed"]]);
+      expect(sink.finalized).toEqual(["fallback"]);
+    });
+
+    test("a guard that throws never blocks delivery: keeps the prior text, reports failed, logs, persists nothing", async () => {
+      const finished: unknown[] = [];
       const logged: string[] = [];
-      const sink = baseSink();
-      const runner = createTurnRunner({
-        model: {} as any,
-        systemPrompts: { singleUser: "s", multiUser: "m" },
-        buildTools: () => ({}),
-        getOrCreateHistory: () => fakeHistory(),
-        trackSession: () => {},
-        registerCaptureCallback: () => {},
-        maybeCapture: async () => {},
-        processToolCorrections: async () => {},
-        logStep: () => {},
-        correctIssueListFn: () => async () => flaggedText,
-        logDiscardedIssueListFn: (message) => logged.push(message),
-        runTurnFn: async () => flaggedText,
-      });
+      const replaced: string[] = [];
+      const sink = baseSink({ onToolFinish: (...a) => finished.push(a) });
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "original",
+          getOrCreateHistory: () =>
+            fakeHistory({
+              replaceLastAssistantMessage: (t) => {
+                replaced.push(t);
+              },
+            }),
+          logPostTurnGuardFn: (m) => logged.push(m),
+          postTurnGuards: [
+            makeGuard({
+              statusId: "boom",
+              run: async () => {
+                throw new Error("kaboom");
+              },
+            }),
+          ],
+        }),
+      );
 
       await runner(baseTurn(), sink);
 
-      expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
+      expect(finished).toEqual([["boom", "failed"]]);
+      expect(sink.finalized).toEqual(["original"]);
+      expect(replaced).toEqual([]);
       expect(logged).toHaveLength(1);
-      expect(logged[0]).toContain(flaggedText);
-      expect(logged[0]).toContain("fixed fallback");
+      expect(logged[0]).toContain("kaboom");
     });
 
-    test("degrades to the original text, and logs the failure, when the corrector call throws", async () => {
-      const logged: string[] = [];
+    test("runs guards before formattedList splicing", async () => {
       const sink = baseSink();
-      let correctionsReceived: StepInfo[] | undefined;
-      const runner = createTurnRunner({
-        model: {} as any,
-        systemPrompts: { singleUser: "s", multiUser: "m" },
-        buildTools: () => ({}),
-        getOrCreateHistory: () => fakeHistory(),
-        trackSession: () => {},
-        registerCaptureCallback: () => {},
-        maybeCapture: async () => {},
-        processToolCorrections: async (steps) => {
-          correctionsReceived = steps;
-        },
-        logStep: () => {},
-        correctIssueListFn: () => async () => {
-          throw new Error("ollama unreachable");
-        },
-        logDiscardedIssueListFn: (message) => logged.push(message),
-        runTurnFn: async () => flaggedText,
-      });
-
-      await runner(baseTurn(), sink);
-
-      expect(sink.finalized).toEqual([flaggedText]);
-      expect(logged).toHaveLength(1);
-      expect(logged[0]).toContain("ollama unreachable");
-      // The turn otherwise completes normally — a corrector failure isn't a turn failure.
-      expect(sink.disposed).toBe(true);
-      expect(correctionsReceived).toEqual([]);
-    });
-
-    test("runs correction before formattedList splicing", async () => {
-      const sink = baseSink();
-      const runner = createTurnRunner({
-        model: {} as any,
-        systemPrompts: { singleUser: "s", multiUser: "m" },
-        buildTools: () => ({}),
-        getOrCreateHistory: () => fakeHistory(),
-        trackSession: () => {},
-        registerCaptureCallback: () => {},
-        maybeCapture: async () => {},
-        processToolCorrections: async () => {},
-        logStep: () => {},
-        correctIssueListFn: () => async () => "Both are still open.",
-        logDiscardedIssueListFn: () => {},
-        runTurnFn: async (_history, _input, deps) => {
-          deps.onStepFinish?.(formattedListStep);
-          return flaggedText;
-        },
-      });
-
-      await runner(baseTurn(), sink);
-
-      expect(sink.finalized).toEqual(["Both are still open.\n\nMER-1\nhttps://x"]);
-    });
-
-    test("correctIssueListFn is called with deps.model", async () => {
-      const receivedModels: unknown[] = [];
-      const model = { id: "fake-model" } as any;
-      const sink = baseSink();
-      const runner = createTurnRunner({
-        model,
-        systemPrompts: { singleUser: "s", multiUser: "m" },
-        buildTools: () => ({}),
-        getOrCreateHistory: () => fakeHistory(),
-        trackSession: () => {},
-        registerCaptureCallback: () => {},
-        maybeCapture: async () => {},
-        processToolCorrections: async () => {},
-        logStep: () => {},
-        correctIssueListFn: (m) => {
-          receivedModels.push(m);
-          return async () => "Both are still open.";
-        },
-        logDiscardedIssueListFn: () => {},
-        runTurnFn: async () => flaggedText,
-      });
-
-      await runner(baseTurn(), sink);
-
-      expect(receivedModels).toEqual([model]);
-    });
-
-    // Without this, the duplicated-list version the feature exists to
-    // eliminate would permanently survive in SessionHistory — the model
-    // would see and imitate its own "successful" past restatement on the
-    // next turn, and Layer-3 capture (which reads the same history) would
-    // persist it too.
-    describe("persisting the corrected text into history", () => {
-      test("does not call replaceLastAssistantMessage when the model's text isn't flagged", async () => {
-        const replaced: string[] = [];
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          runTurnFn: async () => "Here you go.",
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(replaced).toEqual([]);
-      });
-
-      test("calls replaceLastAssistantMessage with the corrector's rewrite when flagged and corrected", async () => {
-        const replaced: string[] = [];
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => "Both are still open.",
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(replaced).toEqual(["Both are still open."]);
-      });
-
-      test("calls replaceLastAssistantMessage with the fixed fallback when the corrector's output is still flagged", async () => {
-        const replaced: string[] = [];
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => flaggedText,
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(replaced).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
-      });
-
-      test("does not call replaceLastAssistantMessage when the corrector call throws (nothing changed, nothing to persist)", async () => {
-        const replaced: string[] = [];
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory({ replaceLastAssistantMessage: (c) => replaced.push(c) }),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => {
-            throw new Error("ollama unreachable");
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async (_history, _input, deps) => {
+            deps.onStepFinish?.(formattedListStep);
+            return "flagged";
           },
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
+          postTurnGuards: [makeGuard({ run: async () => ({ text: "clean", outcome: "success" }) })],
+        }),
+      );
 
-        await runner(baseTurn(), sink);
+      await runner(baseTurn(), sink);
 
-        expect(replaced).toEqual([]);
-      });
+      expect(sink.finalized).toEqual(["clean\n\nMER-1\nhttps://x"]);
     });
 
-    // The corrector's own instruction is to remove the list and preserve
-    // the rest — if a turn's whole text was just the list, the rewrite can
-    // legitimately come back empty. Nothing about that means "the rewrite
-    // succeeded"; treat it the same as still being flagged.
-    describe("empty corrector rewrite", () => {
-      test("falls back to the fixed message when the corrector returns an empty string", async () => {
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => "",
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
+    test("persists the guard's text to history when it changed the text", async () => {
+      const replaced: string[] = [];
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "original",
+          getOrCreateHistory: () =>
+            fakeHistory({
+              replaceLastAssistantMessage: (t) => {
+                replaced.push(t);
+              },
+            }),
+          postTurnGuards: [makeGuard({ run: async () => ({ text: "changed", outcome: "success" }) })],
+        }),
+      );
 
-        await runner(baseTurn(), sink);
+      await runner(baseTurn(), baseSink());
 
-        expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
-      });
-
-      test("falls back to the fixed message when the corrector returns whitespace only", async () => {
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => "   \n  ",
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(sink.finalized).toEqual([ISSUE_LIST_CORRECTION_FALLBACK]);
-      });
+      expect(replaced).toEqual(["changed"]);
     });
 
-    // A long discarded list embedded raw in every log line, uncapped, is an
-    // unstructured blob on every occurrence — cap it, same convention the
-    // terminal debug view already uses (truncateForDisplay, tool-log.ts).
-    describe("discard log length cap", () => {
-      test("truncates a long discarded text instead of logging it in full", async () => {
-        const logged: string[] = [];
-        const longFlaggedText = "- MER-1 Fix\n- MER-2 Add".padEnd(5000, ".");
-        const sink = baseSink();
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => "Both are still open.",
-          logDiscardedIssueListFn: (message) => logged.push(message),
-          runTurnFn: async () => longFlaggedText,
-        });
+    test("does not persist to history when the guard returned the same text", async () => {
+      const replaced: string[] = [];
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "same",
+          getOrCreateHistory: () =>
+            fakeHistory({
+              replaceLastAssistantMessage: (t) => {
+                replaced.push(t);
+              },
+            }),
+          postTurnGuards: [makeGuard({ run: async (t) => ({ text: t, outcome: "success" }) })],
+        }),
+      );
 
-        await runner(baseTurn(), sink);
+      await runner(baseTurn(), baseSink());
 
-        expect(logged).toHaveLength(1);
-        expect(logged[0]!.length).toBeLessThan(longFlaggedText.length);
-        expect(logged[0]).toContain("truncated");
-      });
+      expect(replaced).toEqual([]);
     });
 
-    // Reuses the same onToolStart/onToolFinish machinery already shared with
-    // real tool calls and Layer-3 capture pings (see registerCaptureCallback
-    // above) — no new TurnSink field, so terminal's dim-print and Google
-    // Chat's status-card patching both pick this up for free.
-    describe("status indicator for the correction step", () => {
-      test("does not call onToolStart/onToolFinish for the correction id when the text isn't flagged", async () => {
-        const started: unknown[][] = [];
-        const finished: unknown[][] = [];
-        const sink = baseSink({
-          onToolStart: (...args) => started.push(args),
-          onToolFinish: (...args) => finished.push(args),
-        });
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          runTurnFn: async () => "Here you go.",
-        });
+    test("runs multiple guards in order, each seeing the previous guard's output", async () => {
+      const sink = baseSink();
+      const seen: string[] = [];
+      const runner = createTurnRunner(
+        baseDeps({
+          runTurnFn: async () => "a",
+          postTurnGuards: [
+            makeGuard({
+              statusId: "g1",
+              run: async (t) => {
+                seen.push(t);
+                return { text: `${t}b`, outcome: "success" };
+              },
+            }),
+            makeGuard({
+              statusId: "g2",
+              run: async (t) => {
+                seen.push(t);
+                return { text: `${t}c`, outcome: "success" };
+              },
+            }),
+          ],
+        }),
+      );
 
-        await runner(baseTurn(), sink);
+      await runner(baseTurn(), sink);
 
-        expect(started).toEqual([]);
-        expect(finished).toEqual([]);
-      });
-
-      test("reports success when the text is flagged and cleanly corrected", async () => {
-        const started: unknown[][] = [];
-        const finished: unknown[][] = [];
-        const sink = baseSink({
-          onToolStart: (...args) => started.push(args),
-          onToolFinish: (...args) => finished.push(args),
-        });
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => "Both are still open.",
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(started).toEqual([["Sto verificando la risposta…", undefined, "issue-list-correction"]]);
-        expect(finished).toEqual([["issue-list-correction", "success"]]);
-      });
-
-      test("reports failed when the corrector's output is still flagged (fixed fallback used)", async () => {
-        const finished: unknown[][] = [];
-        const sink = baseSink({ onToolFinish: (...args) => finished.push(args) });
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => flaggedText,
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(finished).toEqual([["issue-list-correction", "failed"]]);
-      });
-
-      test("reports failed when the corrector call throws", async () => {
-        const finished: unknown[][] = [];
-        const sink = baseSink({ onToolFinish: (...args) => finished.push(args) });
-        const runner = createTurnRunner({
-          model: {} as any,
-          systemPrompts: { singleUser: "s", multiUser: "m" },
-          buildTools: () => ({}),
-          getOrCreateHistory: () => fakeHistory(),
-          trackSession: () => {},
-          registerCaptureCallback: () => {},
-          maybeCapture: async () => {},
-          processToolCorrections: async () => {},
-          logStep: () => {},
-          correctIssueListFn: () => async () => {
-            throw new Error("ollama unreachable");
-          },
-          logDiscardedIssueListFn: () => {},
-          runTurnFn: async () => flaggedText,
-        });
-
-        await runner(baseTurn(), sink);
-
-        expect(finished).toEqual([["issue-list-correction", "failed"]]);
-      });
+      expect(seen).toEqual(["a", "ab"]);
+      expect(sink.finalized).toEqual(["abc"]);
     });
   });
 });

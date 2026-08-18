@@ -22,6 +22,8 @@ import {
   systemPromptFragment as jiraSystemPromptFragment,
   createJiraIssueListFormatter,
   issueListConfigSchema,
+  createIssueListGuard,
+  createIssueListCorrector,
 } from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -29,7 +31,7 @@ import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
 import { buildSystemPrompt } from "./session/system-prompt.ts";
-import { createTurnRunner } from "./router/turn-runner.ts";
+import { createTurnRunner, type PostTurnGuard } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
 import { stdinIsSession } from "./router/terminal.ts";
@@ -498,10 +500,19 @@ function logStep(prefix: string, step: StepInfo): void {
 // only for a genuinely new, tracked (real per-user identity) session —
 // today that's Google Chat; the terminal's turn.userId is always undefined,
 // so it never triggers this, same as before this refactor.
+// Post-turn guards contributed by loaded plugins (see PostTurnGuard). Jira's
+// registers only when the plugin is active, and is built with the real
+// model-backed corrector; the core runs it without knowing what it does.
+const postTurnGuards: PostTurnGuard[] = [];
+if (jiraEnabled) {
+  postTurnGuards.push(createIssueListGuard(createIssueListCorrector(model)));
+}
+
 const handleTurn = createTurnRunner({
   model,
   systemPrompts: { singleUser: system, multiUser: chatSystem },
   buildTools,
+  postTurnGuards,
   getOrCreateHistory: async (key, trackForCapture, userId) => {
     if (trackForCapture && userId && !histories.has(key)) {
       const primer = await buildContextPrimer(userId, {

@@ -26,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
 import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig, createJiraIssueListFormatter } from "@mercury/plugin-jira";
+import { jiraCliConfig, createJiraIssueListFormatter, createIssueListGuard } from "@mercury/plugin-jira";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import type { CliResult } from "./tools/cli-executor.ts";
@@ -301,9 +301,9 @@ async function deliverTurn(opts: {
     maybeCapture: async () => {},
     processToolCorrections: async () => {},
     logStep: () => {},
-    logDiscardedIssueListFn: () => {},
+    logPostTurnGuardFn: () => {},
     recordStepFn: () => {},
-    correctIssueListFn: () => async () => opts.correctorOutput ?? "",
+    postTurnGuards: [createIssueListGuard(async () => opts.correctorOutput ?? "")],
     runTurnFn: async (_history, _input, deps) => {
       deps.onStepFinish?.(stepWithFormattedList(opts.formattedList));
       return opts.modelText;

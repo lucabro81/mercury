@@ -13,42 +13,31 @@ import type { LanguageModel, Tool } from "ai";
 import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
-import { looksLikeIssueList, ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";
-import { createIssueListCorrector } from "../session/issue-list-corrector.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
 
 /**
- * Cap on how much of a discarded issue-list turn's original text gets
- * embedded in `logDiscardedIssueListFn`'s message — a long restated list,
- * logged in full on every discard, is an unstructured blob with no bound.
- * Larger than the terminal debug view's own inline cap (`MAX_INLINE_CHARS`,
- * 600, in `src/index.ts`) since this is a diagnostic line meant to be
- * grepped later, not a live view competing for terminal space.
+ * A plugin-contributed check that may rewrite the model's finished text before
+ * it reaches the user — the generic extension point that replaced the core's
+ * hardcoded Jira issue-list correction (whose implementation now lives in
+ * `@mercury/plugin-jira`'s `createIssueListGuard`).
+ *
+ * `shouldRun` gates both the transformation and its status indicator, so a
+ * guard that doesn't engage shows the user nothing. `run` returns the new text
+ * (possibly unchanged), an `outcome` that drives the shared
+ * onToolStart/onToolFinish status pair, and an optional `log` line the core
+ * forwards to `logPostTurnGuardFn`. `steps` is offered for guards that need the
+ * turn's tool results; the issue-list guard ignores it. A guard that throws is
+ * caught by the core and never blocks delivery — a guard failure is a quality
+ * miss, not a reason to withhold an already-generated answer.
  */
-const MAX_LOGGED_ISSUE_LIST_CHARS = 2000;
-
-/**
- * Fixed toolCallId passed to onToolStart/onToolFinish for the correction
- * step's status indicator — fixed, not generated, because at most one
- * correction ever runs per turn (no risk of two concurrent ids colliding).
- */
-const CORRECTION_STATUS_ID = "issue-list-correction";
-
-/**
- * Truncates plain text for a log line, same spirit as `tool-log.ts`'s
- * `truncateForDisplay` (bounded length, a marker noting the real total)
- * but deliberately not that function itself: `truncateForDisplay`
- * JSON.stringifies its input, which is right for arbitrary structured
- * values but wrong here — it would escape newlines and wrap the message
- * in quotes, turning an easily-greppable restated list into unreadable
- * escaped JSON for no benefit, since this is already plain text.
- */
-function truncateText(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}… (truncated, ${text.length} chars total)`;
-}
+export type PostTurnGuard = {
+  statusLabel: string;
+  statusId: string;
+  shouldRun: (text: string) => boolean;
+  run: (text: string, steps: StepInfo[]) => Promise<{ text: string; outcome: "success" | "failed"; log?: string }>;
+};
 
 export type TurnRunnerDeps = {
   model: LanguageModel;
@@ -79,26 +68,28 @@ export type TurnRunnerDeps = {
   recordStepFn?: typeof recordStep;
   /** Test seam; defaults to the real `runTurn`. */
   runTurnFn?: typeof runTurn;
-  /** Test seam; defaults to the real `createIssueListCorrector`, bound once to `model`. */
-  correctIssueListFn?: typeof createIssueListCorrector;
   /**
-   * Test seam; defaults to `console.log`. Called once whenever the
-   * issue-list heuristic (`looksLikeIssueList`) causes a discard of the
-   * model's own text — either the corrector rewrote it, its own output was
-   * still flagged and the fixed fallback was used instead, or the
-   * corrector call itself failed. Carries the ORIGINAL (pre-correction)
-   * text. Exists purely to measure real-world frequency before investing
-   * further (a second reviewer agent, general hallucination detection).
+   * Post-turn guards contributed by loaded plugins, run in order over the
+   * model's finished text (see `PostTurnGuard`). Empty/absent on an instance
+   * with no plugin that registers one. The composition root builds these; the
+   * core knows nothing about what any of them does.
    */
-  logDiscardedIssueListFn?: (message: string) => void;
+  postTurnGuards?: PostTurnGuard[];
+  /**
+   * Test seam; defaults to `console.log`. Receives a guard's own `log` line
+   * (e.g. the issue-list guard's "discarded model text…" message), or the
+   * core's own note when a guard throws. Exists to measure real-world guard
+   * frequency before investing further.
+   */
+  logPostTurnGuardFn?: (message: string) => void;
   /** Test seam; defaults to `Date.now`. */
   now?: () => number;
 };
 
 /** Builds the shared `HandleTurn` every provider's driver calls once it has a real message to run through the model. */
 export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
-  const correctIssueList = (deps.correctIssueListFn ?? createIssueListCorrector)(deps.model);
-  const logDiscardedIssueList = deps.logDiscardedIssueListFn ?? ((message: string) => console.log(message));
+  const postTurnGuards = deps.postTurnGuards ?? [];
+  const logPostTurnGuard = deps.logPostTurnGuardFn ?? ((message: string) => console.log(message));
 
   return async (turn: InboundTurn, sink: TurnSink): Promise<void> => {
     const tracked = turn.userId !== undefined;
@@ -135,28 +126,29 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
       });
 
       let correctedText = text;
-      if (looksLikeIssueList(text)) {
-        // Reuses the same onToolStart/onToolFinish machinery already shared with
-        // real tool calls and Layer-3 capture pings (registerCaptureCallback,
-        // below) — no new TurnSink field needed: terminal's dim-print and Google
-        // Chat's status-card patching both already handle any (label, detail?,
-        // toolCallId?) triple generically.
-        sink.onToolStart("Sto verificando la risposta…", undefined, CORRECTION_STATUS_ID);
+      // Plugin-contributed post-turn guards, run in order. `shouldRun` gates
+      // both the rewrite and its status indicator (so a guard that doesn't
+      // engage shows nothing), and reuses the same onToolStart/onToolFinish
+      // machinery already shared with real tool calls and Layer-3 capture pings
+      // — terminal's dim-print and Google Chat's status-card patching both
+      // handle any (label, detail?, toolCallId?) triple generically. A guard
+      // that throws is caught here and never blocks delivery.
+      for (const guard of postTurnGuards) {
+        if (!guard.shouldRun(correctedText)) {
+          continue;
+        }
+        sink.onToolStart(guard.statusLabel, undefined, guard.statusId);
         try {
-          const corrected = await correctIssueList(text);
-          const stillFlagged = corrected.trim().length === 0 || looksLikeIssueList(corrected);
-          correctedText = stillFlagged ? ISSUE_LIST_CORRECTION_FALLBACK : corrected;
-          sink.onToolFinish?.(CORRECTION_STATUS_ID, stillFlagged ? "failed" : "success");
-          logDiscardedIssueList(
-            `[issue-list-correction] discarded model text that looked like a rendered issue list ` +
-              `(${stillFlagged ? "corrector output was still flagged; used fixed fallback" : "replaced with corrector's rewrite"}): ${truncateText(text, MAX_LOGGED_ISSUE_LIST_CHARS)}`,
-          );
+          const guarded = await guard.run(correctedText, steps);
+          sink.onToolFinish?.(guard.statusId, guarded.outcome);
+          if (guarded.log !== undefined) {
+            logPostTurnGuard(guarded.log);
+          }
+          correctedText = guarded.text;
         } catch (err) {
-          // Corrector is a quality enhancement, not a delivery guarantee — a failure here shouldn't
-          // throw away an otherwise-good, already-generated answer. Degrade to the original text.
-          sink.onToolFinish?.(CORRECTION_STATUS_ID, "failed");
-          logDiscardedIssueList(
-            `[issue-list-correction] corrector call failed, kept original text: ${truncateText(String(err instanceof Error ? err.message : err), MAX_LOGGED_ISSUE_LIST_CHARS)}`,
+          sink.onToolFinish?.(guard.statusId, "failed");
+          logPostTurnGuard(
+            `[post-turn-guard] guard "${guard.statusId}" threw, kept text unchanged: ${String(err instanceof Error ? err.message : err)}`,
           );
         }
       }
