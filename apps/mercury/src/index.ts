@@ -15,10 +15,14 @@ import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
-import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig, systemPromptFragment as jiraSystemPromptFragment } from "@mercury/plugin-jira";
+import {
+  jiraCliConfig,
+  systemPromptFragment as jiraSystemPromptFragment,
+  createJiraIssueListFormatter,
+  issueListConfigSchema,
+} from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -109,17 +113,30 @@ for (const name of enabledClis) {
 }
 const jiraEnabled = Boolean(activeCliConfigs.jira);
 
-// The "issue-list" hook cli-configs/jira.json declares on `issue search`
-// only actually does anything if this is set — JIRA_SITE_URL isn't
+// The "issue-list" post-processor the plugin's allowlist declares on
+// `issue search` only registers if JIRA_SITE_URL is set — it isn't
 // derivable from any CLI output (the API talks to
 // api.atlassian.com/ex/jira/<cloud-id>/..., unrelated to the human-facing
-// hostname), so without it the formatter is simply never registered and
-// runCommand's result for `issue search` passes through unaugmented, same
-// as any other CLI with no post-processor configured.
+// hostname), so without it the formatter is never registered and
+// `issue search` passes through unaugmented, same as any CLI with no
+// post-processor. The plugin owns the config schema; the optional
+// JIRA_ISSUE_LIST_TEMPLATE lets a deployment override each issue line's
+// format (see issueListConfigSchema). Invalid config logs and skips the
+// formatter rather than crashing — the hard "plugin won't load" belongs to
+// the fail-soft loading step, not here.
 const cliPostProcessors: Record<string, CliPostProcessor> = {};
 const jiraSiteUrl = process.env.JIRA_SITE_URL;
 if (jiraSiteUrl) {
-  cliPostProcessors["issue-list"] = createJiraIssueListFormatter(jiraSiteUrl);
+  const parsed = issueListConfigSchema.safeParse({
+    siteUrl: jiraSiteUrl,
+    itemTemplate: process.env.JIRA_ISSUE_LIST_TEMPLATE,
+  });
+  if (parsed.success) {
+    cliPostProcessors["issue-list"] = createJiraIssueListFormatter(parsed.data);
+  } else {
+    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    console.error(`Jira issue-list formatter not registered: invalid config: ${issues}`);
+  }
 }
 // A single subscription for the whole app (Cloud Pub/Sub deployment) —
 // unlike the retired impersonation channel, there's no per-space Workspace

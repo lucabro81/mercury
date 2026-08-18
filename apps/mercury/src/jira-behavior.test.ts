@@ -26,9 +26,8 @@
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
 import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig } from "@mercury/plugin-jira";
+import { jiraCliConfig, createJiraIssueListFormatter } from "@mercury/plugin-jira";
 import { createCliTool } from "./tools/cli-tool.ts";
-import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import type { CliResult } from "./tools/cli-executor.ts";
 import { tryConfirm } from "./router/confirm-flow.ts";
@@ -79,7 +78,7 @@ async function buildJiraTools(
     // Vault writes are a paper trail, not part of the behaviour under test;
     // stubbed so these tests touch no filesystem.
     writeConfirmationNoteFn: async () => {},
-    postProcessors: { "issue-list": createJiraIssueListFormatter(SITE_URL) },
+    postProcessors: { "issue-list": createJiraIssueListFormatter({ siteUrl: SITE_URL }) },
   });
   return { tools, store };
 }

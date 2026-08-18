@@ -1,12 +1,20 @@
 import { describe, it, expect } from "bun:test";
-import { createJiraIssueListFormatter } from "./issue-list-formatter.ts";
-import type { CliResult } from "../cli-executor.ts";
+import { createJiraIssueListFormatter, issueListConfigSchema } from "@mercury/plugin-jira";
+import type { CliResult } from "./cli-executor.ts";
 
+/**
+ * Integration-shaped test of the real `@mercury/plugin-jira` issue-list
+ * formatter (moved out of the core in step 2.3). The default-format
+ * assertions below double as the byte-for-byte characterisation of the
+ * historical behaviour: a change to how a line renders when no itemTemplate
+ * is configured fails here. The itemTemplate and schema blocks cover the new
+ * plugin-owned configuration.
+ */
 const SITE_URL = "https://webcomperio.atlassian.net";
 const PARSED = { binary: "jira", args: ["issue", "search"] };
 
-describe("createJiraIssueListFormatter", () => {
-  const format = createJiraIssueListFormatter(SITE_URL);
+describe("createJiraIssueListFormatter (default format)", () => {
+  const format = createJiraIssueListFormatter({ siteUrl: SITE_URL });
 
   it("passes a failed result through unchanged", () => {
     const result: CliResult = { ok: false, error: "jira exited with code 1: boom" };
@@ -145,7 +153,7 @@ describe("createJiraIssueListFormatter", () => {
   });
 
   it("strips a trailing slash on siteUrl before building the link", () => {
-    const withTrailingSlash = createJiraIssueListFormatter("https://webcomperio.atlassian.net/");
+    const withTrailingSlash = createJiraIssueListFormatter({ siteUrl: "https://webcomperio.atlassian.net/" });
     const result: CliResult = { ok: true, data: { issues: [{ key: "MER-1", fields: { summary: "x" } }] } };
     const formatted = withTrailingSlash(PARSED, result);
     expect(formatted.ok).toBe(true);
@@ -167,5 +175,75 @@ describe("createJiraIssueListFormatter", () => {
       const data = formatted.data as { issues: Array<{ self: string }> };
       expect(data.issues[0]?.self).toBe("https://api.atlassian.com/...");
     }
+  });
+});
+
+describe("createJiraIssueListFormatter (itemTemplate override)", () => {
+  it("renders each issue with the configured template, substituting key/status/summary/url", () => {
+    const format = createJiraIssueListFormatter({
+      siteUrl: SITE_URL,
+      itemTemplate: "{key}: {summary} ({status}) — {url}",
+    });
+    const result: CliResult = {
+      ok: true,
+      data: { issues: [{ key: "MER-7", fields: { summary: "Titolo", status: { name: "In corso" } } }] },
+    };
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      expect(formatted.data).toMatchObject({
+        formattedList: "MER-7: Titolo (In corso) — https://webcomperio.atlassian.net/browse/MER-7",
+      });
+    }
+  });
+
+  it("substitutes {status} with an empty string when the issue has no status, leaving the rest of the template intact", () => {
+    const format = createJiraIssueListFormatter({ siteUrl: SITE_URL, itemTemplate: "{key} [{status}] {summary}" });
+    const result: CliResult = { ok: true, data: { issues: [{ key: "MER-7", fields: { summary: "Titolo" } }] } };
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      expect(formatted.data).toMatchObject({ formattedList: "MER-7 [] Titolo" });
+    }
+  });
+
+  it("still joins multiple templated issues with a blank line", () => {
+    const format = createJiraIssueListFormatter({ siteUrl: SITE_URL, itemTemplate: "{key} {summary}" });
+    const result: CliResult = {
+      ok: true,
+      data: {
+        issues: [
+          { key: "MER-1", fields: { summary: "First" } },
+          { key: "MER-2", fields: { summary: "Second" } },
+        ],
+      },
+    };
+    const formatted = format(PARSED, result);
+    expect(formatted.ok).toBe(true);
+    if (formatted.ok) {
+      expect(formatted.data).toMatchObject({ formattedList: "MER-1 First\n\nMER-2 Second" });
+    }
+  });
+});
+
+describe("issueListConfigSchema", () => {
+  it("accepts a config with just siteUrl (itemTemplate is optional)", () => {
+    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL }).success).toBe(true);
+  });
+
+  it("accepts a config with siteUrl and itemTemplate", () => {
+    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL, itemTemplate: "{key} {summary}" }).success).toBe(true);
+  });
+
+  it("rejects a config missing siteUrl", () => {
+    expect(issueListConfigSchema.safeParse({ itemTemplate: "{key}" }).success).toBe(false);
+  });
+
+  it("rejects an empty itemTemplate string", () => {
+    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL, itemTemplate: "" }).success).toBe(false);
+  });
+
+  it("rejects an unknown extra key (.strict)", () => {
+    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL, extra: true }).success).toBe(false);
   });
 });

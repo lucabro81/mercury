@@ -11,6 +11,12 @@
  */
 import rawConfig from "./jira.json";
 
+export {
+  createJiraIssueListFormatter,
+  issueListConfigSchema,
+  type IssueListConfig,
+} from "./issue-list-formatter.ts";
+
 /** The raw, unvalidated allowlist object. Handed to the core as data — the
  * core runs the same `.strict()` Zod barrier over it that it runs over any
  * file-based CLI config, so nothing here reaches the model's executable
