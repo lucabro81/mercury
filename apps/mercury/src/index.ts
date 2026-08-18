@@ -18,7 +18,7 @@ import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig } from "@mercury/plugin-jira";
+import { jiraCliConfig, systemPromptFragment as jiraSystemPromptFragment } from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -127,12 +127,21 @@ if (jiraSiteUrl) {
 // delivers its events here.
 const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 
+// System-prompt fragments contributed by the plugins that actually loaded —
+// gated on the same activation as their tools (jiraEnabled reflects whether
+// the allowlist validated), so the prompt never describes a tool this
+// instance lacks. Jira is the only plugin today; more get pushed here as
+// they're extracted.
+const pluginFragments: string[] = [];
+if (jiraEnabled) {
+  pluginFragments.push(jiraSystemPromptFragment);
+}
 // Two separate system prompts, not one shared string: the multiUserChannel
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
 // always a private 1:1 conversation — an operator typing normally
 // shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
-const system = buildSystemPrompt({ jira: jiraEnabled, multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ jira: jiraEnabled, multiUserChannel: true });
+const system = buildSystemPrompt({ pluginFragments, multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ pluginFragments, multiUserChannel: true });
 
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
