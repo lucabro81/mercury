@@ -18,15 +18,15 @@
  * change to this file touches anything but that helper, the extraction
  * changed behaviour rather than relocating it.
  *
- * Config is read from the real `cli-configs/jira.json`, not a hand-written
- * fixture, so a semantic edit to the shipped allowlist (a prefix losing its
- * `confirm`, a `postProcess` hook disappearing) fails here rather than
- * passing against a copy that drifted.
+ * Config is read from the real `@mercury/plugin-jira` package, not a
+ * hand-written fixture, so a semantic edit to the shipped allowlist (a prefix
+ * losing its `confirm`, a `postProcess` hook disappearing) fails here rather
+ * than passing against a copy that drifted.
  */
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
 import type { Tool } from "ai";
-import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
+import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
+import { jiraCliConfig } from "@mercury/plugin-jira";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
@@ -37,7 +37,6 @@ import type { InboundTurn, TurnSink } from "./router/provider.ts";
 import type { SessionHistory } from "./session/history.ts";
 import type { StepInfo } from "./session/step-info.ts";
 
-const CONFIG_DIR = resolve(import.meta.dir, "..", "cli-configs");
 const SITE_URL = "https://example.atlassian.net";
 const SESSION_KEY = "session-under-test";
 
@@ -66,11 +65,11 @@ async function buildJiraTools(
   spy: CliSpy,
   opts: { store?: ConfirmationStore } = {},
 ): Promise<{ tools: Record<string, Tool>; store: ConfirmationStore }> {
-  const configs = await loadActiveCliConfigs(["jira"], {
-    configDir: CONFIG_DIR,
-    runCliFn: spyRunCli(spy),
-    log: () => {},
-  });
+  const loaded = await loadCliConfigFromObject(jiraCliConfig, { runCliFn: spyRunCli(spy) });
+  if (!loaded.ok) {
+    throw new Error(`plugin config failed to load in test setup: ${loaded.reason}`);
+  }
+  const configs = { [loaded.binary]: loaded.config };
   const store = opts.store ?? createConfirmationStore();
   const tools = createCliTool(spyRunCli(spy), configs, {
     sessionKey: SESSION_KEY,

@@ -56,11 +56,16 @@ WORKDIR /app
 COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
 COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
+COPY --chown=mercury:mercury packages/plugin-jira/package.json ./packages/plugin-jira/
 RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules
 
 COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
 
 COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
+# The Jira plugin's runtime sources (index.ts + its jira.json allowlist) —
+# copied after install so a source-only change doesn't bust the dependency
+# layer's cache, same reasoning as apps/mercury/src above.
+COPY --chown=mercury:mercury packages/plugin-jira ./packages/plugin-jira
 
 COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
 RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh

@@ -1,31 +1,29 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfig } from "./cli-config-loader.ts";
+import { loadCliConfigFromObject } from "./cli-config-loader.ts";
 import { matchCommand, type CliConfig } from "./cli-tool.ts";
 import type { CliResult } from "./cli-executor.ts";
+import { jiraCliConfig } from "@mercury/plugin-jira";
 
 /**
- * Integration-shaped safety net for the real, checked-in
- * `cli-configs/jira.json` reference config — replaces the old
- * `jira.test.ts`'s hand-written `isAllowed` unit tests. Loading the real
- * file (not a synthetic fixture) means a future edit to `jira.json` that
- * breaks one of these guarantees is caught here, not just by a generic
- * schema check.
+ * Integration-shaped safety net for the real, shipped `@mercury/plugin-jira`
+ * allowlist — replaces the old `jira.test.ts`'s hand-written `isAllowed` unit
+ * tests. Loading the plugin's real config (not a synthetic fixture) means a
+ * future edit to it that breaks one of these guarantees is caught here, not
+ * just by a generic schema check.
  */
-
-const CONFIG_DIR = new URL("../../cli-configs/", import.meta.url).pathname.replace(/\/$/, "");
 
 let jiraConfig: CliConfig;
 
 beforeAll(async () => {
   const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "jira-cli 1.0.0" });
-  const result = await loadCliConfig("jira", { configDir: CONFIG_DIR, runCliFn });
+  const result = await loadCliConfigFromObject(jiraCliConfig, { runCliFn });
   if (!result.ok) {
-    throw new Error(`cli-configs/jira.json failed to load: ${result.reason}`);
+    throw new Error(`@mercury/plugin-jira config failed to load: ${result.reason}`);
   }
   jiraConfig = result.config;
 });
 
-describe("cli-configs/jira.json", () => {
+describe("@mercury/plugin-jira allowlist", () => {
   it("allows read-only subcommands", () => {
     expect(matchCommand(["issue", "search", "--jql", "project=KAN"], jiraConfig)).toEqual({
       kind: "allowed",

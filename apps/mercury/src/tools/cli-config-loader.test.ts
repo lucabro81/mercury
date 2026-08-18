@@ -3,6 +3,7 @@ import {
   loadCliConfigFile,
   toCliConfig,
   loadCliConfig,
+  loadCliConfigFromObject,
   loadActiveCliConfigs,
 } from "./cli-config-loader.ts";
 import type { CliResult } from "./cli-executor.ts";
@@ -130,6 +131,71 @@ describe("loadCliConfig", () => {
   it("fails closed when the installed version doesn't satisfy minVersion", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "versioned 0.5.0" });
     const result = await loadCliConfig("versioned", { configDir: FIXTURES.replace(/\/$/, ""), runCliFn });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("0.5.0");
+    }
+  });
+});
+
+// The object-based sibling of loadCliConfig: a plugin owns its allowlist as
+// data and hands the already-parsed object to the core, which still runs the
+// same Zod barrier and version check — the file read is the only thing that
+// drops out. Introduced for the Jira plugin extraction (config moves from a
+// scanned directory into the plugin package).
+describe("loadCliConfigFromObject", () => {
+  const validRaw = {
+    binary: "fakecli",
+    commands: [
+      { prefix: ["doctor"], confirm: false, mutating: false },
+      { prefix: ["issue", "delete"], confirm: true, mutating: true },
+    ],
+    globalFlags: [{ flag: "--select", takesValue: true }],
+  };
+
+  it("validates a valid object and returns its binary and mapped config, never calling runCliFn without minVersion", async () => {
+    let called = false;
+    const runCliFn = async (): Promise<CliResult> => {
+      called = true;
+      return { ok: true, data: "fakecli 1.0.0" };
+    };
+    const result = await loadCliConfigFromObject(validRaw, { runCliFn });
+    expect(called).toBe(false);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.binary).toBe("fakecli");
+      expect(result.config.allowedPrefixes).toEqual([
+        { prefix: ["doctor"], confirm: false, mutating: false },
+        { prefix: ["issue", "delete"], confirm: true, mutating: true },
+      ]);
+      expect(result.config.globalFlags).toEqual([{ flag: "--select", takesValue: true }]);
+    }
+  });
+
+  it("fails closed on a schema violation instead of throwing", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "x 1.0.0" });
+    const result = await loadCliConfigFromObject({ binary: "x", commands: [] }, { runCliFn });
+    expect(result.ok).toBe(false);
+  });
+
+  it("fails closed on an unknown extra key, same .strict() barrier as the file path", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "x 1.0.0" });
+    const result = await loadCliConfigFromObject(
+      { ...validRaw, unexpected: true },
+      { runCliFn },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("runs the version check when minVersion is present, and succeeds when satisfied", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "fakecli 1.2.0" });
+    const result = await loadCliConfigFromObject({ ...validRaw, minVersion: "1.0.0" }, { runCliFn });
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails closed when the installed version doesn't satisfy minVersion", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "fakecli 0.5.0" });
+    const result = await loadCliConfigFromObject({ ...validRaw, minVersion: "1.0.0" }, { runCliFn });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("0.5.0");

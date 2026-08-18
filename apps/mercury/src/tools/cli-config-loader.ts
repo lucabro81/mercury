@@ -58,6 +58,41 @@ export function toCliConfig(raw: CliConfigFile): CliConfig {
 
 export type CliConfigLoadResult = { ok: true; config: CliConfig } | { ok: false; reason: string };
 
+export type CliConfigFromObjectResult =
+  | { ok: true; binary: string; config: CliConfig }
+  | { ok: false; reason: string };
+
+/**
+ * The object-based sibling of `loadCliConfig`: a plugin owns its allowlist as
+ * data and hands the already-parsed object over, instead of the core scanning
+ * a config directory for it. The safety barrier stays here — the same
+ * `.strict()` Zod schema and, when `minVersion` is declared, the same version
+ * check — so a plugin's config reaches `runCommand`'s allowlist through the
+ * identical validation the file path uses; only the file read drops out. No
+ * requested-vs-declared binary match: the plugin declares its own binary and
+ * there's no separate name to reconcile it against, so the validated
+ * `binary` is returned for the caller to key its map by. Never throws.
+ */
+export async function loadCliConfigFromObject(
+  raw: unknown,
+  opts: { runCliFn: typeof runCli },
+): Promise<CliConfigFromObjectResult> {
+  const validated = CliConfigFileSchema.safeParse(raw);
+  if (!validated.success) {
+    const issues = validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return { ok: false, reason: `plugin config does not match the expected schema: ${issues}` };
+  }
+
+  if (validated.data.minVersion) {
+    const versionResult = await checkCliVersion(validated.data.binary, validated.data.minVersion, opts.runCliFn);
+    if (!versionResult.ok) {
+      return { ok: false, reason: versionResult.reason };
+    }
+  }
+
+  return { ok: true, binary: validated.data.binary, config: toCliConfig(validated.data) };
+}
+
 /**
  * Loads and validates `<configDir>/<binary>.json`, checking that the
  * file's own declared `binary` matches (catches a maintainer copying

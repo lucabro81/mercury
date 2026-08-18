@@ -17,7 +17,8 @@ import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createJiraIssueListFormatter } from "./tools/jira/issue-list-formatter.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
-import { loadActiveCliConfigs } from "./tools/cli-config-loader.ts";
+import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
+import { jiraCliConfig } from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -77,19 +78,35 @@ const enabledClis = (process.env.MERCURY_CLIS ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-// The known-CLI boundary for this instance is no longer a hardcoded
-// TypeScript map — it's whatever maintainer-authored config files exist
-// in cliConfigDir, one per binary, bind-mounted at runtime (see
-// docker-compose.override.yml, .env.example). Only a binary with a
-// present, schema-valid, version-checked config file ever reaches
-// runCommand, no matter what MERCURY_CLIS says — bitbucket/google-chat
-// can be listed there with no effect until someone adds a config file
-// for them.
+// The known-CLI boundary for this instance comes from two sources now.
+// Most binaries are still maintainer-authored config files in cliConfigDir,
+// one per binary, bind-mounted at runtime (bitbucket/google-chat — see
+// docker-compose.override.yml, .env.example). Jira, the first extracted
+// plugin, instead hands its allowlist over as data (`@mercury/plugin-jira`),
+// which the core validates through the identical schema/version barrier
+// (loadCliConfigFromObject). Either way a binary only reaches runCommand once
+// its config is present, schema-valid and version-checked, and only if it's
+// listed in MERCURY_CLIS — so a plugin config still respects the enable list.
+const pluginCliConfigs: Record<string, unknown> = { jira: jiraCliConfig };
 const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
-const activeCliConfigs = await loadActiveCliConfigs(enabledClis, {
-  configDir: cliConfigDir,
-  runCliFn: runCli,
-});
+// File-based names only; plugin-provided names are loaded from their own data
+// below, never looked for on disk (no spurious "not activated" for a jira.json
+// that no longer exists).
+const activeCliConfigs = await loadActiveCliConfigs(
+  enabledClis.filter((name) => !(name in pluginCliConfigs)),
+  { configDir: cliConfigDir, runCliFn: runCli },
+);
+for (const name of enabledClis) {
+  if (!(name in pluginCliConfigs)) {
+    continue;
+  }
+  const loaded = await loadCliConfigFromObject(pluginCliConfigs[name], { runCliFn: runCli });
+  if (loaded.ok) {
+    activeCliConfigs[loaded.binary] = loaded.config;
+  } else {
+    console.error(`CLI "${name}" not activated: ${loaded.reason}`);
+  }
+}
 const jiraEnabled = Boolean(activeCliConfigs.jira);
 
 // The "issue-list" hook cli-configs/jira.json declares on `issue search`
