@@ -18,11 +18,11 @@
  * the structural compatibility is checked; Fase 3 hoists that interface into a
  * shared type both sides import.
  */
-import type { LanguageModel } from "ai";
+import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor } from "@mercury/plugin-types";
 import rawConfig from "./jira.json";
 import { systemPromptFragment } from "./system-prompt-fragment.ts";
 import { createJiraIssueListFormatter, issueListConfigSchema } from "./issue-list-formatter.ts";
-import { createIssueListGuard, type IssueListGuard } from "./issue-list-guard.ts";
+import { createIssueListGuard } from "./issue-list-guard.ts";
 import { createIssueListCorrector } from "./issue-list-corrector.ts";
 
 /** The raw, unvalidated allowlist object. Handed to the core as data — the
@@ -31,26 +31,13 @@ import { createIssueListCorrector } from "./issue-list-corrector.ts";
  * surface unvalidated. */
 export const jiraCliConfig: unknown = rawConfig;
 
-type IssueListFormatter = ReturnType<typeof createJiraIssueListFormatter>;
-
-/** What the plugin contributes that depends on runtime context (env, model) —
- * mirrors the core loader's `PluginRuntimeContributions` structurally. */
-type JiraContributions = {
-  postProcessors?: Record<string, IssueListFormatter>;
-  postTurnGuards?: IssueListGuard[];
-};
-
-export const jiraPlugin: {
-  name: string;
-  cliConfig: unknown;
-  systemPromptFragment: string;
-  build: (ctx: { model: LanguageModel; env: Record<string, string | undefined>; log: (msg: string) => void }) => JiraContributions;
-} = {
+export const jiraPlugin: Plugin = {
+  apiVersion: PLUGIN_API_VERSION,
   name: "jira",
   cliConfig: jiraCliConfig,
   systemPromptFragment,
   build: (ctx) => {
-    const postProcessors: Record<string, IssueListFormatter> = {};
+    const postProcessors: Record<string, CliPostProcessor> = {};
 
     // The `issue search` formatter only registers when JIRA_SITE_URL is set —
     // it isn't derivable from any CLI output (the API talks to

@@ -12,32 +12,18 @@
 import type { LanguageModel, Tool } from "ai";
 import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
+// `PostTurnGuard` is part of the plugin contract (a plugin's `build()` returns
+// these — see `@mercury/plugin-jira`'s `createIssueListGuard`), so it lives in
+// `@mercury/plugin-types` and is re-exported here for the core callers that
+// import it from this module. A guard that throws is caught by the core and
+// never blocks delivery — a guard failure is a quality miss, not a reason to
+// withhold an already-generated answer.
+import type { PostTurnGuard } from "@mercury/plugin-types";
+export type { PostTurnGuard };
 import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
-
-/**
- * A plugin-contributed check that may rewrite the model's finished text before
- * it reaches the user — the generic extension point that replaced the core's
- * hardcoded Jira issue-list correction (whose implementation now lives in
- * `@mercury/plugin-jira`'s `createIssueListGuard`).
- *
- * `shouldRun` gates both the transformation and its status indicator, so a
- * guard that doesn't engage shows the user nothing. `run` returns the new text
- * (possibly unchanged), an `outcome` that drives the shared
- * onToolStart/onToolFinish status pair, and an optional `log` line the core
- * forwards to `logPostTurnGuardFn`. `steps` is offered for guards that need the
- * turn's tool results; the issue-list guard ignores it. A guard that throws is
- * caught by the core and never blocks delivery — a guard failure is a quality
- * miss, not a reason to withhold an already-generated answer.
- */
-export type PostTurnGuard = {
-  statusLabel: string;
-  statusId: string;
-  shouldRun: (text: string) => boolean;
-  run: (text: string, steps: StepInfo[]) => Promise<{ text: string; outcome: "success" | "failed"; log?: string }>;
-};
 
 export type TurnRunnerDeps = {
   model: LanguageModel;

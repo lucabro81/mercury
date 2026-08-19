@@ -60,6 +60,7 @@ WORKDIR /app
 COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
 COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
+COPY --chown=mercury:mercury packages/plugin-types/package.json ./packages/plugin-types/
 # The Jira plugin is copied in full BEFORE install, unlike apps/mercury/src
 # below: its package.json declares a postinstall that downloads the pinned jira
 # binary into packages/plugin-jira/bin/ during `bun install`, so the script has
@@ -80,6 +81,10 @@ RUN find /app/packages -path '*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \
 COPY --from=clis --chown=mercury:mercury /app/bin/ /usr/local/bin/
 
 COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
+# The shared plugin contract types — runtime source imported by the app and the
+# plugins. No postinstall, so copied after install (cache-friendly), unlike the
+# Jira plugin above.
+COPY --chown=mercury:mercury packages/plugin-types ./packages/plugin-types
 
 COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
 RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh

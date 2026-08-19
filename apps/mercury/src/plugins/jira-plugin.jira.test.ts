@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
 import { jiraPlugin, jiraCliConfig } from "@mercury/plugin-jira";
 
 /**
@@ -15,6 +16,7 @@ const noLog = () => {};
 
 describe("jiraPlugin", () => {
   it("declares the jira name, its raw allowlist, and a non-empty system-prompt fragment", () => {
+    expect(jiraPlugin.apiVersion).toBe(PLUGIN_API_VERSION);
     expect(jiraPlugin.name).toBe("jira");
     expect(jiraPlugin.cliConfig).toBe(jiraCliConfig);
     expect(typeof jiraPlugin.systemPromptFragment).toBe("string");

@@ -20,8 +20,8 @@
  * decide whether to stop the tool-calling loop early) don't form an
  * import cycle.
  */
-export type StepInfo = {
-  toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }>;
-  toolResults: Array<{ toolCallId: string; toolName: string; output: unknown }>;
-  content: Array<{ type: string; toolCallId?: string; error?: unknown }>;
-};
+// `StepInfo` is part of the plugin contract (a `PostTurnGuard`'s `run`
+// receives `StepInfo[]`), so it lives in `@mercury/plugin-types` and is
+// re-exported here for the many core callers that import it from this module.
+import type { StepInfo } from "@mercury/plugin-types";
+export type { StepInfo };

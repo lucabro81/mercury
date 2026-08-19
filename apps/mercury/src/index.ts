@@ -17,7 +17,8 @@ import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { loadPlugins, type PluginModule } from "./plugins/plugin-loader.ts";
+import { loadPlugins } from "./plugins/plugin-loader.ts";
+import type { Plugin } from "@mercury/plugin-types";
 import { jiraPlugin } from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -107,7 +108,7 @@ const summarize = createSummarizer(model);
 // contributes only when it's both listed in MERCURY_CLIS and its allowlist
 // validates through the same schema/version barrier a file-based config passes;
 // one that fails — bad config, throwing build — degrades only itself.
-const plugins: PluginModule[] = [jiraPlugin];
+const plugins: Plugin[] = [jiraPlugin];
 const pluginNames = new Set(plugins.map((p) => p.name));
 
 // File-based CLI configs come from maintainer-authored files in cliConfigDir,

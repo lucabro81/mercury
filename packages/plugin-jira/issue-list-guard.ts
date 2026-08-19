@@ -7,16 +7,16 @@
  * fixed fallback, the status label, and the per-case log message — into one
  * object the composition root registers.
  *
- * The returned object mirrors the core's `PostTurnGuard` shape structurally
- * (like the formatter mirrors `CliPostProcessor`): a plugin package must not
- * import from the app it plugs into, so the composition root's assignment into
- * the core's guard list is where the compatibility is checked. Fase 3 hoists
- * the guard type into the shared interface.
+ * The returned object is typed as the shared `PostTurnGuard` from
+ * `@mercury/plugin-types`; its `run` takes only `text` (it ignores the tool
+ * trace the contract also offers), which is assignable to the contract's
+ * `(text, steps)` signature.
  *
  * `run` catches the corrector's own throw and degrades to the original text
  * (a corrector failure is a quality miss, not a delivery failure); the core
  * still wraps every guard in its own try/catch as a last-resort net.
  */
+import type { PostTurnGuard } from "@mercury/plugin-types";
 import { looksLikeIssueList, ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";
 
 /** Status label shown while the guard runs — only when it engages (see `shouldRun`). */
@@ -39,21 +39,12 @@ function truncateText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}… (truncated, ${text.length} chars total)`;
 }
 
-export type IssueListGuardResult = { text: string; outcome: "success" | "failed"; log?: string };
-
-export type IssueListGuard = {
-  statusLabel: string;
-  statusId: string;
-  shouldRun: (text: string) => boolean;
-  run: (text: string) => Promise<IssueListGuardResult>;
-};
-
 /**
  * Builds the guard from a corrector function — the context-free rewrite call
  * (see `createIssueListCorrector`), injected so a test can control its output
  * without a real model.
  */
-export function createIssueListGuard(correct: (text: string) => Promise<string>): IssueListGuard {
+export function createIssueListGuard(correct: (text: string) => Promise<string>): PostTurnGuard {
   return {
     statusLabel: STATUS_LABEL,
     statusId: STATUS_ID,

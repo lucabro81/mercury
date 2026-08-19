@@ -15,18 +15,11 @@
  * a deployment constant) and `itemTemplate` (optional, with a default that
  * reproduces the historical format exactly).
  *
- * The `CliResult`/`CliPostProcessor` shapes are mirrored locally rather than
- * imported: they are owned by the core app (`apps/mercury/src/tools/`), and a
- * plugin package must not depend on the app it plugs into. Structural typing
- * makes the composition root's assignment into the core's post-processor
- * registry type-check the compatibility at that boundary. Fase 3 hoists these
- * into a shared type the interface owns; until then a 2-line mirror, checked
- * at the seam, is the honest minimum.
+ * `CliResult`/`CliPostProcessor` come from `@mercury/plugin-types`, the shared
+ * contract both the core and the plugins import — no local mirror any more.
  */
 import { z } from "zod";
-
-type CliResult = { ok: true; data: unknown } | { ok: false; error: string };
-type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
+import type { CliResult, CliPostProcessor } from "@mercury/plugin-types";
 
 /** The formatter's own configuration. `siteUrl` is Comperio's browsable Jira
  * site (e.g. `https://webcomperio.atlassian.net`) — not derivable from any CLI

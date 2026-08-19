@@ -20,5 +20,5 @@ export {
 } from "./issue-list-formatter.ts";
 
 export { createIssueListCorrector } from "./issue-list-corrector.ts";
-export { createIssueListGuard, type IssueListGuard, type IssueListGuardResult } from "./issue-list-guard.ts";
+export { createIssueListGuard } from "./issue-list-guard.ts";
 export { looksLikeIssueList, ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";

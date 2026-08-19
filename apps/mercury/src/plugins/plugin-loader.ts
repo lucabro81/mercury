@@ -18,50 +18,17 @@
  *    CLAUDE.md lesson made structural: one plugin's bad tick never takes down
  *    the rest.
  *
- * The contribution types (`CliConfig`, `CliPostProcessor`, `PostTurnGuard`) are
- * still owned by their respective core modules and imported as types here; Fase
- * 3 hoists them into the shared plugin interface this directory will grow into.
+ * The contract types (`Plugin`, `CliPostProcessor`, `PostTurnGuard`, and the
+ * `build()` context) now live in `@mercury/plugin-types`, the shared package
+ * both the core and the plugins import, so neither mirrors the other. This
+ * module keeps only the core-runtime pieces: how a hand-listed set of plugins
+ * is loaded and what the load produces.
  */
 import type { LanguageModel } from "ai";
-import type { CliConfig, CliPostProcessor } from "../tools/cli-tool.ts";
+import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
+import type { Plugin, CliPostProcessor, PostTurnGuard } from "@mercury/plugin-types";
+import type { CliConfig } from "../tools/cli-tool.ts";
 import type { CliConfigFromObjectResult } from "../tools/cli-config-loader.ts";
-import type { PostTurnGuard } from "../router/turn-runner.ts";
-
-/** What a plugin's `build()` receives — everything its runtime contributions
- * may need that isn't static data: the shared model (for a model-backed guard),
- * the process env (for its own configuration), and a logger for anything it
- * decides to skip. */
-export interface PluginRuntimeContext {
-  model: LanguageModel;
-  env: Record<string, string | undefined>;
-  log: (msg: string) => void;
-}
-
-/** The env/model-dependent half of a plugin's contributions, produced by
- * `build()`. Both optional: a plugin may contribute neither (a pure read-only
- * CLI with no formatting or guard). */
-export interface PluginRuntimeContributions {
-  postProcessors?: Record<string, CliPostProcessor>;
-  postTurnGuards?: PostTurnGuard[];
-}
-
-/**
- * The shape the composition root's plugin list is typed against. A plugin
- * package can't import this (it must not depend on the app), so its exported
- * object satisfies this structurally, checked at the composition root's
- * assignment — the same seam pattern the formatter and guard already use.
- *
- * `cliConfig` is the raw, unvalidated allowlist data; the loader runs it
- * through the injected `loadCliConfig` barrier. `systemPromptFragment` and
- * `build()` are both optional so a minimal plugin can be just a name and a
- * config.
- */
-export interface PluginModule {
-  name: string;
-  cliConfig: unknown;
-  systemPromptFragment?: string;
-  build?: (ctx: PluginRuntimeContext) => PluginRuntimeContributions;
-}
 
 /** What the loader hands back to the composition root, already aggregated
  * across every plugin that loaded — the composition root merges these into the
@@ -92,7 +59,7 @@ export interface PluginLoadContext {
  * contributions staged and merged only once the whole plugin succeeds so a
  * later failure can't leave it half-wired.
  */
-export async function loadPlugins(plugins: PluginModule[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
+export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
   const cliConfigs: Record<string, CliConfig> = {};
   const promptFragments: string[] = [];
   const postProcessors: Record<string, CliPostProcessor> = {};
@@ -102,6 +69,17 @@ export async function loadPlugins(plugins: PluginModule[], ctx: PluginLoadContex
     // Not enabled on this instance: contribute nothing, and don't even
     // validate the config — same as a CLI left out of MERCURY_CLIS.
     if (!ctx.enabledClis.includes(plugin.name)) {
+      continue;
+    }
+    // Contract-version skew: core and plugin are versioned and installed
+    // separately, so a plugin built against a different contract than this core
+    // supports is possible. Refuse it fail-soft rather than run it against a
+    // shape it may not match.
+    if (plugin.apiVersion !== PLUGIN_API_VERSION) {
+      ctx.log(
+        `plugin "${plugin.name}" not activated: apiVersion ${plugin.apiVersion} ` +
+          `incompatible with this core (supports ${PLUGIN_API_VERSION})`,
+      );
       continue;
     }
     try {

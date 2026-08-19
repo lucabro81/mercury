@@ -27,7 +27,7 @@ describe("createIssueListGuard", () => {
 
   it("replaces the text with the corrector's rewrite when it no longer looks like a list, reporting success", async () => {
     const guard = createIssueListGuard(async () => "Ho trovato due issue aperte.");
-    const result = await guard.run(FLAGGED);
+    const result = await guard.run(FLAGGED, []);
     expect(result.text).toBe("Ho trovato due issue aperte.");
     expect(result.outcome).toBe("success");
     expect(result.log).toContain("replaced with corrector's rewrite");
@@ -36,18 +36,18 @@ describe("createIssueListGuard", () => {
 
   it("falls back to the fixed reply, reporting failed, when the corrector's own output still looks like a list", async () => {
     const guard = createIssueListGuard(async () => "- KAN-1: ancora una lista\n- KAN-2: pure questa");
-    const result = await guard.run(FLAGGED);
+    const result = await guard.run(FLAGGED, []);
     expect(result.text).toBe(ISSUE_LIST_CORRECTION_FALLBACK);
     expect(result.outcome).toBe("failed");
     expect(result.log).toContain("still flagged");
   });
 
   it("falls back to the fixed reply when the corrector returns an empty or whitespace-only string", async () => {
-    const empty = await createIssueListGuard(async () => "").run(FLAGGED);
+    const empty = await createIssueListGuard(async () => "").run(FLAGGED, []);
     expect(empty.text).toBe(ISSUE_LIST_CORRECTION_FALLBACK);
     expect(empty.outcome).toBe("failed");
 
-    const whitespace = await createIssueListGuard(async () => "   \n  ").run(FLAGGED);
+    const whitespace = await createIssueListGuard(async () => "   \n  ").run(FLAGGED, []);
     expect(whitespace.text).toBe(ISSUE_LIST_CORRECTION_FALLBACK);
     expect(whitespace.outcome).toBe("failed");
   });
@@ -56,7 +56,7 @@ describe("createIssueListGuard", () => {
     const guard = createIssueListGuard(async () => {
       throw new Error("model unreachable");
     });
-    const result = await guard.run(FLAGGED);
+    const result = await guard.run(FLAGGED, []);
     expect(result.text).toBe(FLAGGED);
     expect(result.outcome).toBe("failed");
     expect(result.log).toContain("corrector call failed");
@@ -66,7 +66,7 @@ describe("createIssueListGuard", () => {
   it("truncates a very long original text in the log rather than embedding it whole", async () => {
     const long = Array.from({ length: 200 }, (_, i) => `- KAN-${i} something`).join("\n");
     const guard = createIssueListGuard(async () => "Ho trovato molte issue.");
-    const result = await guard.run(long);
+    const result = await guard.run(long, []);
     expect(result.log).toContain("truncated");
     expect((result.log ?? "").length).toBeLessThan(long.length);
   });

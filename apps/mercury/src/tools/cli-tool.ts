@@ -28,18 +28,14 @@ import type { runCli, CliResult } from "./cli-executor.ts";
 import type { ConfirmationStore } from "./confirmation-store.ts";
 import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
-/**
- * Deterministically transforms a successful (or failed) `runCliFn` result
- * for one specific command shape — looked up by the name a CLI's own
- * config declares via `postProcess` (e.g. "issue-list"), never by
- * `cli-tool.ts` knowing anything about which binary or command it's for.
- * Can augment `data` (add a field, never remove what was there) or turn a
- * technically-successful result into `{ok:false, error}` when the data
- * isn't shaped as the post-processor needs (e.g. a required field wasn't
- * requested via --fields) — same self-correctable-error contract as every
- * other `runCommand` failure mode.
- */
-export type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
+// `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
+// returns these) — it lives in `@mercury/plugin-types` and is re-exported here
+// for the core callers that import it from this module. A post-processor
+// deterministically transforms a `runCliFn` result for one command shape,
+// looked up by the `postProcess` name a CLI's allowlist declares (e.g.
+// "issue-list"), never by cli-tool.ts knowing which binary it's for.
+import type { CliPostProcessor } from "@mercury/plugin-types";
+export type { CliPostProcessor };
 
 export type AllowedCommand = {
   prefix: string[];

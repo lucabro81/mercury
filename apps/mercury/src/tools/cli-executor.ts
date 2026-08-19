@@ -19,15 +19,12 @@
  * subprocess (see `google-chat-app-client.ts`).
  */
 
-/**
- * Result of running a CLI command: on success, `data` is the parsed JSON
- * stdout, or the raw trimmed text when stdout isn't JSON (e.g. `--help`
- * output); on failure, `error` is a human/model-readable string. Never
- * throws — callers branch on `ok` instead of catching.
- */
-export type CliResult =
-  | { ok: true; data: unknown }
-  | { ok: false; error: string };
+// `CliResult` is part of the plugin contract (a post-processor receives and
+// returns one), so it lives in `@mercury/plugin-types` and is re-exported here
+// for the many core callers that import it from this module. Never throws —
+// callers branch on `ok` instead of catching.
+import type { CliResult } from "@mercury/plugin-types";
+export type { CliResult };
 
 /**
  * Thin wrapper around `Bun.spawn` with both stdout and stderr piped.
