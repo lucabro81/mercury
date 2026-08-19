@@ -72,6 +72,7 @@ export function describeToolStart(toolName: string, input: unknown, describeCli:
     return "esecuzione di un comando";
   }
   if (toolName === "recall_tool_calls") return "Sto consultando la memoria…";
+  if (toolName === "read_skill") return "Sto consultando le istruzioni…";
   if (toolName === "grep") return "Sto cercando…";
   const wikiCategory = WIKI_TOOL_CATEGORY[toolName];
   if (wikiCategory === "read") return "Sto leggendo il wiki…";

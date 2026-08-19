@@ -1,20 +1,34 @@
 import { NO_REPLY } from "../router/channels/google-chat-provider.ts";
+import type { Skill } from "@mercury/plugin-types";
 
 /**
  * Builds a system prompt that only describes tools actually present in
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
  * an absent tool is a real bug, not a harmless no-op).
  */
-export function buildSystemPrompt(opts: { pluginFragments: string[]; multiUserChannel: boolean }): string {
+export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Skill[]; multiUserChannel: boolean }): string {
   const lines = ["You are Mercury, an internal assistant."];
-  // Each loaded plugin's own system-prompt fragment, inserted verbatim in the
-  // order the composition root supplies them — the spot the hardcoded Jira
-  // block used to occupy (Jira's fragment now lives in `@mercury/plugin-jira`).
-  // A plugin that failed to load contributes nothing, which is what makes the
-  // whole "prompt describes a tool this instance doesn't have" bug class go
-  // away: the fragment and the tool now come from the same place.
+  // Each loaded plugin's own always-on system-prompt fragment, inserted
+  // verbatim in the order the composition root supplies them. A plugin that
+  // failed to load contributes nothing — the fragment and the tool now come
+  // from the same place, which is what retires the "prompt describes a tool
+  // this instance doesn't have" bug class.
   for (const fragment of opts.pluginFragments) {
     lines.push(fragment);
+  }
+  // Skill descriptors (Agent Skills): only the name + one-line description stays
+  // in the prompt, always — enough to know a capability exists. The voluminous
+  // body loads on demand via the read_skill tool, the same discover-then-load
+  // shape the CLIs already use with --help, instead of paying for every skill's
+  // full instructions on every turn.
+  if (opts.skills.length > 0) {
+    lines.push(
+      [
+        "You have skills — capabilities whose detailed instructions you load on demand. Before acting on a request a skill covers, call read_skill with its name to load its full how-to first; the descriptions below say only which skill applies, never how to use it.",
+        "Available skills:",
+        ...opts.skills.map((s) => `- ${s.name}: ${s.description}`),
+      ].join("\n"),
+    );
   }
   // Always present (WIKI_VAULT_PATH is a required env var, the vault
   // always exists once Mercury boots) — unlike jira, this

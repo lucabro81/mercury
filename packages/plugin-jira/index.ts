@@ -11,7 +11,6 @@
  * composition root — all now travel as versioned assets with the plugin.
  */
 export { jiraPlugin, jiraCliConfig } from "./plugin.ts";
-export { systemPromptFragment } from "./system-prompt-fragment.ts";
 
 export {
   createJiraIssueListFormatter,

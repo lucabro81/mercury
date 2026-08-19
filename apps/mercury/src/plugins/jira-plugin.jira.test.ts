@@ -15,12 +15,19 @@ const MODEL = {} as never; // build() only closes over the model; it never calls
 const noLog = () => {};
 
 describe("jiraPlugin", () => {
-  it("declares the jira name, its raw allowlist, and a non-empty system-prompt fragment", () => {
+  it("declares the jira name, its raw allowlist, and a jira skill (not an always-on fragment)", () => {
     expect(jiraPlugin.apiVersion).toBe(PLUGIN_API_VERSION);
     expect(jiraPlugin.name).toBe("jira");
     expect(jiraPlugin.cliConfig).toBe(jiraCliConfig);
-    expect(typeof jiraPlugin.systemPromptFragment).toBe("string");
-    expect((jiraPlugin.systemPromptFragment ?? "").length).toBeGreaterThan(0);
+    // The Jira instructions moved from an always-on prompt fragment to a skill
+    // loaded on demand.
+    expect(jiraPlugin.systemPromptFragment).toBeUndefined();
+    expect(jiraPlugin.skills).toHaveLength(1);
+    const skill = jiraPlugin.skills![0]!;
+    expect(skill.name).toBe("jira");
+    expect(skill.description.length).toBeGreaterThan(0);
+    expect(skill.body).toContain("runCommand");
+    expect(skill.body).toContain("--jql");
   });
 
   it("always contributes the issue-list post-turn guard when built, regardless of env", () => {

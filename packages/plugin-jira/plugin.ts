@@ -18,9 +18,9 @@
  * the structural compatibility is checked; Fase 3 hoists that interface into a
  * shared type both sides import.
  */
-import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor } from "@mercury/plugin-types";
+import { readFileSync } from "node:fs";
+import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury/plugin-types";
 import rawConfig from "./jira.json";
-import { systemPromptFragment } from "./system-prompt-fragment.ts";
 import { createJiraIssueListFormatter, issueListConfigSchema } from "./issue-list-formatter.ts";
 import { createIssueListGuard } from "./issue-list-guard.ts";
 import { createIssueListCorrector } from "./issue-list-corrector.ts";
@@ -31,11 +31,17 @@ import { createIssueListCorrector } from "./issue-list-corrector.ts";
  * surface unvalidated. */
 export const jiraCliConfig: unknown = rawConfig;
 
+/** The Jira skill (Agent Skills `SKILL.md`), read from the package asset at
+ * load. Its descriptor stays in the system prompt; its body — the DO/DON'T that
+ * used to be an always-on prompt fragment — loads only when the model asks for
+ * it (see the core's read_skill tool). */
+const jiraSkill = parseSkill(readFileSync(new URL("./skills/jira/SKILL.md", import.meta.url), "utf8"));
+
 export const jiraPlugin: Plugin = {
   apiVersion: PLUGIN_API_VERSION,
   name: "jira",
   cliConfig: jiraCliConfig,
-  systemPromptFragment,
+  skills: [jiraSkill],
   build: (ctx) => {
     const postProcessors: Record<string, CliPostProcessor> = {};
 

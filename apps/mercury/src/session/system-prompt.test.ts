@@ -1,42 +1,44 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { buildSystemPrompt } from "./system-prompt.ts";
-import { systemPromptFragment as jiraFragment } from "@mercury/plugin-jira";
+import { jiraPlugin } from "@mercury/plugin-jira";
+import type { Skill } from "@mercury/plugin-types";
 
 /**
- * Invariance oracle for the system prompt across the Jira extraction (step
- * 2.2). The Jira block used to live inline here behind `if (opts.jira)`; it
- * now lives in `@mercury/plugin-jira` as a fragment, and `buildSystemPrompt`
- * composes whatever fragments the loaded plugins contribute. These fixtures
- * were captured from the pre-extraction code, so composing the plugin's
- * fragment must reproduce the old prompt byte-for-byte — a stray space, a
- * reordered line, or a lost newline during the move fails here rather than
+ * Golden snapshot of the composed system prompt. Jira now contributes a skill,
+ * not an always-on fragment, so the "with jira" prompt carries only the skill's
+ * one-line descriptor (its body loads on demand via read_skill), not the full
+ * DO/DON'T block that used to sit inline here. The "no skills" fixtures are the
+ * same jira-disabled prompt as before — an empty skills list adds no section.
+ * A stray space, a reordered line, or a lost newline fails here rather than
  * silently shifting the model's instructions.
  */
 const golden = (name: string): string =>
   readFileSync(new URL(`./__fixtures__/system-prompt/${name}`, import.meta.url), "utf-8");
 
+const jiraSkills: Skill[] = jiraPlugin.skills ?? [];
+
 describe("buildSystemPrompt", () => {
-  it("with the jira fragment, reproduces the old jira-enabled prompt (single-user)", () => {
-    expect(buildSystemPrompt({ pluginFragments: [jiraFragment], multiUserChannel: false })).toBe(
+  it("lists a loaded plugin's skill descriptor, not its body (single-user)", () => {
+    expect(buildSystemPrompt({ pluginFragments: [], skills: jiraSkills, multiUserChannel: false })).toBe(
       golden("jira-on.mu-off.txt"),
     );
   });
 
-  it("with the jira fragment, reproduces the old jira-enabled prompt (multi-user)", () => {
-    expect(buildSystemPrompt({ pluginFragments: [jiraFragment], multiUserChannel: true })).toBe(
+  it("lists a loaded plugin's skill descriptor, not its body (multi-user)", () => {
+    expect(buildSystemPrompt({ pluginFragments: [], skills: jiraSkills, multiUserChannel: true })).toBe(
       golden("jira-on.mu-on.txt"),
     );
   });
 
-  it("with no fragments, reproduces the old jira-disabled prompt (single-user)", () => {
-    expect(buildSystemPrompt({ pluginFragments: [], multiUserChannel: false })).toBe(
+  it("omits the skills section entirely when no plugin contributed one (single-user)", () => {
+    expect(buildSystemPrompt({ pluginFragments: [], skills: [], multiUserChannel: false })).toBe(
       golden("jira-off.mu-off.txt"),
     );
   });
 
-  it("with no fragments, reproduces the old jira-disabled prompt (multi-user)", () => {
-    expect(buildSystemPrompt({ pluginFragments: [], multiUserChannel: true })).toBe(
+  it("omits the skills section entirely when no plugin contributed one (multi-user)", () => {
+    expect(buildSystemPrompt({ pluginFragments: [], skills: [], multiUserChannel: true })).toBe(
       golden("jira-off.mu-on.txt"),
     );
   });

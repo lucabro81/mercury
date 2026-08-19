@@ -197,6 +197,22 @@ describe("loadPlugins", () => {
     expect(loaded.postTurnGuards).toEqual([gA, gB]);
   });
 
+  it("concatenates the skills of every loaded plugin, in listing order", async () => {
+    const s1 = { name: "a", description: "da", body: "ba" };
+    const s2 = { name: "b", description: "db", body: "bb" };
+    const p1 = plug({ name: "p1", cliConfig: { name: "p1" }, skills: [s1] });
+    const p2 = plug({ name: "p2", cliConfig: { name: "p2" }, skills: [s2] });
+    const plain = plug({ name: "plain", cliConfig: { name: "plain" } });
+    const loaded = await loadPlugins(
+      [p1, plain, p2],
+      baseCtx({
+        enabledClis: ["p1", "plain", "p2"],
+        loadCliConfig: async (raw) => ({ ok: true, binary: (raw as { name: string }).name, config: CONFIG }),
+      }),
+    );
+    expect(loaded.skills).toEqual([s1, s2]);
+  });
+
   it("collects a plugin's describeStatus override under its binary, and leaves the map empty for plugins that don't override", async () => {
     const describe = (cmd: { binary: string; args: string[]; mutating: boolean }) => `custom ${cmd.binary}`;
     const withOverride = plug({ name: "custom", cliConfig: { name: "custom" }, describeStatus: describe });

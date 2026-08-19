@@ -26,7 +26,7 @@
  */
 import type { LanguageModel } from "ai";
 import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
-import type { Plugin, CliPostProcessor, PostTurnGuard, StatusDescriber } from "@mercury/plugin-types";
+import type { Plugin, CliPostProcessor, PostTurnGuard, StatusDescriber, Skill } from "@mercury/plugin-types";
 import type { CliConfig } from "../tools/cli-tool.ts";
 import type { CliConfigFromObjectResult } from "../tools/cli-config-loader.ts";
 
@@ -37,6 +37,7 @@ import type { CliConfigFromObjectResult } from "../tools/cli-config-loader.ts";
 export interface LoadedPlugins {
   cliConfigs: Record<string, CliConfig>;
   promptFragments: string[];
+  skills: Skill[];
   postProcessors: Record<string, CliPostProcessor>;
   postTurnGuards: PostTurnGuard[];
   // Per-binary status describers, only for plugins that override the default
@@ -67,6 +68,7 @@ export interface PluginLoadContext {
 export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
   const cliConfigs: Record<string, CliConfig> = {};
   const promptFragments: string[] = [];
+  const skills: Skill[] = [];
   const postProcessors: Record<string, CliPostProcessor> = {};
   const postTurnGuards: PostTurnGuard[] = [];
   const statusDescribers: Record<string, StatusDescriber> = {};
@@ -105,6 +107,9 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       if (plugin.systemPromptFragment !== undefined) {
         promptFragments.push(plugin.systemPromptFragment);
       }
+      if (plugin.skills !== undefined) {
+        skills.push(...plugin.skills);
+      }
       if (plugin.describeStatus !== undefined) {
         statusDescribers[loaded.binary] = plugin.describeStatus;
       }
@@ -119,5 +124,5 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     }
   }
 
-  return { cliConfigs, promptFragments, postProcessors, postTurnGuards, statusDescribers };
+  return { cliConfigs, promptFragments, skills, postProcessors, postTurnGuards, statusDescribers };
 }

@@ -45,6 +45,7 @@ import {
 } from "./wiki/wiki-note.ts";
 import { createWikiTools } from "./wiki/wiki-tools.ts";
 import { createToolLogRecallTool } from "./session/tool-log-recall-tool.ts";
+import { createReadSkillTool } from "./session/read-skill-tool.ts";
 import { createIdleSessionScanner } from "./cron/idle-session-scanner.ts";
 import { startIdleSessionCron, captureSessionToMemory, type CaptureDeps } from "./cron/idle-session-cron.ts";
 import {
@@ -152,8 +153,16 @@ const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 // always a private 1:1 conversation — an operator typing normally
 // shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
 // Both are built from the fragments of whatever plugins actually loaded.
-const system = buildSystemPrompt({ pluginFragments: loadedPlugins.promptFragments, multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ pluginFragments: loadedPlugins.promptFragments, multiUserChannel: true });
+const system = buildSystemPrompt({
+  pluginFragments: loadedPlugins.promptFragments,
+  skills: loadedPlugins.skills,
+  multiUserChannel: false,
+});
+const chatSystem = buildSystemPrompt({
+  pluginFragments: loadedPlugins.promptFragments,
+  skills: loadedPlugins.skills,
+  multiUserChannel: true,
+});
 
 const histories = new Map<string, SessionHistory>();
 /**
@@ -441,6 +450,12 @@ function buildTools(
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
+  // read_skill only exists when a plugin contributed at least one skill — an
+  // instance with none never sees the tool (and its prompt has no skills
+  // section to point at it).
+  if (loadedPlugins.skills.length > 0) {
+    Object.assign(sessionTools, createReadSkillTool(loadedPlugins.skills));
+  }
   return onToolStart ? withToolStartHook(sessionTools, onToolStart, describeCliStatus, onToolFinish) : sessionTools;
 }
 

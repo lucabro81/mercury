@@ -125,6 +125,45 @@ export const defaultStatusLabel: StatusDescriber = ({ binary, args }) => {
 };
 
 /**
+ * A skill in the Anthropic Agent Skills sense: a `name` and a one-line
+ * `description` that stay in the system prompt so the model knows the capability
+ * exists, plus a `body` (the voluminous "how to" — conventions, flags, examples)
+ * loaded on demand only when a request matches. A plugin declares its skills via
+ * `Plugin.skills`; `parseSkill` reads them from the standard `SKILL.md` shape.
+ */
+export type Skill = { name: string; description: string; body: string };
+
+/**
+ * Parses the Anthropic Agent Skills `SKILL.md` shape — frontmatter fenced by
+ * `---` lines carrying at least `name` and `description`, then the markdown
+ * body — into a `Skill`. A deliberately tiny hand-rolled parser (no yaml
+ * dependency, so this package stays dependency-free): it reads only `name` and
+ * `description` from the frontmatter and takes everything after the closing
+ * fence as the body verbatim. Throws when the frontmatter or either required
+ * field is missing, so a malformed skill fails loudly at load.
+ */
+export function parseSkill(markdown: string): Skill {
+  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(markdown);
+  if (!match) {
+    throw new Error("SKILL.md is missing its frontmatter (--- name/description ---)");
+  }
+  const [, frontmatter = "", body = ""] = match;
+  const fields: Record<string, string> = {};
+  for (const line of frontmatter.split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    if (key) fields[key] = line.slice(idx + 1).trim();
+  }
+  const name = fields.name;
+  const description = fields.description;
+  if (!name || !description) {
+    throw new Error("SKILL.md frontmatter must set both name and description");
+  }
+  return { name, description, body: body.trim() };
+}
+
+/**
  * Reserved slot. A plugin may declare a persistent surface that lives *outside*
  * a turn — a Figma canvas, a configuration view — as data only: a `type` the
  * hosting UI recognizes, an `address` to reach it, and opaque `params`. Never
@@ -154,6 +193,8 @@ export type PluginSurface = {
  * - `systemPromptFragment`: the tool-surface description spliced into the
  *   system prompt when the plugin is active.
  * - `build`: the env/model-dependent contributions (post-processors, guards).
+ * - `skills`: Agent-Skills the plugin contributes (see `Skill`); their
+ *   descriptors go in the system prompt, their bodies load on demand.
  * - `describeStatus`: optional override for the status content of this plugin's
  *   commands (see `StatusDescriber`); when unset the core uses
  *   `defaultStatusLabel`. The core transports the result and never classifies a
@@ -166,6 +207,7 @@ export type Plugin = {
   cliConfig: unknown;
   systemPromptFragment?: string;
   build?: (ctx: PluginRuntimeContext) => PluginRuntimeContributions;
+  skills?: Skill[];
   describeStatus?: StatusDescriber;
   surfaces?: PluginSurface[];
 };
