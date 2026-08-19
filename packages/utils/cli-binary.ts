@@ -1,26 +1,29 @@
 /**
- * The pure, side-effect-free half of the Jira plugin's binary provisioning:
- * how a Node platform/arch pair maps to one of the CLI's published release
- * assets, how the release download URL is built, and how the version pin is
- * read out of the plugin's own package.json. The postinstall script
- * (`scripts/install-jira-cli.ts`) composes these with Bun's `fetch` and a file
- * write to actually fetch the binary at install time; keeping the logic here
- * lets it be unit-tested without touching the network or the filesystem.
+ * Shared helper for provisioning a plugin's pinned CLI binary. Every plugin
+ * that owns a CLI binary downloads it the same way — the only thing that
+ * differs is the pin (repo/crate/version), which each plugin declares as data
+ * in its own package.json (`mercury.cliBinary`). This module is that common
+ * mechanism, factored out when the second plugin (Bitbucket) would otherwise
+ * have duplicated it verbatim.
  *
- * The binary version is pinned as data in package.json (`mercury.cliBinary`)
- * rather than resolved to "latest" at install time: two builds weeks apart must
- * bake the identical binary, so the pin is bumped deliberately, not drifted
- * into. This is what makes the image reproducible — the reason the download
+ * The pure parts (platform resolution, URL construction, reading the pin) are
+ * unit-tested; `downloadPinnedBinary` composes them with Bun's `fetch` and a
+ * file write and is the body of each plugin's postinstall script.
+ *
+ * The binary version is pinned as data rather than resolved to "latest" at
+ * install time: two builds weeks apart must bake the identical binary, so the
+ * pin is bumped deliberately. That reproducibility is why binary provisioning
  * moved off the build-time `install-clis.sh` "latest per crate" resolution and
- * onto the versioned plugin package.
+ * onto the versioned plugin packages.
  */
+import { chmod, mkdir } from "node:fs/promises";
 import { z } from "zod";
 
 /** The three platform triples the CLI monorepo publishes an asset for — there
  * is deliberately no macos-x86_64 (Intel Mac) build. */
 export type Platform = "linux-x86_64" | "linux-arm64" | "macos-arm64";
 
-/** The pinned binary coordinates, read from package.json's `mercury.cliBinary`. */
+/** The pinned binary coordinates, read from a package.json's `mercury.cliBinary`. */
 export type PinnedBinary = { repo: string; crate: string; version: string };
 
 const pinnedBinarySchema = z
@@ -40,13 +43,13 @@ export function resolvePlatform(platform: string, arch: string): Platform {
   const os = platform === "linux" ? "linux" : platform === "darwin" ? "macos" : undefined;
   const cpu = arch === "x64" ? "x86_64" : arch === "arm64" ? "arm64" : undefined;
   if (!os || !cpu) {
-    throw new Error(`unsupported platform for jira CLI: ${platform}/${arch}`);
+    throw new Error(`unsupported platform for CLI binary: ${platform}/${arch}`);
   }
   const triple = `${os}-${cpu}`;
   // macos-x86_64 resolves above but has no published asset — reject it here so
   // the failure is a clear "unsupported", not a download 404.
   if (triple !== "linux-x86_64" && triple !== "linux-arm64" && triple !== "macos-arm64") {
-    throw new Error(`no published jira CLI asset for platform ${triple}`);
+    throw new Error(`no published CLI asset for platform ${triple}`);
   }
   return triple;
 }
@@ -73,4 +76,32 @@ export function readPinnedBinary(pkg: unknown): PinnedBinary {
     throw new Error(`invalid or missing mercury.cliBinary pin in package.json: ${issues}`);
   }
   return parsed.data;
+}
+
+/**
+ * Downloads a plugin's pinned CLI binary into its `bin/` directory. Called from
+ * a plugin's postinstall as `downloadPinnedBinary(pkg, import.meta.url)`, where
+ * `pkg` is the plugin's own imported package.json and the script lives in the
+ * plugin's `scripts/` — so `../bin/` resolves to the plugin's `bin/`. Uses
+ * Bun's `fetch` (no curl/jq). Throws on a failed download, failing the install
+ * loudly rather than producing an image without the binary it asked for.
+ */
+export async function downloadPinnedBinary(pkg: unknown, scriptUrl: string | URL): Promise<void> {
+  const pin = readPinnedBinary(pkg);
+  const platform = resolvePlatform(process.platform, process.arch);
+  const url = binaryAssetUrl(pin, platform);
+
+  const binDir = new URL("../bin/", scriptUrl);
+  const binPath = new URL(`./${pin.crate}`, binDir);
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`failed to download ${pin.crate} CLI from ${url}: HTTP ${response.status} ${response.statusText}`);
+  }
+
+  await mkdir(binDir, { recursive: true });
+  await Bun.write(binPath, response);
+  await chmod(binPath, 0o755);
+
+  console.log(`[${pin.crate}] installed ${pin.crate} ${pin.version} (${platform}) from ${url}`);
 }

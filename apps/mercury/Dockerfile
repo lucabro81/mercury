@@ -61,6 +61,10 @@ COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
 COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
 COPY --chown=mercury:mercury packages/plugin-types/package.json ./packages/plugin-types/
+# @mercury/utils is copied in full BEFORE install too: a plugin's postinstall
+# imports its downloadPinnedBinary at install time, so its source has to be
+# present when `bun install` runs the postinstall.
+COPY --chown=mercury:mercury packages/utils ./packages/utils
 # The Jira plugin is copied in full BEFORE install, unlike apps/mercury/src
 # below: its package.json declares a postinstall that downloads the pinned jira
 # binary into packages/plugin-jira/bin/ during `bun install`, so the script has

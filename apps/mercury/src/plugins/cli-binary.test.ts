@@ -1,14 +1,14 @@
 import { describe, it, expect } from "bun:test";
-import { resolvePlatform, binaryAssetUrl, readPinnedBinary } from "@mercury/plugin-jira/cli-binary";
+import { resolvePlatform, binaryAssetUrl, readPinnedBinary } from "@mercury/utils";
 
 /**
- * The pure half of the Jira plugin's binary provisioning — the platform→asset
- * mapping and the release-URL construction the postinstall script relies on.
- * These are the parts most likely to silently produce a 404 (a wrong asset
- * name, a mis-built tag), so they're pinned exactly rather than left to the
- * one integration point (the real download, verified in the built container).
- * The IO half (fetch + write + chmod) lives in scripts/install-jira-cli.ts and
- * isn't unit-tested — it's exercised for real by the Docker build.
+ * The pure half of the shared CLI-binary provisioning (`@mercury/utils`) every
+ * plugin's postinstall relies on — the platform→asset mapping and the
+ * release-URL construction. These are the parts most likely to silently produce
+ * a 404 (a wrong asset name, a mis-built tag), so they're pinned exactly rather
+ * than left to the one integration point (the real download, verified in the
+ * built container). The IO half (`downloadPinnedBinary`: fetch + write + chmod)
+ * isn't unit-tested — it's exercised for real by each plugin's Docker build.
  */
 describe("resolvePlatform", () => {
   it("maps the three platforms that have a published asset", () => {
