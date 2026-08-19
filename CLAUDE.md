@@ -64,7 +64,7 @@ apps/mercury/
 │   ...
 ├── scripts/
 │   └── install-clis.sh
-├── cli-configs/               # maintainer-authored per-CLI allowlist config (reference: jira.json)
+├── cli-configs/               # maintainer-authored per-CLI allowlist config (reference: bitbucket.json)
 ├── src/
 │   ├── index.ts              # composition root — wires model/tools/channels
 │   ├── model/                # Ollama provider, real context-window lookup
