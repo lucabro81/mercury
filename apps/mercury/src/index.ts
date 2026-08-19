@@ -17,21 +17,15 @@ import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import {
-  jiraCliConfig,
-  systemPromptFragment as jiraSystemPromptFragment,
-  createJiraIssueListFormatter,
-  issueListConfigSchema,
-  createIssueListGuard,
-  createIssueListCorrector,
-} from "@mercury/plugin-jira";
+import { loadPlugins, type PluginModule } from "./plugins/plugin-loader.ts";
+import { jiraPlugin } from "@mercury/plugin-jira";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
 import { buildSystemPrompt } from "./session/system-prompt.ts";
-import { createTurnRunner, type PostTurnGuard } from "./router/turn-runner.ts";
+import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import { createTerminalProvider } from "./router/terminal-provider.ts";
 import { stdinIsSession } from "./router/terminal.ts";
@@ -84,84 +78,10 @@ const enabledClis = (process.env.MERCURY_CLIS ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-// The known-CLI boundary for this instance comes from two sources now.
-// Most binaries are still maintainer-authored config files in cliConfigDir,
-// one per binary, bind-mounted at runtime (bitbucket/google-chat — see
-// docker-compose.override.yml, .env.example). Jira, the first extracted
-// plugin, instead hands its allowlist over as data (`@mercury/plugin-jira`),
-// which the core validates through the identical schema/version barrier
-// (loadCliConfigFromObject). Either way a binary only reaches runCommand once
-// its config is present, schema-valid and version-checked, and only if it's
-// listed in MERCURY_CLIS — so a plugin config still respects the enable list.
-const pluginCliConfigs: Record<string, unknown> = { jira: jiraCliConfig };
-const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
-// File-based names only; plugin-provided names are loaded from their own data
-// below, never looked for on disk (no spurious "not activated" for a jira.json
-// that no longer exists).
-const activeCliConfigs = await loadActiveCliConfigs(
-  enabledClis.filter((name) => !(name in pluginCliConfigs)),
-  { configDir: cliConfigDir, runCliFn: runCli },
-);
-for (const name of enabledClis) {
-  if (!(name in pluginCliConfigs)) {
-    continue;
-  }
-  const loaded = await loadCliConfigFromObject(pluginCliConfigs[name], { runCliFn: runCli });
-  if (loaded.ok) {
-    activeCliConfigs[loaded.binary] = loaded.config;
-  } else {
-    console.error(`CLI "${name}" not activated: ${loaded.reason}`);
-  }
-}
-const jiraEnabled = Boolean(activeCliConfigs.jira);
-
-// The "issue-list" post-processor the plugin's allowlist declares on
-// `issue search` only registers if JIRA_SITE_URL is set — it isn't
-// derivable from any CLI output (the API talks to
-// api.atlassian.com/ex/jira/<cloud-id>/..., unrelated to the human-facing
-// hostname), so without it the formatter is never registered and
-// `issue search` passes through unaugmented, same as any CLI with no
-// post-processor. The plugin owns the config schema; the optional
-// JIRA_ISSUE_LIST_TEMPLATE lets a deployment override each issue line's
-// format (see issueListConfigSchema). Invalid config logs and skips the
-// formatter rather than crashing — the hard "plugin won't load" belongs to
-// the fail-soft loading step, not here.
-const cliPostProcessors: Record<string, CliPostProcessor> = {};
-const jiraSiteUrl = process.env.JIRA_SITE_URL;
-if (jiraSiteUrl) {
-  const parsed = issueListConfigSchema.safeParse({
-    siteUrl: jiraSiteUrl,
-    itemTemplate: process.env.JIRA_ISSUE_LIST_TEMPLATE,
-  });
-  if (parsed.success) {
-    cliPostProcessors["issue-list"] = createJiraIssueListFormatter(parsed.data);
-  } else {
-    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    console.error(`Jira issue-list formatter not registered: invalid config: ${issues}`);
-  }
-}
-// A single subscription for the whole app (Cloud Pub/Sub deployment) —
-// unlike the retired impersonation channel, there's no per-space Workspace
-// Events subscription to manage: whatever space the app is a member of
-// delivers its events here.
-const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
-
-// System-prompt fragments contributed by the plugins that actually loaded —
-// gated on the same activation as their tools (jiraEnabled reflects whether
-// the allowlist validated), so the prompt never describes a tool this
-// instance lacks. Jira is the only plugin today; more get pushed here as
-// they're extracted.
-const pluginFragments: string[] = [];
-if (jiraEnabled) {
-  pluginFragments.push(jiraSystemPromptFragment);
-}
-// Two separate system prompts, not one shared string: the multiUserChannel
-// clause (NO_REPLY heuristic) must never reach the terminal, which is
-// always a private 1:1 conversation — an operator typing normally
-// shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
-const system = buildSystemPrompt({ pluginFragments, multiUserChannel: false });
-const chatSystem = buildSystemPrompt({ pluginFragments, multiUserChannel: true });
-
+// The model is constructed up front, before the plugins load and the system
+// prompt is built: a plugin's post-turn guard can be model-backed (Jira's
+// issue-list corrector is), and the system prompt is assembled from the
+// fragments the plugin loader returns — both need the model in hand first.
 const provider = getOllamaProvider();
 const ollamaHost = requireEnv("OLLAMA_HOST"); // already validated by getOllamaProvider(); read again here for the terminal provider's getLoadedContextLength call
 const ollamaModel = requireEnv("OLLAMA_MODEL");
@@ -179,6 +99,52 @@ const ollamaModel = requireEnv("OLLAMA_MODEL");
 const ollamaThink = process.env.OLLAMA_THINK !== "false";
 const model = provider(ollamaModel, { think: ollamaThink });
 const summarize = createSummarizer(model);
+
+// Plugins. This is the only place that names them — the loader and every other
+// module process an opaque list (see plugins/plugin-loader.ts). Each supplies
+// its allowlist as data, a system-prompt fragment, and a `build()` that turns
+// the runtime context into post-processors and post-turn guards. A plugin
+// contributes only when it's both listed in MERCURY_CLIS and its allowlist
+// validates through the same schema/version barrier a file-based config passes;
+// one that fails — bad config, throwing build — degrades only itself.
+const plugins: PluginModule[] = [jiraPlugin];
+const pluginNames = new Set(plugins.map((p) => p.name));
+
+// File-based CLI configs come from maintainer-authored files in cliConfigDir,
+// one per binary, bind-mounted at runtime (bitbucket/google-chat — see
+// docker-compose.override.yml, .env.example). Plugin-provided names are
+// excluded here: they carry their allowlist as data, validated by loadPlugins
+// below, and are never looked for on disk (no spurious "not activated" for a
+// jira.json that no longer exists).
+const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
+const activeCliConfigs = await loadActiveCliConfigs(
+  enabledClis.filter((name) => !pluginNames.has(name)),
+  { configDir: cliConfigDir, runCliFn: runCli },
+);
+
+const loadedPlugins = await loadPlugins(plugins, {
+  enabledClis,
+  loadCliConfig: (raw) => loadCliConfigFromObject(raw, { runCliFn: runCli }),
+  model,
+  env: process.env,
+  log: (msg) => console.error(msg),
+});
+Object.assign(activeCliConfigs, loadedPlugins.cliConfigs);
+const cliPostProcessors: Record<string, CliPostProcessor> = loadedPlugins.postProcessors;
+
+// A single subscription for the whole app (Cloud Pub/Sub deployment) —
+// unlike the retired impersonation channel, there's no per-space Workspace
+// Events subscription to manage: whatever space the app is a member of
+// delivers its events here.
+const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
+
+// Two separate system prompts, not one shared string: the multiUserChannel
+// clause (NO_REPLY heuristic) must never reach the terminal, which is
+// always a private 1:1 conversation — an operator typing normally
+// shouldn't risk an unexpected NO_REPLY meant for a shared Google Chat space.
+// Both are built from the fragments of whatever plugins actually loaded.
+const system = buildSystemPrompt({ pluginFragments: loadedPlugins.promptFragments, multiUserChannel: false });
+const chatSystem = buildSystemPrompt({ pluginFragments: loadedPlugins.promptFragments, multiUserChannel: true });
 
 const histories = new Map<string, SessionHistory>();
 /**
@@ -500,19 +466,14 @@ function logStep(prefix: string, step: StepInfo): void {
 // only for a genuinely new, tracked (real per-user identity) session —
 // today that's Google Chat; the terminal's turn.userId is always undefined,
 // so it never triggers this, same as before this refactor.
-// Post-turn guards contributed by loaded plugins (see PostTurnGuard). Jira's
-// registers only when the plugin is active, and is built with the real
-// model-backed corrector; the core runs it without knowing what it does.
-const postTurnGuards: PostTurnGuard[] = [];
-if (jiraEnabled) {
-  postTurnGuards.push(createIssueListGuard(createIssueListCorrector(model)));
-}
-
 const handleTurn = createTurnRunner({
   model,
   systemPrompts: { singleUser: system, multiUser: chatSystem },
   buildTools,
-  postTurnGuards,
+  // Post-turn guards contributed by whatever plugins loaded — the core runs
+  // them without knowing what any of them does (see PostTurnGuard). Jira's
+  // model-backed issue-list corrector is built inside its plugin's build().
+  postTurnGuards: loadedPlugins.postTurnGuards,
   getOrCreateHistory: async (key, trackForCapture, userId) => {
     if (trackForCapture && userId && !histories.has(key)) {
       const primer = await buildContextPrimer(userId, {

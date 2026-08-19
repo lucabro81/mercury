@@ -70,6 +70,7 @@ apps/mercury/
 │   ├── model/                # Ollama provider, real context-window lookup
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
 │   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
+│   ├── plugins/               # generic fail-soft plugin loader (plugin-loader.ts) — turns a hand-listed plugin set into tools/prompt/guards
 │   ├── router/
 │   │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
 │   │   ├── terminal.ts         # REPL channel
