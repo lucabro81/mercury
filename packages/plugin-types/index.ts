@@ -93,6 +93,38 @@ export type PluginRuntimeContributions = {
 };
 
 /**
+ * A CLI command about to run, as the status describer sees it: the binary, the
+ * argv after it, and whether the command mutates state (the core computes this
+ * from the allowlist and passes it in, so a custom describer can vary read vs
+ * write without re-deriving it).
+ */
+export type CliCommandInfo = { binary: string; args: string[]; mutating: boolean };
+
+/** Turns a command about to run into the one-line status content shown while it
+ * runs. A plugin may supply one (`Plugin.describeStatus`) to override the
+ * default; the core only transports the result, the channel decides how to
+ * render it. */
+export type StatusDescriber = (cmd: CliCommandInfo) => string;
+
+/**
+ * The default status content for a CLI command, used for every command unless
+ * its plugin overrides it. A plain "esecuzione <binary> <sottocomando>", where
+ * the subcommand is the leading non-flag tokens capped at two — deliberately
+ * not a read/write classification, which is what the core used to hardcode and
+ * 3.3 removed. A plugin that wants finer wording supplies its own
+ * `describeStatus`.
+ */
+export const defaultStatusLabel: StatusDescriber = ({ binary, args }) => {
+  const sub: string[] = [];
+  for (const a of args) {
+    if (a.startsWith("-")) break;
+    sub.push(a);
+    if (sub.length === 2) break;
+  }
+  return sub.length > 0 ? `esecuzione ${binary} ${sub.join(" ")}` : `esecuzione ${binary}`;
+};
+
+/**
  * Reserved slot. A plugin may declare a persistent surface that lives *outside*
  * a turn — a Figma canvas, a configuration view — as data only: a `type` the
  * hosting UI recognizes, an `address` to reach it, and opaque `params`. Never
@@ -122,6 +154,10 @@ export type PluginSurface = {
  * - `systemPromptFragment`: the tool-surface description spliced into the
  *   system prompt when the plugin is active.
  * - `build`: the env/model-dependent contributions (post-processors, guards).
+ * - `describeStatus`: optional override for the status content of this plugin's
+ *   commands (see `StatusDescriber`); when unset the core uses
+ *   `defaultStatusLabel`. The core transports the result and never classifies a
+ *   command itself.
  * - `surfaces`: reserved (see `PluginSurface`); absent for a plugin with none.
  */
 export type Plugin = {
@@ -130,5 +166,6 @@ export type Plugin = {
   cliConfig: unknown;
   systemPromptFragment?: string;
   build?: (ctx: PluginRuntimeContext) => PluginRuntimeContributions;
+  describeStatus?: StatusDescriber;
   surfaces?: PluginSurface[];
 };

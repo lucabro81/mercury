@@ -17,6 +17,31 @@
 import type { Tool } from "ai";
 import { parseCommand } from "../tools/command-parser.ts";
 import { matchCommand, type CliConfig } from "../tools/cli-tool.ts";
+import { defaultStatusLabel, type StatusDescriber } from "@mercury/plugin-types";
+
+/**
+ * Builds the `runCommand` status describer the composition root injects into
+ * the tool-start hook. It parses the command, computes whether it mutates from
+ * the same allowlist that gates execution (via `matchCommand`, so the label can
+ * never drift from what actually runs), and hands that to the command's plugin
+ * describer — or `defaultStatusLabel` when the plugin doesn't override it (and
+ * for file-based CLIs, which aren't plugins). The core no longer classifies
+ * read vs write itself; it only transports whatever the describer returns.
+ */
+export function createCliStatusDescriber(
+  configs: Record<string, CliConfig>,
+  describers: Record<string, StatusDescriber>,
+): (command: string) => string {
+  return (command) => {
+    const parsed = parseCommand(command);
+    if (!parsed.ok) return "esecuzione di un comando";
+    const config = configs[parsed.binary];
+    const match = config ? matchCommand(parsed.args, config) : undefined;
+    const mutating = match !== undefined && match.kind !== "not-allowed" ? match.mutating : false;
+    const describe = describers[parsed.binary] ?? defaultStatusLabel;
+    return describe({ binary: parsed.binary, args: parsed.args, mutating });
+  };
+}
 
 // Elenco piccolo e stabile (6 tool totali oggi) — va aggiornato a mano se
 // si aggiunge un nuovo tool nominato; qualunque nome non elencato qui
@@ -29,32 +54,22 @@ const WIKI_TOOL_CATEGORY: Record<string, "read" | "write"> = {
 };
 
 /**
- * Describes, in one short user-facing sentence, what a tool call is about
- * to do — no arguments/queries shown, just which service and (for the
- * generic `runCommand` CLI tool) whether it reads or writes. Read/write
- * classification for `runCommand` reuses `parseCommand`/`matchCommand`
- * as-is (the exact same functions `cli-tool.ts`'s own `execute` calls a
- * moment later) rather than guessing from the command text, so it can
- * never drift from what actually executes.
+ * Describes, in one short user-facing sentence, what a tool call is about to do
+ * — no arguments/queries shown. For the generic `runCommand` CLI tool the label
+ * comes from the injected `describeCli` (a plugin's describer or the default,
+ * see `createCliStatusDescriber`), never coined here: the core stops deciding
+ * how a plugin's command reads. The other tools are core functionality (wiki,
+ * grep, memory) and keep their core-coined labels until they too become
+ * internal plugins.
  */
-export function describeToolStart(toolName: string, input: unknown, configs: Record<string, CliConfig>): string {
+export function describeToolStart(toolName: string, input: unknown, describeCli: (command: string) => string): string {
   if (toolName === "runCommand") {
     const command =
       typeof input === "object" && input !== null && "command" in input
         ? (input as { command: unknown }).command
         : undefined;
-    if (typeof command === "string") {
-      const parsed = parseCommand(command);
-      if (parsed.ok) {
-        const config = configs[parsed.binary];
-        const match = config ? matchCommand(parsed.args, config) : undefined;
-        if (match && match.kind !== "not-allowed") {
-          return match.mutating ? `Sto scrivendo dati con ${parsed.binary}…` : `Sto leggendo dati con ${parsed.binary}…`;
-        }
-        return `Sto usando ${parsed.binary}…`;
-      }
-    }
-    return "Sto eseguendo un comando…";
+    if (typeof command === "string") return describeCli(command);
+    return "esecuzione di un comando";
   }
   if (toolName === "recall_tool_calls") return "Sto consultando la memoria…";
   if (toolName === "grep") return "Sto cercando…";
@@ -138,7 +153,7 @@ export function classifyToolResult(result: unknown): ToolOutcome {
 export function withToolStartHook(
   tools: Record<string, Tool>,
   onToolStart: (label: string, detail?: string, toolCallId?: string) => void,
-  configs: Record<string, CliConfig>,
+  describeCli: (command: string) => string,
   onToolFinish?: (toolCallId: string, outcome: ToolOutcome) => void,
 ): Record<string, Tool> {
   let chain: Promise<void> = Promise.resolve();
@@ -147,7 +162,7 @@ export function withToolStartHook(
     wrapped[name] = {
       ...t,
       execute: (input: unknown, options: { toolCallId: string }) => {
-        const label = describeToolStart(name, input, configs);
+        const label = describeToolStart(name, input, describeCli);
         const detail = describeToolDetail(name, input);
         const run = chain.then(async () => {
           onToolStart(label, detail, options.toolCallId);

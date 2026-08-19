@@ -37,7 +37,7 @@ import {
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
-import { withToolStartHook } from "./session/tool-start-hook.ts";
+import { withToolStartHook, createCliStatusDescriber } from "./session/tool-start-hook.ts";
 import {
   writeInferredNote,
   writeToolCorrectionNote,
@@ -133,6 +133,13 @@ const loadedPlugins = await loadPlugins(plugins, {
 });
 Object.assign(activeCliConfigs, loadedPlugins.cliConfigs);
 const cliPostProcessors: Record<string, CliPostProcessor> = loadedPlugins.postProcessors;
+
+// The status content for a `runCommand` call comes from the command's plugin
+// (its `describeStatus`, or the shared default) — the core stops classifying
+// read/write. Built once from the active configs (for the mutating flag a
+// custom describer may use) and the plugins' overrides; the terminal and
+// Google Chat channels render whatever string it returns.
+const describeCliStatus = createCliStatusDescriber(activeCliConfigs, loadedPlugins.statusDescribers);
 
 // A single subscription for the whole app (Cloud Pub/Sub deployment) —
 // unlike the retired impersonation channel, there's no per-space Workspace
@@ -434,7 +441,7 @@ function buildTools(
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
-  return onToolStart ? withToolStartHook(sessionTools, onToolStart, activeCliConfigs, onToolFinish) : sessionTools;
+  return onToolStart ? withToolStartHook(sessionTools, onToolStart, describeCliStatus, onToolFinish) : sessionTools;
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long

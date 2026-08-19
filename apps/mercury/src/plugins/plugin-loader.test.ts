@@ -196,4 +196,19 @@ describe("loadPlugins", () => {
     expect(loaded.postProcessors).toEqual({ a: ppA.a, b: ppB.b });
     expect(loaded.postTurnGuards).toEqual([gA, gB]);
   });
+
+  it("collects a plugin's describeStatus override under its binary, and leaves the map empty for plugins that don't override", async () => {
+    const describe = (cmd: { binary: string; args: string[]; mutating: boolean }) => `custom ${cmd.binary}`;
+    const withOverride = plug({ name: "custom", cliConfig: { name: "custom" }, describeStatus: describe });
+    const plain = plug({ name: "plain", cliConfig: { name: "plain" } });
+    const loaded = await loadPlugins(
+      [withOverride, plain],
+      baseCtx({
+        enabledClis: ["custom", "plain"],
+        loadCliConfig: async (raw) => ({ ok: true, binary: (raw as { name: string }).name, config: CONFIG }),
+      }),
+    );
+    expect(loaded.statusDescribers).toEqual({ custom: describe });
+    expect(loaded.statusDescribers.plain).toBeUndefined();
+  });
 });

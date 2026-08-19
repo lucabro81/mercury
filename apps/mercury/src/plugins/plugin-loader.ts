@@ -26,7 +26,7 @@
  */
 import type { LanguageModel } from "ai";
 import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
-import type { Plugin, CliPostProcessor, PostTurnGuard } from "@mercury/plugin-types";
+import type { Plugin, CliPostProcessor, PostTurnGuard, StatusDescriber } from "@mercury/plugin-types";
 import type { CliConfig } from "../tools/cli-tool.ts";
 import type { CliConfigFromObjectResult } from "../tools/cli-config-loader.ts";
 
@@ -39,6 +39,11 @@ export interface LoadedPlugins {
   promptFragments: string[];
   postProcessors: Record<string, CliPostProcessor>;
   postTurnGuards: PostTurnGuard[];
+  // Per-binary status describers, only for plugins that override the default
+  // (`Plugin.describeStatus`). Empty when every plugin uses `defaultStatusLabel`
+  // — the composition root falls back to that default for any binary absent
+  // here, including the file-based CLIs that aren't plugins.
+  statusDescribers: Record<string, StatusDescriber>;
 }
 
 /** Everything the loader needs from the composition root: which CLIs are
@@ -64,6 +69,7 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
   const promptFragments: string[] = [];
   const postProcessors: Record<string, CliPostProcessor> = {};
   const postTurnGuards: PostTurnGuard[] = [];
+  const statusDescribers: Record<string, StatusDescriber> = {};
 
   for (const plugin of plugins) {
     // Not enabled on this instance: contribute nothing, and don't even
@@ -99,6 +105,9 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       if (plugin.systemPromptFragment !== undefined) {
         promptFragments.push(plugin.systemPromptFragment);
       }
+      if (plugin.describeStatus !== undefined) {
+        statusDescribers[loaded.binary] = plugin.describeStatus;
+      }
       if (contributions.postProcessors) {
         Object.assign(postProcessors, contributions.postProcessors);
       }
@@ -110,5 +119,5 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     }
   }
 
-  return { cliConfigs, promptFragments, postProcessors, postTurnGuards };
+  return { cliConfigs, promptFragments, postProcessors, postTurnGuards, statusDescribers };
 }

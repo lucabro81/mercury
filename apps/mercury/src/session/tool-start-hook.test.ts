@@ -1,6 +1,13 @@
 import { describe, it, expect } from "bun:test";
-import { describeToolStart, describeToolDetail, classifyToolResult, withToolStartHook } from "./tool-start-hook.ts";
+import {
+  describeToolStart,
+  describeToolDetail,
+  classifyToolResult,
+  withToolStartHook,
+  createCliStatusDescriber,
+} from "./tool-start-hook.ts";
 import type { CliConfig } from "../tools/cli-tool.ts";
+import type { StatusDescriber } from "@mercury/plugin-types";
 import type { Tool } from "ai";
 
 const configs: Record<string, CliConfig> = {
@@ -13,68 +20,70 @@ const configs: Record<string, CliConfig> = {
   },
 };
 
+// The real CLI describer with no plugin overrides — every command falls to the
+// contract default `esecuzione <binary> <sottocomando>`.
+const describeCli = createCliStatusDescriber(configs, {});
+
+describe("createCliStatusDescriber", () => {
+  it("labels any CLI command with the default, no read/write distinction", () => {
+    expect(describeCli("jira issue search --jql X")).toBe("esecuzione jira issue search");
+    expect(describeCli("jira issue create --summary X")).toBe("esecuzione jira issue create");
+    expect(describeCli("jira issue delete KAN-1")).toBe("esecuzione jira issue delete");
+  });
+
+  it("labels a command whose binary isn't configured on this instance with the default too", () => {
+    expect(describeCli("bitbucket pr list workspace/repo")).toBe("esecuzione bitbucket pr list");
+  });
+
+  it("returns a generic label when the command string doesn't parse", () => {
+    expect(describeCli('jira issue search --jql "unterminated')).toBe("esecuzione di un comando");
+  });
+
+  it("delegates to a plugin's own describeStatus when it overrides the default, passing the computed mutating flag", () => {
+    const describers: Record<string, StatusDescriber> = {
+      jira: (cmd) => `custom ${cmd.binary} ${cmd.args.join(" ")} mutating=${cmd.mutating}`,
+    };
+    const describe = createCliStatusDescriber(configs, describers);
+    expect(describe("jira issue create --summary X")).toBe("custom jira issue create --summary X mutating=true");
+    expect(describe("jira issue search --jql X")).toBe("custom jira issue search --jql X mutating=false");
+  });
+});
+
 describe("describeToolStart", () => {
-  it("labels a non-mutating runCommand invocation as reading, naming the binary", () => {
-    expect(describeToolStart("runCommand", { command: "jira issue search --jql X" }, configs)).toBe(
-      "Sto leggendo dati con jira…",
+  it("delegates a runCommand invocation to the injected CLI describer", () => {
+    expect(describeToolStart("runCommand", { command: "jira issue search --jql X" }, describeCli)).toBe(
+      "esecuzione jira issue search",
+    );
+    expect(describeToolStart("runCommand", { command: "jira issue create --summary X" }, describeCli)).toBe(
+      "esecuzione jira issue create",
     );
   });
 
-  it("labels a mutating runCommand invocation as writing, naming the binary", () => {
-    expect(describeToolStart("runCommand", { command: "jira issue create --summary X" }, configs)).toBe(
-      "Sto scrivendo dati con jira…",
-    );
-  });
-
-  it("labels a confirm-required (still mutating) command as writing too", () => {
-    expect(describeToolStart("runCommand", { command: "jira issue delete KAN-1" }, configs)).toBe(
-      "Sto scrivendo dati con jira…",
-    );
-  });
-
-  it("falls back to naming just the binary when it isn't configured on this instance", () => {
-    expect(describeToolStart("runCommand", { command: "bitbucket pr list" }, configs)).toBe(
-      "Sto usando bitbucket…",
-    );
-  });
-
-  it("falls back to naming just the binary when the command doesn't match any allowed prefix", () => {
-    expect(describeToolStart("runCommand", { command: "jira project delete" }, configs)).toBe(
-      "Sto usando jira…",
-    );
-  });
-
-  it("falls back to a generic label when the command string doesn't parse", () => {
-    expect(describeToolStart("runCommand", { command: 'jira issue search --jql "unterminated' }, configs)).toBe(
-      "Sto eseguendo un comando…",
-    );
-  });
-
-  it("falls back to a generic label when the input has no command field at all", () => {
-    expect(describeToolStart("runCommand", {}, configs)).toBe("Sto eseguendo un comando…");
+  it("uses a generic label when the input has no command field at all", () => {
+    expect(describeToolStart("runCommand", {}, describeCli)).toBe("esecuzione di un comando");
   });
 
   it("labels recall_tool_calls as consulting memory", () => {
-    expect(describeToolStart("recall_tool_calls", {}, configs)).toBe("Sto consultando la memoria…");
+    expect(describeToolStart("recall_tool_calls", {}, describeCli)).toBe("Sto consultando la memoria…");
   });
 
   it("labels the wiki read tools as reading the wiki", () => {
-    expect(describeToolStart("read_file", { path: "x" }, configs)).toBe("Sto leggendo il wiki…");
-    expect(describeToolStart("list_files", {}, configs)).toBe("Sto leggendo il wiki…");
+    expect(describeToolStart("read_file", { path: "x" }, describeCli)).toBe("Sto leggendo il wiki…");
+    expect(describeToolStart("list_files", {}, describeCli)).toBe("Sto leggendo il wiki…");
   });
 
   it("labels grep as searching, not generically reading", () => {
-    expect(describeToolStart("grep", { pattern: "x" }, configs)).toBe("Sto cercando…");
+    expect(describeToolStart("grep", { pattern: "x" }, describeCli)).toBe("Sto cercando…");
   });
 
   it("labels write_file as writing to the wiki", () => {
-    expect(describeToolStart("write_file", { path: "x", content: "y" }, configs)).toBe(
+    expect(describeToolStart("write_file", { path: "x", content: "y" }, describeCli)).toBe(
       "Sto scrivendo sul wiki…",
     );
   });
 
   it("falls back to the raw tool name for an unmapped/future tool", () => {
-    expect(describeToolStart("some_future_tool", {}, configs)).toBe("Sto usando some_future_tool…");
+    expect(describeToolStart("some_future_tool", {}, describeCli)).toBe("Sto usando some_future_tool…");
   });
 });
 
@@ -152,7 +161,7 @@ describe("withToolStartHook", () => {
       read_file: fakeTool(async () => "file contents"),
     };
 
-    const wrapped = withToolStartHook(tools, (label) => calls.push(label), {});
+    const wrapped = withToolStartHook(tools, (label) => calls.push(label), describeCli);
     const result = await execOf(wrapped, "read_file")({}, { toolCallId: "tc-1" });
 
     expect(calls).toEqual(["Sto leggendo il wiki…"]);
@@ -167,7 +176,7 @@ describe("withToolStartHook", () => {
       }),
     };
 
-    const wrapped = withToolStartHook(tools, (label) => calls.push(label), {});
+    const wrapped = withToolStartHook(tools, (label) => calls.push(label), describeCli);
     const execute = execOf(wrapped, "write_file");
 
     await expect(execute({}, { toolCallId: "tc-1" })).rejects.toThrow("disk full");
@@ -182,7 +191,7 @@ describe("withToolStartHook", () => {
       recall_tool_calls: fakeTool(async () => "c"),
     };
 
-    const wrapped = withToolStartHook(tools, (label) => calls.push(label), {});
+    const wrapped = withToolStartHook(tools, (label) => calls.push(label), describeCli);
     for (const name of ["read_file", "write_file", "recall_tool_calls"] as const) {
       await execOf(wrapped, name)({}, { toolCallId: `tc-${name}` });
     }
@@ -199,11 +208,11 @@ describe("withToolStartHook", () => {
     const wrapped = withToolStartHook(
       tools,
       (label, detail, toolCallId) => calls.push([label, detail, toolCallId]),
-      configs,
+      describeCli,
     );
     await execOf(wrapped, "runCommand")({ command: "jira issue search --jql X" }, { toolCallId: "tc-1" });
 
-    expect(calls).toEqual([["Sto leggendo dati con jira…", "jira issue search --jql X", "tc-1"]]);
+    expect(calls).toEqual([["esecuzione jira issue search", "jira issue search --jql X", "tc-1"]]);
   });
 
   it("calls onToolFinish with the classified outcome once execute resolves, after onToolStart", async () => {
@@ -219,7 +228,7 @@ describe("withToolStartHook", () => {
     const wrapped = withToolStartHook(
       tools,
       () => events.push("start"),
-      configs,
+      describeCli,
       (toolCallId, outcome) => {
         events.push("finish");
         finishes.push([toolCallId, outcome]);
@@ -239,7 +248,7 @@ describe("withToolStartHook", () => {
       }),
     };
 
-    const wrapped = withToolStartHook(tools, () => {}, configs, (toolCallId, outcome) =>
+    const wrapped = withToolStartHook(tools, () => {}, describeCli, (toolCallId, outcome) =>
       finishes.push([toolCallId, outcome]),
     );
 
@@ -253,7 +262,7 @@ describe("withToolStartHook", () => {
       runCommand: fakeTool(async () => ({ ok: false, pendingConfirmation: true, token: "t", error: "needs confirm" })),
     };
 
-    const wrapped = withToolStartHook(tools, () => {}, configs, (toolCallId, outcome) =>
+    const wrapped = withToolStartHook(tools, () => {}, describeCli, (toolCallId, outcome) =>
       finishes.push([toolCallId, outcome]),
     );
     await execOf(wrapped, "runCommand")({ command: "jira issue delete KAN-1" }, { toolCallId: "tc-3" });
@@ -263,7 +272,7 @@ describe("withToolStartHook", () => {
 
   it("does not throw when no onToolFinish is supplied", async () => {
     const tools: Record<string, Tool> = { runCommand: fakeTool(async () => ({ ok: true, data: {} })) };
-    const wrapped = withToolStartHook(tools, () => {}, configs);
+    const wrapped = withToolStartHook(tools, () => {}, describeCli);
 
     await expect(execOf(wrapped, "runCommand")({ command: "jira issue search --jql X" }, { toolCallId: "tc-1" })).resolves.toEqual(
       { ok: true, data: {} },
@@ -290,7 +299,7 @@ describe("withToolStartHook", () => {
     const wrapped = withToolStartHook(
       tools,
       (label) => events.push(`start:${label}`),
-      configs,
+      describeCli,
       (toolCallId) => events.push(`finish:${toolCallId}`),
     );
 
@@ -301,14 +310,14 @@ describe("withToolStartHook", () => {
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
-    expect(events).toEqual(["start:Sto leggendo dati con jira…", "execute-1"]);
+    expect(events).toEqual(["start:esecuzione jira issue search", "execute-1"]);
 
     resolveFirst?.();
     await exec1;
     await exec2;
 
     expect(events).toEqual([
-      "start:Sto leggendo dati con jira…",
+      "start:esecuzione jira issue search",
       "execute-1",
       "finish:tc-1",
       "start:Sto consultando la memoria…",
