@@ -16,10 +16,10 @@ WORKDIR /app
 # which CLIs to install is a per-deployment choice (MERCURY_CLIS in .env), not
 # baked into this script — see docker-compose.yml's build.args
 ARG MERCURY_CLIS=jira,bitbucket
-# crates a plugin package provides (jira today): this stage skips them, since
-# the plugin's own postinstall downloads a pinned binary during `bun install`
-# in the final stage. Keep in sync with the plugins listed in src/index.ts.
-ARG MERCURY_PLUGIN_CLIS=jira
+# crates a plugin package provides: this stage skips them, since the plugin's
+# own postinstall downloads a pinned binary during `bun install` in the final
+# stage. Keep in sync with the plugins listed in src/index.ts.
+ARG MERCURY_PLUGIN_CLIS=jira,bitbucket
 COPY apps/mercury/scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 
@@ -72,7 +72,8 @@ COPY --chown=mercury:mercury packages/utils ./packages/utils
 # downloaded binary. The trade-off is that a plugin source change re-runs
 # install (deps are cached; the one binary re-download is seconds).
 COPY --chown=mercury:mercury packages/plugin-jira ./packages/plugin-jira
-RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules packages/plugin-jira/bin
+COPY --chown=mercury:mercury packages/plugin-bitbucket ./packages/plugin-bitbucket
+RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules packages/plugin-jira/bin packages/plugin-bitbucket/bin
 
 # Plugin-provided binaries (downloaded by the postinstall above) onto PATH,
 # generically — each plugin's bin/ contents symlinked into /usr/local/bin,

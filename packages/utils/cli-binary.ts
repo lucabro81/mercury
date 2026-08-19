@@ -17,7 +17,6 @@
  * onto the versioned plugin packages.
  */
 import { chmod, mkdir } from "node:fs/promises";
-import { z } from "zod";
 
 /** The three platform triples the CLI monorepo publishes an asset for — there
  * is deliberately no macos-x86_64 (Intel Mac) build. */
@@ -25,14 +24,6 @@ export type Platform = "linux-x86_64" | "linux-arm64" | "macos-arm64";
 
 /** The pinned binary coordinates, read from a package.json's `mercury.cliBinary`. */
 export type PinnedBinary = { repo: string; crate: string; version: string };
-
-const pinnedBinarySchema = z
-  .object({
-    repo: z.string().min(1),
-    crate: z.string().min(1),
-    version: z.string().min(1),
-  })
-  .strict();
 
 /**
  * Maps a Node `process.platform` / `process.arch` pair to the published asset
@@ -69,13 +60,24 @@ export function binaryAssetUrl(pin: PinnedBinary, platform: Platform): string {
  * pin must fail the install loudly, not silently fetch the wrong thing.
  */
 export function readPinnedBinary(pkg: unknown): PinnedBinary {
+  // Hand-validated rather than with zod: this helper runs from a plugin's
+  // postinstall during `bun install`, and a build-time helper must not depend
+  // on an external package that may not be linked yet at that point.
   const cliBinary = (pkg as { mercury?: { cliBinary?: unknown } })?.mercury?.cliBinary;
-  const parsed = pinnedBinarySchema.safeParse(cliBinary);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`invalid or missing mercury.cliBinary pin in package.json: ${issues}`);
+  const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+  if (
+    typeof cliBinary !== "object" ||
+    cliBinary === null ||
+    !isNonEmptyString((cliBinary as Record<string, unknown>).repo) ||
+    !isNonEmptyString((cliBinary as Record<string, unknown>).crate) ||
+    !isNonEmptyString((cliBinary as Record<string, unknown>).version)
+  ) {
+    throw new Error(
+      "invalid or missing mercury.cliBinary pin in package.json: expected { repo, crate, version } as non-empty strings",
+    );
   }
-  return parsed.data;
+  const { repo, crate, version } = cliBinary as { repo: string; crate: string; version: string };
+  return { repo, crate, version };
 }
 
 /**
