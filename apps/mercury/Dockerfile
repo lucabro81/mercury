@@ -16,6 +16,10 @@ WORKDIR /app
 # which CLIs to install is a per-deployment choice (MERCURY_CLIS in .env), not
 # baked into this script — see docker-compose.yml's build.args
 ARG MERCURY_CLIS=jira,bitbucket
+# crates a plugin package provides (jira today): this stage skips them, since
+# the plugin's own postinstall downloads a pinned binary during `bun install`
+# in the final stage. Keep in sync with the plugins listed in src/index.ts.
+ARG MERCURY_PLUGIN_CLIS=jira
 COPY apps/mercury/scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 
@@ -56,16 +60,26 @@ WORKDIR /app
 COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
 COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
-COPY --chown=mercury:mercury packages/plugin-jira/package.json ./packages/plugin-jira/
-RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules
+# The Jira plugin is copied in full BEFORE install, unlike apps/mercury/src
+# below: its package.json declares a postinstall that downloads the pinned jira
+# binary into packages/plugin-jira/bin/ during `bun install`, so the script has
+# to be present, and a later COPY of the plugin dir would overwrite the
+# downloaded binary. The trade-off is that a plugin source change re-runs
+# install (deps are cached; the one binary re-download is seconds).
+COPY --chown=mercury:mercury packages/plugin-jira ./packages/plugin-jira
+RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules packages/plugin-jira/bin
 
-COPY --from=clis --chown=mercury:mercury /app/bin/* /usr/local/bin/
+# Plugin-provided binaries (downloaded by the postinstall above) onto PATH,
+# generically — each plugin's bin/ contents symlinked into /usr/local/bin,
+# where the file-based CLIs also live. -path is find's glob, not a JS comment.
+RUN find /app/packages -path '*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \;
+
+# File-based CLI binaries from the clis stage (bitbucket etc.). Trailing-slash
+# copy of the dir contents, not a `bin/*` glob, so an empty dir (a deployment
+# whose only CLIs are plugin-provided) doesn't fail the build.
+COPY --from=clis --chown=mercury:mercury /app/bin/ /usr/local/bin/
 
 COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
-# The Jira plugin's runtime sources (index.ts + its jira.json allowlist) —
-# copied after install so a source-only change doesn't bust the dependency
-# layer's cache, same reasoning as apps/mercury/src above.
-COPY --chown=mercury:mercury packages/plugin-jira ./packages/plugin-jira
 
 COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
 RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh
