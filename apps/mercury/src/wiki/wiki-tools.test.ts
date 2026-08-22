@@ -33,7 +33,6 @@ describe("createWikiTools", () => {
     await writeInferredNote(vaultPath, "user-b", "topic-y", { confidence: "low", derived_from: ["ep_2"], last_reviewed: null }, "nota di user-b");
 
     const { list_files } = createWikiTools({ vaultPath, userId: "user-a" });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await list_files.execute({}, {} as never)) as { ok: true; files: string[] };
 
     expect(result.ok).toBe(true);
@@ -47,7 +46,6 @@ describe("createWikiTools", () => {
     await writeCuratedNote(vaultPath, "glossary.md", {}, "Glossario del team.");
 
     const { read_file } = createWikiTools({ vaultPath, userId: "user-a" });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await read_file.execute({ path: "curated/glossary.md" }, {} as never)) as
       | { ok: true; content: string }
       | { ok: false; error: string };
@@ -63,7 +61,6 @@ describe("createWikiTools", () => {
     await writeInferredNote(vaultPath, "user-b", "topic-y", { confidence: "low", derived_from: ["ep_2"], last_reviewed: null }, "nota di user-b");
 
     const { read_file } = createWikiTools({ vaultPath, userId: "user-a" });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await read_file.execute({ path: "inferred/users/user-b/topic-y.md" }, {} as never)) as
       | { ok: true; content: string }
       | { ok: false; error: string };
@@ -78,7 +75,6 @@ describe("createWikiTools", () => {
     const vaultPath = await makeTempVault();
     const { write_file } = createWikiTools({ vaultPath, userId: "user-a" });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await write_file.execute(
       { path: "standards/new-doc.md", content: "Nuovo standard." },
       {} as never,
@@ -96,11 +92,9 @@ describe("createWikiTools", () => {
 
     // the tool only ever writes under curated/, so passing an inferred-looking
     // path just becomes a literal curated/ subpath, never an escape into inferred/
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await write_file.execute({ path: "../inferred/users/user-a/hacked.md", content: "x" }, {} as never);
 
     const { list_files } = createWikiTools({ vaultPath, userId: "user-a" });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await list_files.execute({}, {} as never)) as { ok: true; files: string[] };
     expect(result.files).not.toContain("inferred/users/user-a/hacked.md");
   });
@@ -111,7 +105,6 @@ describe("createWikiTools", () => {
     await writeInferredNote(vaultPath, "user-b", "topic-y", { confidence: "low", derived_from: ["ep_2"], last_reviewed: null }, "pattern-unico-b");
 
     const { grep } = createWikiTools({ vaultPath, userId: "user-a" });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await grep.execute({ pattern: "pattern-unico" }, {} as never)) as
       | { ok: true; matches: { path: string; line: number; text: string }[] }
       | { ok: false; error: string };
@@ -138,7 +131,6 @@ describe("createWikiTools", () => {
       });
 
       const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = (await resolve_reference.execute({ token: "j3h4b5" }, {} as never)) as
         | { ok: true; content: string }
         | { ok: false; error: string };
@@ -154,7 +146,6 @@ describe("createWikiTools", () => {
       const vaultPath = await makeTempVault();
       const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
 
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = (await resolve_reference.execute({ token: "nope00" }, {} as never)) as
         | { ok: true; content: string }
         | { ok: false; error: string };
@@ -172,7 +163,6 @@ describe("createWikiTools", () => {
       });
 
       const { resolve_reference } = createWikiTools({ vaultPath, userId: "user-a" });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = (await resolve_reference.execute({ token: "j3h4b5" }, {} as never)) as
         | { ok: true; content: string }
         | { ok: false; error: string };
@@ -190,9 +180,7 @@ describe("createWikiTools", () => {
       });
 
       const { list_files, grep } = createWikiTools({ vaultPath, userId: "user-a" });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const files = (await list_files.execute({}, {} as never)) as { ok: true; files: string[] };
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const matches = (await grep.execute({ pattern: "jira issue delete" }, {} as never)) as {
         ok: true;
         matches: unknown[];

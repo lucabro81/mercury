@@ -37,7 +37,6 @@ describe("createSelfReviewTools", () => {
     );
 
     const { list_files } = createSelfReviewTools({ vaultPath });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await list_files.execute({}, {} as never)) as { ok: true; files: string[] };
 
     expect(result.ok).toBe(true);
@@ -58,14 +57,12 @@ describe("createSelfReviewTools", () => {
     );
 
     const { read_file } = createSelfReviewTools({ vaultPath });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const rawResult = (await read_file.execute({ path: "raw/notes/x.md" }, {} as never)) as
       | { ok: true; content: string }
       | { ok: false; error: string };
     expect(rawResult.ok).toBe(true);
     if (rawResult.ok) expect(rawResult.content).toContain("pasted content");
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const inferredResult = (await read_file.execute(
       { path: "inferred/users/user-a/topic-x.md" },
       {} as never,
@@ -85,7 +82,6 @@ describe("createSelfReviewTools", () => {
     );
 
     const { grep } = createSelfReviewTools({ vaultPath });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await grep.execute({ pattern: "pattern-unico" }, {} as never)) as
       | { ok: true; matches: { path: string; line: number; text: string }[] }
       | { ok: false; error: string };
@@ -101,7 +97,6 @@ describe("createSelfReviewTools", () => {
     const vaultPath = await makeTempVault();
     const { write_curated } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await write_curated.execute(
       { path: "standards/new-doc.md", content: "Nuovo standard." },
       {} as never,
@@ -118,7 +113,6 @@ describe("createSelfReviewTools", () => {
     await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
     const { update_index_entry } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await update_index_entry.execute(
       { path: "curated/projects/project-codes.md", description: "Project name to code mapping" },
       {} as never,
@@ -134,9 +128,7 @@ describe("createSelfReviewTools", () => {
     await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
     const { update_index_entry } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await update_index_entry.execute({ path: "projects/project-codes.md", description: "first pass" }, {} as never);
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await update_index_entry.execute(
       { path: "curated/projects/project-codes", description: "updated description" },
       {} as never,
@@ -151,7 +143,6 @@ describe("createSelfReviewTools", () => {
     const vaultPath = await makeTempVault();
     const { update_index_entry } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await update_index_entry.execute(
       { path: "projects/project-codes.md", description: "Project name to code mapping" },
       {} as never,
@@ -168,10 +159,8 @@ describe("createSelfReviewTools", () => {
     const vaultPath = await makeTempVault();
     await writeCuratedNote(vaultPath, "glossary.md", {}, "body");
     const { update_index_entry, remove_index_entry } = createSelfReviewTools({ vaultPath });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await update_index_entry.execute({ path: "curated/glossary.md", description: "team glossary" }, {} as never);
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await remove_index_entry.execute({ path: "glossary.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };
@@ -185,7 +174,6 @@ describe("createSelfReviewTools", () => {
     const vaultPath = await makeTempVault();
     const { remove_index_entry } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await remove_index_entry.execute({ path: "curated/glossary.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };
@@ -203,7 +191,6 @@ describe("createSelfReviewTools", () => {
     await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
     const { update_index_entry } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await update_index_entry.execute(
       { path: "curated/projects/project-codes.md", description: "Project name to code mapping" },
       {} as never,
@@ -217,7 +204,6 @@ describe("createSelfReviewTools", () => {
     await writeRawEntry(vaultPath, "notes/x.md", "body");
     const { delete_raw } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await delete_raw.execute({ path: "raw/notes/x.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };
@@ -231,7 +217,6 @@ describe("createSelfReviewTools", () => {
     await writeCuratedNote(vaultPath, "standards/x.md", {}, "body");
     const { delete_raw } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await delete_raw.execute({ path: "curated/standards/x.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };
@@ -246,7 +231,6 @@ describe("createSelfReviewTools", () => {
     await writeCuratedNote(vaultPath, "standards/superseded.md", {}, "body");
     const { delete_curated } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await delete_curated.execute({ path: "curated/standards/superseded.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };
@@ -260,7 +244,6 @@ describe("createSelfReviewTools", () => {
     await writeRawEntry(vaultPath, "notes/x.md", "body");
     const { delete_curated } = createSelfReviewTools({ vaultPath });
 
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await delete_curated.execute({ path: "raw/notes/x.md" }, {} as never)) as
       | { ok: true }
       | { ok: false; error: string };

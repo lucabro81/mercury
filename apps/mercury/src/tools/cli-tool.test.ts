@@ -246,7 +246,6 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = await runCommand.execute(
       { command: 'jira issue search --jql "project = KAN"' },
       {} as never,
@@ -270,7 +269,6 @@ describe("createCliTool", () => {
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual({ ok: true, data: { issues: [], formattedList: "no issues" } });
@@ -287,7 +285,6 @@ describe("createCliTool", () => {
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(received).toEqual({ binary: "jira", args: ["issue", "search", "--jql", "project = KAN"] });
@@ -298,7 +295,6 @@ describe("createCliTool", () => {
       const runCliFn = async (): Promise<CliResult> => fakeResult;
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, defaultOpts());
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual(fakeResult);
@@ -312,7 +308,6 @@ describe("createCliTool", () => {
         ...defaultOpts(),
         postProcessors: { "some-other-hook": (_p, r: CliResult) => r },
       });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual(fakeResult);
@@ -326,7 +321,6 @@ describe("createCliTool", () => {
         ...defaultOpts(),
         postProcessors: { "issue-list": (_p, r: CliResult) => ({ ok: true, data: "mutated" }) },
       });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: "jira doctor" }, {} as never);
 
       expect(result).toEqual(fakeResult);
@@ -340,7 +334,6 @@ describe("createCliTool", () => {
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
       expect(result).toEqual({ ok: true, data: { issues: [], formattedList: "no issues" } });
 
@@ -359,7 +352,6 @@ describe("createCliTool", () => {
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
-      // @ts-expect-error - execute is guaranteed present for this tool definition
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual({ ok: false, error: "missing required field: summary" });
@@ -377,7 +369,6 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue create --project KAN" },
       {} as never,
@@ -409,7 +400,6 @@ describe("createCliTool", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
       {} as never,
@@ -444,7 +434,6 @@ describe("createCliTool", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete MER-19" }, {} as never);
 
     expect(store.take("terminal", "TOK1")).toEqual({
@@ -460,7 +449,6 @@ describe("createCliTool", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete MER-19 --confirm" }, {} as never);
 
     expect(store.take("terminal", "TOK1")).toEqual({
@@ -482,7 +470,6 @@ describe("createCliTool", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
       {} as never,
@@ -513,7 +500,6 @@ describe("createCliTool", () => {
       userId: "users/42",
       writeConfirmationNoteFn,
     });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
 
     expect(writes).toEqual([
@@ -543,7 +529,6 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...confirmOpts(store), writeConfirmationNoteFn });
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
       {} as never,
@@ -558,7 +543,6 @@ describe("createCliTool", () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
 
     expect(store.take("some-other-session", "TOK1")).toBeNull();
@@ -570,7 +554,6 @@ describe("createCliTool", () => {
   it("excludes confirm-gated prefixes from the 'not permitted' message's valid-commands list", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "jira issue create --project KAN" },
       {} as never,
@@ -590,7 +573,6 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: "bitbucket pr list" },
       {} as never,
@@ -612,7 +594,6 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = (await runCommand.execute(
       { command: 'jira issue search --jql "project = KAN' },
       {} as never,
@@ -632,7 +613,6 @@ describe("createCliTool", () => {
     });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     const result = await runCommand.execute({ command: "jira issue get KAN-1" }, {} as never);
 
     expect(result).toEqual({ ok: false, error: "jira exited with code 1: boom" });
@@ -661,9 +641,7 @@ describe("createCliTool", () => {
     };
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig, "google-chat": chatConfig }, defaultOpts());
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "jira doctor" }, {} as never);
-    // @ts-expect-error - execute is guaranteed present for this tool definition
     await runCommand.execute({ command: "google-chat spaces list" }, {} as never);
 
     expect(calls).toEqual([
