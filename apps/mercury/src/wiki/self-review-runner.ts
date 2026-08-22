@@ -12,7 +12,7 @@
  * tool call on this codebase's Ollama setup, which applies here too
  * since every pass uses tools.
  */
-import { stepCountIs, type LanguageModel, type Tool } from "ai";
+import { isStepCount, type LanguageModel, type Tool } from "ai";
 import { generateText } from "ai-sdk-ollama";
 import type { Message } from "../session/history.ts";
 import { createSelfReviewTools } from "./self-review-tools.ts";
@@ -25,16 +25,16 @@ type GenerateTextFn = (params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
-  system: string;
+  instructions: string;
 }) => Promise<{ text: string }>;
 
 const defaultGenerateTextFn: GenerateTextFn = (params) =>
-  generateText({ ...params, stopWhen: stepCountIs(SELF_REVIEW_STEP_COUNT) });
+  generateText({ ...params, stopWhen: isStepCount(SELF_REVIEW_STEP_COUNT) });
 
 async function runPass(params: {
   vaultPath: string;
   model: LanguageModel;
-  system: string;
+  instructions: string;
   userMessage: string;
   generateTextFn?: GenerateTextFn;
 }): Promise<void> {
@@ -44,7 +44,7 @@ async function runPass(params: {
     model: params.model,
     messages: [{ role: "user", content: params.userMessage }],
     tools,
-    system: params.system,
+    instructions: params.instructions,
   });
 }
 
@@ -89,7 +89,7 @@ export async function runRawTriagePass(deps: RawTriagePassDeps): Promise<void> {
   await runPass({
     vaultPath: deps.vaultPath,
     model: deps.model,
-    system: RAW_TRIAGE_SYSTEM,
+    instructions: RAW_TRIAGE_SYSTEM,
     userMessage,
     generateTextFn: deps.generateTextFn,
   });
@@ -110,7 +110,7 @@ export async function runIndexAndOrphanPass(deps: IndexAndOrphanPassDeps): Promi
   await runPass({
     vaultPath: deps.vaultPath,
     model: deps.model,
-    system: INDEX_AND_ORPHAN_SYSTEM,
+    instructions: INDEX_AND_ORPHAN_SYSTEM,
     userMessage,
     generateTextFn: deps.generateTextFn,
   });
@@ -126,7 +126,7 @@ export async function runContradictionCheckPass(deps: ContradictionCheckPassDeps
   await runPass({
     vaultPath: deps.vaultPath,
     model: deps.model,
-    system: CONTRADICTION_CHECK_SYSTEM,
+    instructions: CONTRADICTION_CHECK_SYSTEM,
     userMessage: "Review curated/ for contradictions and missing cross-links.",
     generateTextFn: deps.generateTextFn,
   });

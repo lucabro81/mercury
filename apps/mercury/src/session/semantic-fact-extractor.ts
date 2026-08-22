@@ -29,7 +29,7 @@ type GenerateObjectFn = (params: {
   model: LanguageModel;
   output: "array";
   schema: typeof SemanticFactSchema;
-  system: string;
+  instructions: string;
   prompt: string;
 }) => Promise<{ object: SemanticFact[] }>;
 
@@ -61,7 +61,7 @@ export function createSemanticFactExtractor(
       model,
       output: "array",
       schema: SemanticFactSchema,
-      system: SYSTEM_PROMPT,
+      instructions: SYSTEM_PROMPT,
       prompt: messages.map((m) => `${m.role}: ${m.content.replace(SENDER_MARKER_RE, "")}`).join("\n"),
     });
     return object;

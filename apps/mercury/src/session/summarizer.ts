@@ -27,7 +27,7 @@ export function createSummarizer(
   return async (messages) => {
     const { text } = await generateText({
       model,
-      system:
+      instructions:
         "Summarize this conversation concisely, preserving names, ticket keys, and decisions.",
       prompt: messages.map((m) => `${m.role}: ${m.content}`).join("\n"),
     });

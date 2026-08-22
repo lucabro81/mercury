@@ -103,8 +103,8 @@ describe("runTurn", () => {
   it("passes the provided system prompt through to the generation call unchanged", async () => {
     const history = createSessionHistory(neverSummarize);
     let receivedSystem: string | undefined;
-    const generateTextFn = async (params: { system: string }) => {
-      receivedSystem = params.system;
+    const generateTextFn = async (params: { instructions: string }) => {
+      receivedSystem = params.instructions;
       return { text: "ok" };
     };
 
@@ -129,8 +129,8 @@ describe("runTurn", () => {
     const history = createSessionHistory(neverSummarize);
     const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
     const receivedSteps: StepInfo[] = [];
-    const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
-      params.onStepFinish?.(ordinaryStep);
+    const generateTextFn = async (params: { onStepEnd?: (step: StepInfo) => void }) => {
+      params.onStepEnd?.(ordinaryStep);
       return { text: "ok" };
     };
 
@@ -152,7 +152,7 @@ describe("runTurn", () => {
   it("streams chunks via onTextChunk and returns the full joined text, when onTextChunk is provided", async () => {
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
-    const streamTextFn = async () => ({ fullStream: textDeltaStream(["Hel", "lo, ", "world"]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream(["Hel", "lo, ", "world"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -168,7 +168,7 @@ describe("runTurn", () => {
 
   it("records the full joined streamed text as the assistant's message", async () => {
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ fullStream: textDeltaStream(["foo", "bar"]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream(["foo", "bar"]) });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -188,9 +188,9 @@ describe("runTurn", () => {
     const history = createSessionHistory(neverSummarize);
     const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
     const receivedSteps: StepInfo[] = [];
-    const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
-      params.onStepFinish?.(ordinaryStep);
-      return { fullStream: textDeltaStream([]) };
+    const streamTextFn = async (params: { onStepEnd?: (step: StepInfo) => void }) => {
+      params.onStepEnd?.(ordinaryStep);
+      return { stream: textDeltaStream([]) };
     };
 
     await runTurn(history, "hi", {
@@ -213,7 +213,7 @@ describe("runTurn", () => {
     }
     const history = createSessionHistory(neverSummarize);
     const received: Array<[string, string]> = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -240,7 +240,7 @@ describe("runTurn", () => {
       yield { type: "text-delta", id: "2", delta: "the real answer" };
     }
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -264,7 +264,7 @@ describe("runTurn", () => {
     }
     const history = createSessionHistory(neverSummarize);
     const calls: Array<[string, boolean]> = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -285,7 +285,7 @@ describe("runTurn", () => {
     }
     const history = createSessionHistory(neverSummarize);
     const calls: Array<[string, boolean]> = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     await expect(
       runTurn(history, "hi", {
@@ -317,7 +317,7 @@ describe("runTurn", () => {
     const history = createSessionHistory(neverSummarize);
     const chunks: Array<[string, string]> = [];
     const ends: Array<[string, boolean]> = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -342,7 +342,7 @@ describe("runTurn", () => {
   it("never calls onReasoningEnd when no reasoning-delta ever arrived", async () => {
     const history = createSessionHistory(neverSummarize);
     let calls = 0;
-    const streamTextFn = async () => ({ fullStream: textDeltaStream(["just an answer"]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream(["just an answer"]) });
 
     await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -363,7 +363,7 @@ describe("runTurn", () => {
     let streamTextFnCalled = false;
     const streamTextFn = async () => {
       streamTextFnCalled = true;
-      return { fullStream: textDeltaStream(["answer"]) };
+      return { stream: textDeltaStream(["answer"]) };
     };
     const generateTextFn = async () => {
       throw new Error("should not take the generateText path");
@@ -394,7 +394,7 @@ describe("runTurn", () => {
     }
     const history = createSessionHistory(neverSummarize);
     const events: string[] = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -429,7 +429,7 @@ describe("runTurn", () => {
     }
     const history = createSessionHistory(neverSummarize);
     const reasoningChunks: string[] = [];
-    const streamTextFn = async () => ({ fullStream: fakeStream() });
+    const streamTextFn = async () => ({ stream: fakeStream() });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -447,12 +447,12 @@ describe("runTurn", () => {
   // The terminal channel shows this next to the prompt as a real (not
   // estimated) context-usage indicator — see src/router/tool-log.ts's
   // formatContextUsage and src/index.ts's wiring.
-  it("passes the real inputTokens from totalUsage to onUsage, on the generateText path", async () => {
+  it("passes the real inputTokens from usage to onUsage, on the generateText path", async () => {
     const history = createSessionHistory(neverSummarize);
     let receivedInputTokens: number | undefined;
     const generateTextFn = async () => ({
       text: "ok",
-      totalUsage: { inputTokens: 1234 },
+      usage: { inputTokens: 1234 },
     });
 
     await runTurn(history, "hi", {
@@ -468,12 +468,12 @@ describe("runTurn", () => {
     expect(receivedInputTokens).toBe(1234);
   });
 
-  it("passes the real inputTokens from totalUsage to onUsage, on the streaming path", async () => {
+  it("passes the real inputTokens from usage to onUsage, on the streaming path", async () => {
     const history = createSessionHistory(neverSummarize);
     let receivedInputTokens: number | undefined;
     const streamTextFn = async () => ({
-      fullStream: textDeltaStream(["ok"]),
-      totalUsage: Promise.resolve({ inputTokens: 5678 }),
+      stream: textDeltaStream(["ok"]),
+      usage: Promise.resolve({ inputTokens: 5678 }),
     });
 
     await runTurn(history, "hi", {
@@ -502,7 +502,7 @@ describe("runTurn", () => {
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
     // yields nothing — the model ran out of steps before writing text
-    const streamTextFn = async () => ({ fullStream: textDeltaStream([]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream([]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -522,7 +522,7 @@ describe("runTurn", () => {
 
   it("treats a whitespace-only streamed answer the same as an empty one", async () => {
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ fullStream: textDeltaStream(["   \n"]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream(["   \n"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -537,7 +537,7 @@ describe("runTurn", () => {
 
   it("does not touch a non-empty streamed answer", async () => {
     const history = createSessionHistory(neverSummarize);
-    const streamTextFn = async () => ({ fullStream: textDeltaStream(["a real answer"]) });
+    const streamTextFn = async () => ({ stream: textDeltaStream(["a real answer"]) });
 
     const result = await runTurn(history, "hi", {
       model: "fake-model" as never,
@@ -587,8 +587,8 @@ describe("runTurn", () => {
   // restart, or even 5 minutes — see confirmation-store.ts's TTL).
   it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (non-streaming)", async () => {
     const history = createSessionHistory(neverSummarize);
-    const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
-      params.onStepFinish?.(PENDING_CONFIRMATION_STEP);
+    const generateTextFn = async (params: { onStepEnd?: (step: StepInfo) => void }) => {
+      params.onStepEnd?.(PENDING_CONFIRMATION_STEP);
       return { text: "" };
     };
 
@@ -609,9 +609,9 @@ describe("runTurn", () => {
   it("records PENDING_CONFIRMATION_NOTE instead of leaving it empty when the last step staged a confirm-required command (streaming)", async () => {
     const history = createSessionHistory(neverSummarize);
     const received: string[] = [];
-    const streamTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
-      params.onStepFinish?.(PENDING_CONFIRMATION_STEP);
-      return { fullStream: textDeltaStream([]) };
+    const streamTextFn = async (params: { onStepEnd?: (step: StepInfo) => void }) => {
+      params.onStepEnd?.(PENDING_CONFIRMATION_STEP);
+      return { stream: textDeltaStream([]) };
     };
 
     const result = await runTurn(history, "hi", {
@@ -644,8 +644,8 @@ describe("runTurn", () => {
         toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { pendingConfirmation: true, token: "OTHER9" } }],
         content: [],
       };
-      const generateTextFn = async (params: { onStepFinish?: (step: StepInfo) => void }) => {
-        params.onStepFinish?.(step);
+      const generateTextFn = async (params: { onStepEnd?: (step: StepInfo) => void }) => {
+        params.onStepEnd?.(step);
         return { text: "" };
       };
 
@@ -686,7 +686,7 @@ describe("buildGenerateTextParams", () => {
       model: "fake-model" as never,
       messages: [],
       tools: {},
-      system: SYSTEM,
+      instructions: SYSTEM,
     });
 
     const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
@@ -704,7 +704,7 @@ describe("buildGenerateTextParams", () => {
       model: "fake-model" as never,
       messages: [],
       tools: {},
-      system: SYSTEM,
+      instructions: SYSTEM,
     });
 
     expect(await stopConditionsMet(params.stopWhen, [PENDING_CONFIRMATION_STEP])).toBe(true);
@@ -718,7 +718,7 @@ describe("buildStreamTextParams", () => {
       model: "fake-model" as never,
       messages: [],
       tools: {},
-      system: SYSTEM,
+      instructions: SYSTEM,
     });
 
     const ordinaryStep: StepInfo = { toolCalls: [], toolResults: [], content: [] };
@@ -732,7 +732,7 @@ describe("buildStreamTextParams", () => {
       model: "fake-model" as never,
       messages: [],
       tools: {},
-      system: SYSTEM,
+      instructions: SYSTEM,
     });
 
     expect(await stopConditionsMet(params.stopWhen, [PENDING_CONFIRMATION_STEP])).toBe(true);

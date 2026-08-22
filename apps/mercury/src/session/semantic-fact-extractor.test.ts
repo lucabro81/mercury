@@ -48,8 +48,8 @@ describe("createSemanticFactExtractor", () => {
   // The system prompt is what keeps this from extracting one-off task
   // details as if they were standing facts about the user.
   it("instructs the model to extract only stable, standing facts — not one-off task details", async () => {
-    let received: { system: string } | undefined;
-    const generateObjectFn = async (params: { system: string }) => {
+    let received: { instructions: string } | undefined;
+    const generateObjectFn = async (params: { instructions: string }) => {
       received = params;
       return { object: [] };
     };
@@ -57,7 +57,7 @@ describe("createSemanticFactExtractor", () => {
     const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
     await extract(MESSAGES);
 
-    expect(received?.system.toLowerCase()).toMatch(/stabil|ricorrent|preferenz/);
+    expect(received?.instructions.toLowerCase()).toMatch(/stabil|ricorrent|preferenz/);
   });
 
   // Point 5: identity/name is already available directly from a
@@ -65,8 +65,8 @@ describe("createSemanticFactExtractor", () => {
   // semantic fact about "who the user is" would only ever duplicate or
   // contradict that more authoritative source, never add anything.
   it("instructs the model not to extract the user's identity/name", async () => {
-    let received: { system: string } | undefined;
-    const generateObjectFn = async (params: { system: string }) => {
+    let received: { instructions: string } | undefined;
+    const generateObjectFn = async (params: { instructions: string }) => {
       received = params;
       return { object: [] };
     };
@@ -74,7 +74,7 @@ describe("createSemanticFactExtractor", () => {
     const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
     await extract(MESSAGES);
 
-    expect(received?.system.toLowerCase()).toMatch(/identità|nome/);
+    expect(received?.instructions.toLowerCase()).toMatch(/identità|nome/);
   });
 
   // Point 4: index.ts prepends "[Da: <name>]" to every user message before

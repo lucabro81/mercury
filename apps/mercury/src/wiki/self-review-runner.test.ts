@@ -3,7 +3,7 @@ import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass, SEL
 import type { Message } from "../session/history.ts";
 import type { Tool } from "ai";
 
-type ReceivedParams = { messages: Message[]; tools: Record<string, Tool>; system: string };
+type ReceivedParams = { messages: Message[]; tools: Record<string, Tool>; instructions: string };
 
 const VAULT_PATH = "/fake/vault";
 const MODEL = "fake-model" as never;
@@ -40,8 +40,8 @@ describe("runRawTriagePass", () => {
         "remove_index_entry",
       ].sort(),
     );
-    expect(received!.system).toContain("raw/");
-    expect(received!.system).toContain("triage");
+    expect(received!.instructions).toContain("raw/");
+    expect(received!.instructions).toContain("triage");
   });
 
   it("uses the default step count when no override is given", async () => {
@@ -71,8 +71,8 @@ describe("runIndexAndOrphanPass", () => {
     });
 
     expect(received!.messages[0]!.content).toContain("curated/glossary.md");
-    expect(received!.system).toContain("index.md");
-    expect(received!.system).toContain("orphan");
+    expect(received!.instructions).toContain("index.md");
+    expect(received!.instructions).toContain("orphan");
   });
 });
 
@@ -86,7 +86,7 @@ describe("runContradictionCheckPass", () => {
 
     await runContradictionCheckPass({ vaultPath: VAULT_PATH, model: MODEL, generateTextFn });
 
-    expect(received!.system).toContain("contradiction");
-    expect(received!.system.toLowerCase()).toContain("cross-link");
+    expect(received!.instructions).toContain("contradiction");
+    expect(received!.instructions.toLowerCase()).toContain("cross-link");
   });
 });

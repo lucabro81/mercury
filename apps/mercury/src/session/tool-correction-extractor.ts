@@ -27,7 +27,7 @@ type GenerateObjectFn = (params: {
   model: LanguageModel;
   output: "array";
   schema: typeof ProceduralCorrectionCandidateSchema;
-  system: string;
+  instructions: string;
   prompt: string;
 }) => Promise<{ object: z.infer<typeof ProceduralCorrectionCandidateSchema>[] }>;
 
@@ -107,7 +107,7 @@ export function createToolCorrectionExtractor(
           model,
           output: "array",
           schema: ProceduralCorrectionCandidateSchema,
-          system: SYSTEM_PROMPT,
+          instructions: SYSTEM_PROMPT,
           prompt:
             `Comando fallito: ${failed.command}\n` +
             `Errore: ${failed.error ?? "(nessun messaggio)"}\n` +

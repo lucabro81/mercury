@@ -29,7 +29,7 @@ export function createEpisodicSummarizer(
   return async (messages) => {
     const { text } = await generateText({
       model,
-      system:
+      instructions:
         "Summarize what happened in this conversation as a short, factual account for future recall — what was discussed, asked, or decided. Describe only what occurred in this session. Do not infer patterns, habits, or preferences about the user — that is a separate process, not this one. Never mention or guess a date — you don't reliably know the current date, and it's tracked separately from this text.",
       prompt: messages.map((m) => `${m.role}: ${m.content}`).join("\n"),
     });

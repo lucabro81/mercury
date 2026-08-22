@@ -48,7 +48,7 @@
  * since it's a live UI-only surface, not something the model should ever
  * see reflected back at it on a later turn.
  */
-import { stepCountIs, type LanguageModel, type StopCondition, type Tool } from "ai";
+import { isStepCount, type LanguageModel, type StopCondition, type Tool } from "ai";
 import { generateText, streamText } from "ai-sdk-ollama";
 import type { Message, SessionHistory } from "./history.ts";
 import type { StepInfo } from "./step-info.ts";
@@ -117,9 +117,9 @@ type GenerateTextFn = (params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
-  system: string;
-  onStepFinish?: (step: StepInfo) => void;
-}) => Promise<{ text: string; totalUsage?: { inputTokens: number | undefined } }>;
+  instructions: string;
+  onStepEnd?: (step: StepInfo) => void;
+}) => Promise<{ text: string; usage?: { inputTokens: number | undefined } }>;
 
 /**
  * Minimal shape this file reads off a `fullStream` part — deliberately a
@@ -146,11 +146,11 @@ type StreamTextFn = (params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
-  system: string;
-  onStepFinish?: (step: StepInfo) => void;
+  instructions: string;
+  onStepEnd?: (step: StepInfo) => void;
 }) => Promise<{
-  fullStream: AsyncIterable<StreamPart>;
-  totalUsage?: PromiseLike<{ inputTokens: number | undefined }>;
+  stream: AsyncIterable<StreamPart>;
+  usage?: PromiseLike<{ inputTokens: number | undefined }>;
 }>;
 
 /**
@@ -193,10 +193,10 @@ export function buildGenerateTextParams(params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
-  system: string;
-  onStepFinish?: (step: StepInfo) => void;
+  instructions: string;
+  onStepEnd?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: [stepCountIs(100), pendingConfirmationStop()] };
+  return { ...params, stopWhen: [isStepCount(100), pendingConfirmationStop()] };
 }
 
 /** Default production implementation: calls the real `generateText` from `ai`. */
@@ -216,10 +216,10 @@ export function buildStreamTextParams(params: {
   model: LanguageModel;
   messages: Message[];
   tools: Record<string, Tool>;
-  system: string;
-  onStepFinish?: (step: StepInfo) => void;
+  instructions: string;
+  onStepEnd?: (step: StepInfo) => void;
 }) {
-  return { ...params, stopWhen: [stepCountIs(100), pendingConfirmationStop()] };
+  return { ...params, stopWhen: [isStepCount(100), pendingConfirmationStop()] };
 }
 
 /** Default production implementation: calls the real `streamText` from `ai-sdk-ollama`. */
@@ -314,8 +314,8 @@ export async function runTurn(
       model: deps.model,
       messages: history.getMessages(),
       tools: deps.tools,
-      system: deps.system,
-      onStepFinish: (step) => {
+      instructions: deps.system,
+      onStepEnd: (step) => {
         lastStep = step;
         deps.onStepFinish?.(step);
       },
@@ -330,7 +330,7 @@ export async function runTurn(
     // exactly when the abrupt-failure guard below must stay silent.
     let currentReasoningId: string | undefined;
     try {
-      for await (const part of result.fullStream) {
+      for await (const part of result.stream) {
         if (part.type === "text-delta") {
           const delta = part.text ?? part.delta ?? "";
           fullText += delta;
@@ -360,7 +360,7 @@ export async function runTurn(
         deps.onReasoningEnd?.(currentReasoningId, true);
       }
     }
-    deps.onUsage?.((await result.totalUsage)?.inputTokens);
+    deps.onUsage?.((await result.usage)?.inputTokens);
 
     if (fullText.trim().length === 0) {
       fullText = resolveEmptyText(lastStep);
@@ -377,13 +377,13 @@ export async function runTurn(
     model: deps.model,
     messages: history.getMessages(),
     tools: deps.tools,
-    system: deps.system,
-    onStepFinish: (step) => {
+    instructions: deps.system,
+    onStepEnd: (step) => {
       lastStep = step;
       deps.onStepFinish?.(step);
     },
   });
-  deps.onUsage?.(result.totalUsage?.inputTokens);
+  deps.onUsage?.(result.usage?.inputTokens);
 
   const text = result.text.trim().length === 0 ? resolveEmptyText(lastStep) : result.text;
   await history.addAssistantMessage(resolveHistoryText(lastStep, text));
