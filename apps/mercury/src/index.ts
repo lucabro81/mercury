@@ -37,6 +37,7 @@ import {
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
+import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook, createCliStatusDescriber } from "./session/tool-start-hook.ts";
 import {
   writeInferredNote,
@@ -570,6 +571,28 @@ if (process.env.ADMIN_PANEL_ENABLED === "true") {
   console.error(`[admin] panel listening on http://localhost:${adminPort}`);
 }
 
+// HTTP surface (Fase 4a): opt-in conversational endpoint, same posture as the
+// admin panel — never started unless HTTP_SURFACE_ENABLED, and must not be
+// reachable from outside the container network. Started in the background (like
+// Google Chat) so the blocking terminal REPL below is still reached. Reuses the
+// terminal's confirmDeps so a staged jira delete confirms through the identical
+// tryConfirm path.
+let httpProvider: ReturnType<typeof createHttpProvider> | undefined;
+if (process.env.HTTP_SURFACE_ENABLED === "true") {
+  const httpPort = Number(process.env.HTTP_SURFACE_PORT ?? "4100");
+  httpProvider = createHttpProvider({
+    port: httpPort,
+    confirmDeps: {
+      store: confirmationStore,
+      runCliFn: runCli,
+      vaultPath: wikiVaultPath,
+      writeConfirmationNoteFn: writeConfirmationNote,
+    },
+  });
+  await httpProvider.start(handleTurn);
+  console.error(`[http] surface listening on http://localhost:${httpPort}`);
+}
+
 await createTerminalProvider({
   confirmDeps: {
     store: confirmationStore,
@@ -614,6 +637,8 @@ if (stdinIsSession()) {
   console.error("[shutdown] self-review cron stopped");
   adminServer?.stop();
   console.error("[shutdown] admin server stopped");
+  httpProvider?.stop();
+  console.error("[shutdown] http surface stopped");
   await chatProvider?.stop();
   console.error("[shutdown] google chat stopped");
   process.exit(0);
