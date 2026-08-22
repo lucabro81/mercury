@@ -21,6 +21,7 @@
   - [Resetting memory](#resetting-memory)
 - [Scripts](#scripts)
 - [CLIs and service authentication](#clis-and-service-authentication)
+- [HTTP API](#http-api)
 - [Architecture](apps/mercury/ARCHITECTURE.md)
 
 ## What it is
@@ -278,3 +279,56 @@ External integrations (Jira, Bitbucket, Google Chat, ...) are independent CLI bi
 For onboarding and authentication of each service: check the README of the specific crate in CLI-monorepo, or run the `init` command of the corresponding CLI (e.g. `jira init`, `google-chat init`) and follow the on-screen instructions.
 
 A CLI being installed and authenticated isn't enough on its own for the model to use it: each active CLI also needs a maintainer-authored allowlist config at `MERCURY_CLI_CONFIG_DIR` (default `/app/cli-config`, bind-mounted from `./cli-configs` in dev — see the example configs under `cli-configs/` for the reference format, and the CLI's own README in CLI-monorepo for what subcommands/flags it actually has; a plugin instead ships its allowlist inside its own package). Editing a config file only needs a container restart, no rebuild.
+
+## HTTP API
+
+Opt-in surface, off by default. Enable with `HTTP_SURFACE_ENABLED=true`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+
+All responses are JSON except `POST /turn`, which streams `text/event-stream`. Every JSON response is either `{ "ok": true, ... }` or, on error, `{ "ok": false, "error": "<message>" }` with HTTP `400`/`500`.
+
+### `POST /turn`
+
+Runs one conversational turn; the reply streams back as Server-Sent Events.
+
+**Request body** (`application/json`):
+
+| field | type | required | description |
+|---|---|---|---|
+| `text` | string | yes | The user message. A bare confirmation token here confirms a staged action (see the `pending` event) without invoking the model. |
+| `conversationId` | string | no | Opaque, client-owned id that continues a conversation. Omitted ⇒ a fresh one-off session. |
+
+**Responses**: `200 text/event-stream` (the events below); `400` if `text` is missing or the body isn't JSON.
+
+**SSE events** — each is `event: <name>` followed by `data: <json>`:
+
+| event | data | when |
+|---|---|---|
+| `reasoning` | `{ chunk, id }` | a model reasoning delta |
+| `reasoning_end` | `{ id, failed }` | a reasoning block ends |
+| `tool` | `{ label, detail, toolCallId }` | a tool call starts |
+| `tool_finish` | `{ toolCallId, outcome }` | a tool call settles (`outcome`: `success` \| `failed` \| `pending`) |
+| `text` | `{ chunk }` | an answer-text delta |
+| `pending` | `{ command, token }` | a confirm-required action was staged; send `token` back as a later `/turn` `text` to confirm it |
+| `final` | `{ text }` | the complete answer (also emitted for a token confirmation, with no model turn) |
+| `error` | `{ message }` | the turn failed mid-stream |
+
+```bash
+curl -N -X POST http://localhost:4100/turn \
+  -H 'content-type: application/json' \
+  -d '{"text":"Quante issue nel progetto KAN?","conversationId":"c1"}'
+```
+
+### Read-only introspection
+
+All `GET`, all JSON, all reporting state already held in-process.
+
+| endpoint | `data` on success |
+|---|---|
+| `GET /manifest` | `{ manifest: { coreApiVersion, plugins: [{ name, apiVersion, active, skills, hasBuild, customStatus }], activeClis, skills } }` |
+| `GET /confirmations` | `{ pending: [{ sessionKey, binary, args, expiresAt }] }` — tokens are deliberately never included |
+| `GET /tool-log` | `{ entries: [...] }` |
+| `GET /health` | `{ uptimeSeconds, memory, qdrantReachable, ollamaReachable }` |
+| `GET /wiki/list` | `{ files: [...] }` |
+| `GET /wiki/read?path=<vault-path>` | `{ content }` — `400` if `path` is missing |
+| `GET /wiki/grep?pattern=<regex>` | `{ matches: [...] }` — `400` if `pattern` is missing |
+| `GET /memory/scroll?collection=<name>&limit=<n>&offset=<cursor>` | one page of the named episodic/semantic collection |
