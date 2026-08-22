@@ -11,19 +11,20 @@
  * with no persistent connection to push a proactive message to (that stays with
  * Google Chat). `stop` closes the socket on shutdown.
  */
-import { startHttpServer, type HttpConfirmDeps } from "../../http/server.ts";
+import { startHttpServer, type HttpConfirmDeps, type HttpReads } from "../../http/server.ts";
 import type { Provider, HandleTurn } from "../provider.ts";
 
 export type HttpProviderDeps = {
   port: number;
   confirmDeps: HttpConfirmDeps;
+  reads?: HttpReads;
 };
 
 export function createHttpProvider(deps: HttpProviderDeps): Provider & { stop(): void } {
   let server: ReturnType<typeof startHttpServer> | undefined;
   return {
     async start(handleTurn: HandleTurn): Promise<void> {
-      server = startHttpServer({ port: deps.port, handleTurn, confirmDeps: deps.confirmDeps });
+      server = startHttpServer({ port: deps.port, handleTurn, confirmDeps: deps.confirmDeps, reads: deps.reads });
     },
     async notify(): Promise<{ sessionKey: string }> {
       // No proactive push channel over HTTP (4a is request/response only).

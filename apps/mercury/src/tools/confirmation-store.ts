@@ -10,6 +10,12 @@
  */
 export type StagedAction = { kind: "cli"; binary: string; args: string[]; requestedAt?: string };
 
+/** A pending staging as seen from outside, deliberately WITHOUT its token: a
+ * token is a confirm capability, and the HTTP read surface is unauthenticated,
+ * so listing pending confirmations must never hand out the tokens that would
+ * let a reader execute them. */
+export type PendingConfirmation = { sessionKey: string; binary: string; args: string[]; expiresAt: number };
+
 export type ConfirmationStore = {
   /** Stages `action` for `sessionKey` and returns a fresh token. */
   stage(sessionKey: string, action: StagedAction): string;
@@ -17,6 +23,9 @@ export type ConfirmationStore = {
    * `null` if it doesn't exist, belongs to a different session, or has
    * expired. Always one-shot: a successful take removes the entry. */
   take(sessionKey: string, token: string): StagedAction | null;
+  /** The currently staged, non-expired actions, redacted of their tokens — for
+   * read-only introspection (see `PendingConfirmation`). */
+  pending(): PendingConfirmation[];
 };
 
 // Full alphanumeric — a token is only ever copy-pasted, never read or
@@ -76,6 +85,20 @@ export function createConfirmationStore(
       }
       entries.delete(token);
       return entry.action;
+    },
+    pending() {
+      const t = now();
+      const out: PendingConfirmation[] = [];
+      for (const entry of entries.values()) {
+        if (entry.expiresAt <= t) continue;
+        out.push({
+          sessionKey: entry.sessionKey,
+          binary: entry.action.binary,
+          args: entry.action.args,
+          expiresAt: entry.expiresAt,
+        });
+      }
+      return out;
     },
   };
 }

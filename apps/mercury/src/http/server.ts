@@ -133,9 +133,67 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
   return new Response(stream, { headers: SSE_HEADERS });
 }
 
-export type HttpServerDeps = TurnRequestDeps & { port: number };
+/**
+ * Read-only introspection getters (4b), injected by the composition root so
+ * this server stays decoupled from Qdrant, the vault, and the plugin list — it
+ * only knows how to turn each getter into a route. Every getter reads state
+ * that already exists in-process; nothing here computes anything new. Tokens are
+ * never exposed (see `ConfirmationStore.pending`).
+ */
+export type HttpReads = {
+  manifest: () => unknown;
+  pendingConfirmations: () => unknown;
+  wikiList: () => Promise<unknown>;
+  wikiRead: (path: string) => Promise<unknown>;
+  wikiGrep: (pattern: string) => Promise<unknown>;
+  memoryScroll: (collection: string, limit: number, offset?: string) => Promise<unknown>;
+  toolLog: () => unknown;
+  health: () => Promise<unknown>;
+};
 
-/** Starts the HTTP surface. 4a mounts only `POST /turn`; 4b adds read routes. */
+function badRequest(message: string): Response {
+  return Response.json({ ok: false, error: message }, { status: 400 });
+}
+
+function readRoutes(reads: HttpReads): Record<string, { GET: (req: Request) => Response | Promise<Response> }> {
+  const requireParam = (req: Request, name: string): string | null => new URL(req.url).searchParams.get(name);
+  return {
+    "/manifest": { GET: () => Response.json({ ok: true, manifest: reads.manifest() }) },
+    "/confirmations": { GET: () => Response.json({ ok: true, pending: reads.pendingConfirmations() }) },
+    "/tool-log": { GET: () => Response.json({ ok: true, entries: reads.toolLog() }) },
+    "/health": { GET: async () => Response.json({ ok: true, ...(await reads.health() as object) }) },
+    "/wiki/list": { GET: async () => Response.json({ ok: true, files: await reads.wikiList() }) },
+    "/wiki/read": {
+      GET: async (req) => {
+        const path = requireParam(req, "path");
+        if (!path) return badRequest("missing ?path");
+        return Response.json({ ok: true, content: await reads.wikiRead(path) });
+      },
+    },
+    "/wiki/grep": {
+      GET: async (req) => {
+        const pattern = requireParam(req, "pattern");
+        if (!pattern) return badRequest("missing ?pattern");
+        return Response.json({ ok: true, matches: await reads.wikiGrep(pattern) });
+      },
+    },
+    "/memory/scroll": {
+      GET: async (req) => {
+        const url = new URL(req.url);
+        const collection = url.searchParams.get("collection");
+        if (!collection) return badRequest("missing ?collection");
+        const limit = Number(url.searchParams.get("limit") ?? "50");
+        const offset = url.searchParams.get("offset") ?? undefined;
+        return Response.json({ ok: true, ...(await reads.memoryScroll(collection, limit, offset) as object) });
+      },
+    },
+  };
+}
+
+export type HttpServerDeps = TurnRequestDeps & { port: number; reads?: HttpReads };
+
+/** Starts the HTTP surface: `POST /turn` (4a) plus the read-only routes (4b)
+ * when `reads` is supplied. */
 export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     port: deps.port,
@@ -150,6 +208,7 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     idleTimeout: 0,
     routes: {
       "/turn": { POST: (req) => handleTurnRequest(req, deps) },
+      ...(deps.reads ? readRoutes(deps.reads) : {}),
     },
     error: (err) => Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 }),
   });

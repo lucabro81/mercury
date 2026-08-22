@@ -70,6 +70,30 @@ describe("createConfirmationStore", () => {
   });
 });
 
+describe("pending", () => {
+  it("lists staged actions redacted of their tokens, excluding expired and taken ones", () => {
+    let clock = 1000;
+    const store = createConfirmationStore({ now: () => clock, ttlMs: 100, tokenFn: () => `t${clock}` });
+    const tokenA = store.stage("s1", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
+    clock = 1050;
+    store.stage("s2", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-2"] });
+
+    const pending = store.pending();
+    expect(pending).toHaveLength(2);
+    // no token field leaks out
+    expect(pending.every((p) => !("token" in p))).toBe(true);
+    expect(pending).toContainEqual({ sessionKey: "s1", binary: "jira", args: ["issue", "delete", "KAN-1"], expiresAt: 1100 });
+
+    // taking one removes it from pending
+    store.take("s1", tokenA);
+    expect(store.pending().map((p) => p.sessionKey)).toEqual(["s2"]);
+
+    // once the first entry's TTL passes, the second is the only non-expired one
+    clock = 1200; // s2 staged at 1050, ttl 100 → expires 1150
+    expect(store.pending()).toEqual([]);
+  });
+});
+
 // Replaces parseConfirmCommand's "conferma <token>" keyword parsing: the
 // real safety gate was always store.take() (must exist, right session, not
 // expired) — the "conferma " prefix added no security, just ceremony left

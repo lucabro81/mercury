@@ -67,6 +67,13 @@ import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { resolve as resolvePath } from "node:path";
 import type { Tool } from "ai";
 import { startAdminServer } from "./admin/server.ts";
+// The HTTP surface's read routes (4b) reuse the admin panel's per-domain
+// functions — the admin is a POC to be retired later; these reads outlive it.
+import { listWikiVault, readWikiVaultFile, grepWikiVault } from "./admin/wiki-routes.ts";
+import { scrollCollection } from "./admin/qdrant-scroll.ts";
+import { getSelfHealth } from "./admin/model-routes.ts";
+import { getToolLog } from "./session/tool-log-buffer.ts";
+import { buildPluginManifest } from "./plugins/manifest.ts";
 
 /** Reads a required env var, failing fast instead of silently defaulting. */
 function requireEnv(name: string): string {
@@ -587,6 +594,19 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
       runCliFn: runCli,
       vaultPath: wikiVaultPath,
       writeConfirmationNoteFn: writeConfirmationNote,
+    },
+    // Read-only introspection (4b): everything already in-process — the loaded
+    // plugins/manifest, redacted pending confirmations, and the wiki/memory/
+    // tool-log reads reused from the admin panel's own functions.
+    reads: {
+      manifest: () => buildPluginManifest(plugins, activeCliConfigs, loadedPlugins.skills),
+      pendingConfirmations: () => confirmationStore.pending(),
+      wikiList: () => listWikiVault(wikiVaultPath),
+      wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
+      wikiGrep: (pattern) => grepWikiVault(wikiVaultPath, pattern),
+      memoryScroll: (collection, limit, offset) => scrollCollection(qdrant, collection, { limit, offset }),
+      toolLog: () => getToolLog(),
+      health: () => getSelfHealth({ qdrant, ollamaHost }),
     },
   });
   await httpProvider.start(handleTurn);
