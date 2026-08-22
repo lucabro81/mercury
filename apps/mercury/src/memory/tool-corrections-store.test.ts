@@ -12,7 +12,7 @@ describe("ensureToolCorrectionsCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureToolCorrectionsCollection(client, "tool_corrections", 768);
@@ -29,7 +29,7 @@ describe("ensureToolCorrectionsCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureToolCorrectionsCollection(client, "tool_corrections", 768);
@@ -48,7 +48,7 @@ describe("storeToolCorrection", () => {
         upserted = { collection, points: params.points };
         return {};
       },
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async (text: string) => [text.length, 0, 0];
 
@@ -78,15 +78,17 @@ describe("searchToolCorrectionsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (collection, params) => {
+      query: async (collection, params) => {
         receivedArgs = { collection, params };
-        return [
-          {
-            id: "p1",
-            score: 0.95,
-            payload: { tool: "jira", topic: "select-prefix", value: "v", timestamp: "2026-07-20T09:00:00.000Z" },
-          },
-        ];
+        return {
+          points: [
+            {
+              id: "p1",
+              score: 0.95,
+              payload: { tool: "jira", topic: "select-prefix", value: "v", timestamp: "2026-07-20T09:00:00.000Z" },
+            },
+          ],
+        };
       },
     };
     const embed = async (text: string) => [text.length, 0, 0];
@@ -98,9 +100,10 @@ describe("searchToolCorrectionsByTopic", () => {
 
     expect(receivedArgs?.collection).toBe("tool_corrections");
     expect(receivedArgs?.params).toEqual({
-      vector: [13, 0, 0],
+      query: [13, 0, 0],
       filter: { must: [{ key: "tool", match: { value: "jira" } }] },
       limit: 5,
+      with_payload: true,
     });
     expect(results).toEqual([{ tool: "jira", topic: "select-prefix", value: "v", timestamp: "2026-07-20T09:00:00.000Z" }]);
   });
@@ -111,9 +114,9 @@ describe("searchToolCorrectionsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (_collection, params) => {
+      query: async (_collection, params) => {
         receivedLimit = params.limit;
-        return [];
+        return { points: [] };
       },
     };
     const embed = async () => [0, 0, 0];
@@ -128,11 +131,13 @@ describe("searchToolCorrectionsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [
-        { id: "p1", score: 0.9, payload: null },
-        { id: "p2", score: 0.8, payload: { topic: "x" } },
-        { id: "p3", score: 0.7, payload: { tool: "jira", topic: "y", value: "v", timestamp: "2026-07-15T09:00:00.000Z" } },
-      ],
+      query: async () => ({
+        points: [
+          { id: "p1", score: 0.9, payload: null },
+          { id: "p2", score: 0.8, payload: { topic: "x" } },
+          { id: "p3", score: 0.7, payload: { tool: "jira", topic: "y", value: "v", timestamp: "2026-07-15T09:00:00.000Z" } },
+        ],
+      }),
     };
     const embed = async () => [0, 0, 0];
 
@@ -146,7 +151,7 @@ describe("searchToolCorrectionsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async () => [0, 0, 0];
 

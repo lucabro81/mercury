@@ -79,10 +79,11 @@ export async function searchSemanticFactsByTopic(
   query: { userId: string; topic: string; limit?: number },
 ): Promise<SemanticFactEntry[]> {
   const vector = await embed(query.topic);
-  const results = await client.search(collectionName, {
-    vector,
+  const results = await client.query(collectionName, {
+    query: vector,
     filter: { must: [{ key: "userId", match: { value: query.userId } }] },
     limit: query.limit ?? DEFAULT_SEARCH_LIMIT,
+    with_payload: true,
   });
-  return results.map((r) => r.payload ?? null).filter(isSemanticFactEntry);
+  return results.points.map((r) => r.payload ?? null).filter(isSemanticFactEntry);
 }

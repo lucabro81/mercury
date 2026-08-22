@@ -12,7 +12,7 @@ describe("ensureSemanticFactsCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureSemanticFactsCollection(client, "semantic_facts", 768);
@@ -32,7 +32,7 @@ describe("ensureSemanticFactsCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureSemanticFactsCollection(client, "semantic_facts", 768);
@@ -54,7 +54,7 @@ describe("storeSemanticFact", () => {
         upserted = { collection, points: params.points };
         return {};
       },
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async (text: string) => [text.length, 0, 0];
 
@@ -86,20 +86,22 @@ describe("searchSemanticFactsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (collection, params) => {
+      query: async (collection, params) => {
         receivedArgs = { collection, params };
-        return [
-          {
-            id: "p1",
-            score: 0.95,
-            payload: {
-              userId: "users/42",
-              topic: "preferred-language",
-              value: "italiano",
-              timestamp: "2026-07-15T09:00:00.000Z",
+        return {
+          points: [
+            {
+              id: "p1",
+              score: 0.95,
+              payload: {
+                userId: "users/42",
+                topic: "preferred-language",
+                value: "italiano",
+                timestamp: "2026-07-15T09:00:00.000Z",
+              },
             },
-          },
-        ];
+          ],
+        };
       },
     };
     const embed = async (text: string) => [text.length, 0, 0];
@@ -111,9 +113,10 @@ describe("searchSemanticFactsByTopic", () => {
 
     expect(receivedArgs?.collection).toBe("semantic_facts");
     expect(receivedArgs?.params).toEqual({
-      vector: [18, 0, 0],
+      query: [18, 0, 0],
       filter: { must: [{ key: "userId", match: { value: "users/42" } }] },
       limit: 5,
+      with_payload: true,
     });
     expect(results).toEqual([
       {
@@ -131,9 +134,9 @@ describe("searchSemanticFactsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (_collection, params) => {
+      query: async (_collection, params) => {
         receivedLimit = params.limit;
-        return [];
+        return { points: [] };
       },
     };
     const embed = async () => [0, 0, 0];
@@ -148,15 +151,17 @@ describe("searchSemanticFactsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [
-        { id: "p1", score: 0.9, payload: null },
-        { id: "p2", score: 0.8, payload: { topic: "x" } }, // missing fields
-        {
-          id: "p3",
-          score: 0.7,
-          payload: { userId: "users/42", topic: "team", value: "platform", timestamp: "2026-07-15T09:00:00.000Z" },
-        },
-      ],
+      query: async () => ({
+        points: [
+          { id: "p1", score: 0.9, payload: null },
+          { id: "p2", score: 0.8, payload: { topic: "x" } }, // missing fields
+          {
+            id: "p3",
+            score: 0.7,
+            payload: { userId: "users/42", topic: "team", value: "platform", timestamp: "2026-07-15T09:00:00.000Z" },
+          },
+        ],
+      }),
     };
     const embed = async () => [0, 0, 0];
 
@@ -172,7 +177,7 @@ describe("searchSemanticFactsByTopic", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async () => [0, 0, 0];
 

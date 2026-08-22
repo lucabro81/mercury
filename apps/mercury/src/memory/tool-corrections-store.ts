@@ -62,10 +62,11 @@ export async function searchToolCorrectionsByTopic(
   query: { tool: string; topic: string; limit?: number },
 ): Promise<ToolCorrectionEntry[]> {
   const vector = await embed(query.topic);
-  const results = await client.search(collectionName, {
-    vector,
+  const results = await client.query(collectionName, {
+    query: vector,
     filter: { must: [{ key: "tool", match: { value: query.tool } }] },
     limit: query.limit ?? DEFAULT_SEARCH_LIMIT,
+    with_payload: true,
   });
-  return results.map((r) => r.payload ?? null).filter(isToolCorrectionEntry);
+  return results.points.map((r) => r.payload ?? null).filter(isToolCorrectionEntry);
 }

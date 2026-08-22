@@ -17,7 +17,7 @@ describe("ensureEpisodicCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureEpisodicCollection(client, "episodic_memory", 768);
@@ -37,7 +37,7 @@ describe("ensureEpisodicCollection", () => {
         return {};
       },
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await ensureEpisodicCollection(client, "episodic_memory", 768);
@@ -57,7 +57,7 @@ describe("ensureEpisodicCollection", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       createPayloadIndex: async (name, params) => {
         indexCalls.push({ name, params });
         return {};
@@ -81,7 +81,7 @@ describe("ensureEpisodicCollection", () => {
       getCollections: async () => ({ collections: [{ name: "episodic_memory" }] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       createPayloadIndex: async (name, params) => {
         indexCalls.push({ name, params });
         return {};
@@ -101,7 +101,7 @@ describe("ensureEpisodicCollection", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     await expect(ensureEpisodicCollection(client, "episodic_memory", 768)).resolves.toBeUndefined();
@@ -118,7 +118,7 @@ describe("storeEpisodicSummary", () => {
         upserted = { collection, points: params.points };
         return {};
       },
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async (text: string) => [text.length, 0, 0];
 
@@ -156,20 +156,22 @@ describe("searchEpisodicMemory", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (collection, params) => {
+      query: async (collection, params) => {
         receivedArgs = { collection, params };
-        return [
-          {
-            id: "p1",
-            score: 0.91,
-            payload: {
-              userId: "users/42",
-              sessionKey: "spaces/X:users/42",
-              summary: "Mercury ha notificato KAN-1 il 2026-07-15",
-              timestamp: "2026-07-15T09:00:00.000Z",
+        return {
+          points: [
+            {
+              id: "p1",
+              score: 0.91,
+              payload: {
+                userId: "users/42",
+                sessionKey: "spaces/X:users/42",
+                summary: "Mercury ha notificato KAN-1 il 2026-07-15",
+                timestamp: "2026-07-15T09:00:00.000Z",
+              },
             },
-          },
-        ];
+          ],
+        };
       },
     };
     const embed = async (text: string) => [text.length, 0, 0];
@@ -181,9 +183,10 @@ describe("searchEpisodicMemory", () => {
 
     expect(receivedArgs?.collection).toBe("episodic_memory");
     expect(receivedArgs?.params).toEqual({
-      vector: [19, 0, 0],
+      query: [19, 0, 0],
       filter: { must: [{ key: "userId", match: { value: "users/42" } }] },
       limit: 5,
+      with_payload: true,
     });
     expect(results).toEqual([
       {
@@ -201,9 +204,9 @@ describe("searchEpisodicMemory", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async (_collection, params) => {
+      query: async (_collection, params) => {
         receivedLimit = params.limit;
-        return [];
+        return { points: [] };
       },
     };
     const embed = async () => [0, 0, 0];
@@ -220,20 +223,22 @@ describe("searchEpisodicMemory", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [
-        { id: "p1", score: 0.9, payload: null },
-        { id: "p2", score: 0.8, payload: { summary: 42 } }, // wrong type
-        {
-          id: "p3",
-          score: 0.7,
-          payload: {
-            userId: "users/42",
-            sessionKey: "terminal",
-            summary: "valid one",
-            timestamp: "2026-07-15T09:00:00.000Z",
+      query: async () => ({
+        points: [
+          { id: "p1", score: 0.9, payload: null },
+          { id: "p2", score: 0.8, payload: { summary: 42 } }, // wrong type
+          {
+            id: "p3",
+            score: 0.7,
+            payload: {
+              userId: "users/42",
+              sessionKey: "terminal",
+              summary: "valid one",
+              timestamp: "2026-07-15T09:00:00.000Z",
+            },
           },
-        },
-      ],
+        ],
+      }),
     };
     const embed = async () => [0, 0, 0];
 
@@ -249,7 +254,7 @@ describe("searchEpisodicMemory", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
     const embed = async () => [0, 0, 0];
 
@@ -269,7 +274,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       scroll: async (_collection, params) => {
         calls.push(params);
         if (calls.length === 1) {
@@ -350,7 +355,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       scroll: async () => ({ points: [] }),
     };
 
@@ -364,7 +369,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       scroll: async (_collection, params) => {
         callCount++;
         if (callCount === 1) {
@@ -403,7 +408,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       scroll: async (_collection, params) => {
         callCount++;
         if (callCount === 1) {
@@ -441,7 +446,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
     };
 
     expect(await getLastSessionEpisodicSummaries(client, "episodic_memory", { userId: "users/42" })).toEqual([]);
@@ -453,7 +458,7 @@ describe("getLastSessionEpisodicSummaries", () => {
       getCollections: async () => ({ collections: [] }),
       createCollection: async () => ({}),
       upsert: async () => ({}),
-      search: async () => [],
+      query: async () => ({ points: [] }),
       scroll: async () => {
         callCount++;
         if (callCount === 1) {

@@ -19,10 +19,13 @@ export type QdrantClientLike = {
     name: string,
     params: { points: Array<{ id: string; vector: number[]; payload: Record<string, unknown> }> },
   ): Promise<unknown>;
-  search(
+  /** @qdrant/js-client-rest 1.19 removed `search` in favour of the universal
+   * `query` endpoint: the vector moves to `query`, and results come back under
+   * `.points` instead of as a bare array. */
+  query(
     name: string,
-    params: { vector: number[]; filter: Record<string, unknown>; limit: number },
-  ): Promise<Array<{ id: string | number; score: number; payload?: Record<string, unknown> | null }>>;
+    params: { query: number[]; filter: Record<string, unknown>; limit: number; with_payload: boolean },
+  ): Promise<{ points: Array<{ id: string | number; score: number; payload?: Record<string, unknown> | null }> }>;
   /**
    * Optional — not part of the similarity-search surface every caller
    * needs, only used by `getLastSessionEpisodicSummaries` below. Optional
@@ -115,12 +118,13 @@ export async function searchEpisodicMemory(
   query: { userId: string; queryText: string; limit?: number },
 ): Promise<EpisodicSummary[]> {
   const vector = await embed(query.queryText);
-  const results = await client.search(collectionName, {
-    vector,
+  const results = await client.query(collectionName, {
+    query: vector,
     filter: { must: [{ key: "userId", match: { value: query.userId } }] },
     limit: query.limit ?? DEFAULT_SEARCH_LIMIT,
+    with_payload: true,
   });
-  return results.map((r) => r.payload ?? null).filter(isEpisodicSummary);
+  return results.points.map((r) => r.payload ?? null).filter(isEpisodicSummary);
 }
 
 const DEFAULT_SESSION_LIMIT = 3;
