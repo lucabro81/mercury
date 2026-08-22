@@ -34,7 +34,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## Repo structure
 
 Monorepo (Bun workspaces + Turborepo). Mercury is one app in it; the plugin
-packages will be siblings. Everything Mercury-specific — its Dockerfile, its
+packages are siblings of it under `packages/`. Everything Mercury-specific — its Dockerfile, its
 compose files, its scripts — lives inside `apps/mercury/` rather than at the
 root, because Mercury happens to be the app with containers and a future app
 may have nothing to do with them.
@@ -48,6 +48,10 @@ mercury/                       # repo root
 ├── scripts/
 │   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
 ├── packages/
+│   ├── plugin-types/          # the shared Plugin contract — types + apiVersion + skill/status helpers, imported by core and plugins
+│   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list formatter + correction guard, pinned CLI binary
+│   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
+│   ├── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
 │   └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
     └── mercury/               # ← everything below this line is relative to here
