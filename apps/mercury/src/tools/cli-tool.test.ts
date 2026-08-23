@@ -256,6 +256,33 @@ describe("createCliTool", () => {
     expect(result).toEqual(fakeResult);
   });
 
+  describe("runCommand description", () => {
+    const runCliFn = async () => ({ ok: true as const, data: {} });
+
+    // Regression (guards the hardcoded-example bug): the description used to
+    // embed a fixed `jira issue search --jql ...` example even on an instance
+    // where Jira isn't enabled — misleading the model. It must never name a CLI
+    // that isn't in `configs`.
+    it("does not name a CLI that isn't configured on this instance", () => {
+      const { runCommand } = createCliTool(runCliFn, { "google-chat": jiraConfig }, defaultOpts());
+      expect(runCommand.description).not.toContain("jira");
+    });
+
+    it("anchors its example on an enabled binary using the dynamic shape", () => {
+      // Assert the whole dynamic template, not just the presence of "jira": the
+      // old hardcoded string was `jira issue search --jql "project = KAN"`, so
+      // matching `jira <subcommand> --flag value` proves the example is built
+      // from the config key, not a static literal that happens to say "jira".
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
+      expect(runCommand.description).toContain("jira <subcommand> --flag value");
+    });
+
+    it("falls back to a neutral placeholder when no CLI is configured", () => {
+      const { runCommand } = createCliTool(runCliFn, {}, defaultOpts());
+      expect(runCommand.description).toContain("<binary>");
+    });
+  });
+
   describe("postProcessors", () => {
     const withPostProcess: CliConfig = {
       allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
