@@ -201,6 +201,11 @@ export type PluginSurface = {
  * - `apiVersion`: the contract version this plugin was built against (see
  *   `PLUGIN_API_VERSION`). Mandatory; the loader refuses a mismatch.
  * - `name`: the MERCURY_CLIS entry and the binary this plugin owns.
+ * - `dependsOn`: names of plugins this one requires present. The loader loads
+ *   dependencies first and skips this plugin fail-soft if any is absent or
+ *   failed (see `loadPlugins`). Presence + ordering only — a dependency shares
+ *   its capability through the usual registries (post-processors, …), not a
+ *   handle injected here. Absent/empty ⇒ no dependency.
  * - `cliConfig`: the raw, unvalidated allowlist data; the core validates it
  *   through the same schema/version barrier a file-based config passes.
  * - `systemPromptFragment`: the tool-surface description spliced into the
@@ -217,6 +222,7 @@ export type PluginSurface = {
 export type Plugin = {
   apiVersion: number;
   name: string;
+  dependsOn?: string[];
   cliConfig: unknown;
   systemPromptFragment?: string;
   build?: (ctx: PluginRuntimeContext) => PluginRuntimeContributions;
