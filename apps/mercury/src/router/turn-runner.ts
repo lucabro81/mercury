@@ -20,7 +20,7 @@ import type { StepInfo } from "../session/step-info.ts";
 // withhold an already-generated answer.
 import type { PostTurnGuard } from "@mercury/plugin-types";
 export type { PostTurnGuard };
-import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
+import { collectDisplayStrings, spliceFormattedLists } from "./format-list-splice.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
@@ -143,7 +143,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         history.replaceLastAssistantMessage(correctedText);
       }
 
-      const finalText = spliceFormattedLists(correctedText, collectFormattedLists(steps));
+      const finalText = spliceFormattedLists(correctedText, collectDisplayStrings(steps));
       await sink.finalize(finalText);
     } finally {
       sink.dispose();

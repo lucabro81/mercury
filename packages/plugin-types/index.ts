@@ -26,12 +26,25 @@ import type { LanguageModel } from "ai";
 export const PLUGIN_API_VERSION = 1;
 
 /**
- * Result of running a CLI command: on success `data` is the parsed JSON (or raw
- * text) stdout; on failure `error` is a human/model-readable string. Mirrors
- * `runCli`'s return — the core owns the runner, this owns the shape both sides
- * agree on.
+ * The user-facing channel of a tool result: structured output destined for the
+ * user and — unlike `data` — never placed into the model's context. `type`
+ * names the display kind a renderer keys on (e.g. "issue-list"); `items` are
+ * its entries. Kept deliberately generic here so it serves any plugin (a CLI
+ * post-processor today, an endpoint/MCP plugin later), not just CLI results.
+ * The core strips it before the result reaches the model (see the core's
+ * `toModelOutput`) and renders it separately for the user.
  */
-export type CliResult = { ok: true; data: unknown } | { ok: false; error: string };
+export type ToolDisplay = { type: string; items: unknown[] };
+
+/**
+ * Result of running a CLI command, carrying two explicit channels. On success
+ * `data` is the model channel — the parsed JSON (or raw text) stdout the model
+ * reasons on — and the optional `display` is the user channel (see
+ * `ToolDisplay`), which never enters the model's context. On failure `error` is
+ * a human/model-readable string. Mirrors `runCli`'s return — the core owns the
+ * runner, this owns the shape both sides agree on.
+ */
+export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
 
 /**
  * Deterministically transforms a `runCli` result for one command shape, looked

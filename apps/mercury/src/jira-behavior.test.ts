@@ -106,14 +106,24 @@ describe("jira read path", () => {
     const result = await runCommand(tools, 'jira issue search --jql "project = KAN"');
 
     expect(result.ok).toBe(true);
-    expect(result.data.formattedList).toBe(
+    // The user-facing rendering now travels on the `display` channel as one
+    // line per issue; joining the lines reproduces the historical byte-exact
+    // list string (the join is the core renderer's job at delivery).
+    expect(result.display).toEqual({
+      type: "issue-list",
+      items: [
+        `KAN-1 [In Progress] Fix the login redirect\n${SITE_URL}/browse/KAN-1`,
+        `KAN-2 [Done] Update the changelog\n${SITE_URL}/browse/KAN-2`,
+      ],
+    });
+    expect(result.display.items.join("\n\n")).toBe(
       "KAN-1 [In Progress] Fix the login redirect\n" +
         `${SITE_URL}/browse/KAN-1\n\n` +
         "KAN-2 [Done] Update the changelog\n" +
         `${SITE_URL}/browse/KAN-2`,
     );
-    // The raw payload survives the post-processor untouched — the formatted
-    // list is added alongside it, never in place of it.
+    // The raw payload survives the post-processor untouched — the display is
+    // added alongside it, never in place of it.
     expect(result.data.issues).toHaveLength(2);
     expect(spy.calls).toEqual([{ binary: "jira", args: ["issue", "search", "--jql", "project = KAN"] }]);
   });
@@ -125,7 +135,9 @@ describe("jira read path", () => {
     const result = await runCommand(tools, 'jira issue search --jql "project = NOPE"');
 
     expect(result.ok).toBe(true);
-    expect(result.data.formattedList).toBe("No matching issues.");
+    // An empty search yields an empty issue-list display; the core renderer
+    // turns it into the "No matching issues." sentence at delivery.
+    expect(result.display).toEqual({ type: "issue-list", items: [] });
   });
 
   test("a --select that prunes summary fails with a self-correctable error instead of a wrong list", async () => {
@@ -148,7 +160,7 @@ describe("jira read path", () => {
 
     expect(result.ok).toBe(true);
     expect(result.data.formattedListNote).toContain("--select");
-    expect(result.data.formattedList).toBeUndefined();
+    expect(result.display).toBeUndefined();
   });
 });
 
@@ -271,11 +283,13 @@ function collectingSink(): TurnSink & { delivered: string[] } {
   } as TurnSink & { delivered: string[] };
 }
 
-/** A tool step carrying a `formattedList`, as a real issue search produces. */
-function stepWithFormattedList(formattedList: string): StepInfo {
+/** A tool step carrying an issue-list `display` channel, as a real issue search produces. */
+function stepWithIssueList(items: string[]): StepInfo {
   return {
     toolCalls: [{ toolCallId: "s1", toolName: "runCommand", input: { command: "jira issue search" } }],
-    toolResults: [{ toolCallId: "s1", toolName: "runCommand", output: { ok: true, data: { formattedList } } }],
+    toolResults: [
+      { toolCallId: "s1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items } } },
+    ],
     content: [],
   };
 }
@@ -305,7 +319,7 @@ async function deliverTurn(opts: {
     recordStepFn: () => {},
     postTurnGuards: [createIssueListGuard(async () => opts.correctorOutput ?? "")],
     runTurnFn: async (_history, _input, deps) => {
-      deps.onStepFinish?.(stepWithFormattedList(opts.formattedList));
+      deps.onStepFinish?.(stepWithIssueList([opts.formattedList]));
       return opts.modelText;
     },
   });

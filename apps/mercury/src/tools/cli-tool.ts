@@ -112,20 +112,20 @@ export function formatPrefixes(prefixes: string[][]): string {
 }
 
 /**
- * Removes `formattedList` from a tool result's `data` before it reaches the
- * model — it's a deterministic, user-facing artifact that the orchestration
- * layer appends directly to the final reply (see
- * `src/router/format-list-splice.ts`), never something the model needs to
- * read or reproduce. `formattedListNote` (the failure-path field, telling
- * the model why formatting couldn't happen and how to retry) is left
- * untouched — the model does need to see and act on that one.
+ * Removes the top-level `display` channel (see `ToolDisplay`) from a tool
+ * result before it reaches the model. `display` is the user-facing channel —
+ * a deterministic artifact the orchestration layer renders and appends to the
+ * final reply (see `src/router/format-list-splice.ts`), never something the
+ * model needs to read or reproduce. The model channel is exactly `data`, so
+ * this is a structural drop of one known top-level key — not a heuristic
+ * removal of a field nested inside `data`. Model-facing notes a plugin adds
+ * inside `data` (e.g. `formattedListNote`, telling the model why formatting
+ * couldn't happen and how to retry) are on the model channel and pass through.
  */
-export function omitFormattedListForModel(output: unknown): unknown {
-  if (typeof output !== "object" || output === null) return output;
-  const data = (output as { data?: unknown }).data;
-  if (typeof data !== "object" || data === null || !("formattedList" in data)) return output;
-  const { formattedList: _formattedList, ...rest } = data as Record<string, unknown>;
-  return { ...(output as Record<string, unknown>), data: rest };
+export function omitDisplayForModel(output: unknown): unknown {
+  if (typeof output !== "object" || output === null || !("display" in output)) return output;
+  const { display: _display, ...rest } = output as Record<string, unknown>;
+  return rest;
 }
 
 /**
@@ -249,7 +249,7 @@ export function createCliTool(
       const postProcess = match.postProcess ? opts.postProcessors?.[match.postProcess] : undefined;
       return postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
     },
-    toModelOutput: ({ output }) => ({ type: "json", value: omitFormattedListForModel(output) as JSONValue }),
+    toModelOutput: ({ output }) => ({ type: "json", value: omitDisplayForModel(output) as JSONValue }),
   });
 
   return { runCommand };
