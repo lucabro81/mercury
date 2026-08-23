@@ -60,10 +60,60 @@ export interface PluginLoadContext {
 }
 
 /**
- * Loads every plugin in `plugins`, in listing order, returning their combined
- * contributions. Never throws — a plugin that fails is logged and skipped, its
- * contributions staged and merged only once the whole plugin succeeds so a
- * later failure can't leave it half-wired.
+ * Orders `plugins` so every plugin comes after each of its declared `dependsOn`
+ * (a stable topological sort: among plugins with no ordering constraint between
+ * them, listing order is preserved). Only edges to a plugin actually present in
+ * the set are honored — an unknown dependency name creates no edge and is
+ * caught later, at activation, as an absent dependency. Any plugin left over
+ * after the sort is part of, or downstream of, a dependency **cycle**: it comes
+ * back in `cyclic`, never in `ordered`, so a cycle degrades fail-soft (the
+ * caller skips those plugins) instead of dropping the whole load.
+ */
+export function orderByDependencies(plugins: Plugin[]): { ordered: Plugin[]; cyclic: Plugin[] } {
+  const present = new Set(plugins.map((p) => p.name));
+  const remainingDeps = new Map<string, number>();
+  for (const p of plugins) {
+    // Distinct present dependencies only: the emit loop decrements once per
+    // dependency, so counting a name listed twice would wedge the plugin at a
+    // count that never reaches zero — misreported as a cycle (regression).
+    remainingDeps.set(p.name, new Set((p.dependsOn ?? []).filter((d) => present.has(d))).size);
+  }
+
+  const ordered: Plugin[] = [];
+  const emitted = new Set<string>();
+  // Repeatedly emit every plugin whose remaining dependencies are all already
+  // emitted, scanning in listing order so independent plugins keep it. Loop
+  // until a full pass emits nothing — whatever is left then is cyclic.
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const p of plugins) {
+      if (emitted.has(p.name)) continue;
+      if ((remainingDeps.get(p.name) ?? 0) !== 0) continue;
+      emitted.add(p.name);
+      ordered.push(p);
+      progressed = true;
+      for (const other of plugins) {
+        if (!emitted.has(other.name) && (other.dependsOn ?? []).includes(p.name)) {
+          remainingDeps.set(other.name, (remainingDeps.get(other.name) ?? 0) - 1);
+        }
+      }
+    }
+  }
+
+  const cyclic = plugins.filter((p) => !emitted.has(p.name));
+  return { ordered, cyclic };
+}
+
+/**
+ * Loads every plugin in `plugins`, returning their combined contributions.
+ * Plugins load in dependency-first order (see `orderByDependencies`), not
+ * listing order — though listing order is preserved among plugins with no
+ * dependency between them. Never throws — a plugin that fails is logged and
+ * skipped, its contributions staged and merged only once the whole plugin
+ * succeeds so a later failure can't leave it half-wired. A plugin whose
+ * declared `dependsOn` isn't fully activated (a dependency disabled, failed,
+ * unknown, or itself skipped) is skipped fail-soft too, transitively.
  */
 export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
   const cliConfigs: Record<string, CliConfig> = {};
@@ -73,7 +123,22 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
   const postTurnGuards: PostTurnGuard[] = [];
   const statusDescribers: Record<string, StatusDescriber> = {};
 
-  for (const plugin of plugins) {
+  const { ordered, cyclic } = orderByDependencies(plugins);
+  // A plugin caught in a cycle can't be ordered, so it can't load. Report it
+  // only when it's enabled — a disabled plugin contributes nothing regardless,
+  // same silence as any other disabled plugin.
+  for (const plugin of cyclic) {
+    if (ctx.enabledClis.includes(plugin.name)) {
+      ctx.log(`plugin "${plugin.name}" not activated: part of or depends on a dependency cycle`);
+    }
+  }
+
+  // Names that fully activated — a dependency must be in here for a dependent
+  // to load. Populated in dependency-first order, so a dependent is always
+  // processed after its dependencies have had their chance.
+  const activated = new Set<string>();
+
+  for (const plugin of ordered) {
     // Not enabled on this instance: contribute nothing, and don't even
     // validate the config — same as a CLI left out of MERCURY_CLIS.
     if (!ctx.enabledClis.includes(plugin.name)) {
@@ -87,6 +152,18 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       ctx.log(
         `plugin "${plugin.name}" not activated: apiVersion ${plugin.apiVersion} ` +
           `incompatible with this core (supports ${PLUGIN_API_VERSION})`,
+      );
+      continue;
+    }
+    // Every declared dependency must have fully activated first. Because we
+    // process in dependency-first order, a dependency that was going to load
+    // already has; anything still missing is disabled, failed, unknown, or
+    // itself skipped — so this dependent degrades fail-soft too. Checked before
+    // touching this plugin's own config/build, so a doomed plugin does no work.
+    const missingDeps = (plugin.dependsOn ?? []).filter((dep) => !activated.has(dep));
+    if (missingDeps.length > 0) {
+      ctx.log(
+        `plugin "${plugin.name}" not activated: dependency ${missingDeps.map((d) => `"${d}"`).join(", ")} absent or failed`,
       );
       continue;
     }
@@ -119,6 +196,9 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       if (contributions.postTurnGuards) {
         postTurnGuards.push(...contributions.postTurnGuards);
       }
+      // Fully wired — only now does it count as a satisfied dependency for
+      // anything that declared `dependsOn` on it.
+      activated.add(plugin.name);
     } catch (err) {
       ctx.log(`plugin "${plugin.name}" failed to load, skipped: ${err instanceof Error ? err.message : String(err)}`);
     }

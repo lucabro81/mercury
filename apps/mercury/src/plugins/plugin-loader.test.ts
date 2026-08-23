@@ -228,3 +228,152 @@ describe("loadPlugins", () => {
     expect(loaded.statusDescribers.plain).toBeUndefined();
   });
 });
+
+describe("loadPlugins dependsOn", () => {
+  /** A context whose loadCliConfig echoes each plugin's name as its binary. */
+  function orderCtx(overrides: Partial<PluginLoadContext> = {}): PluginLoadContext {
+    return baseCtx({
+      loadCliConfig: async (raw) => ({ ok: true, binary: (raw as { name: string }).name, config: CONFIG }),
+      ...overrides,
+    });
+  }
+
+  function recordingPlugin(name: string, order: string[], dependsOn?: string[]): Plugin {
+    return plug({
+      name,
+      cliConfig: { name },
+      dependsOn,
+      systemPromptFragment: name.toUpperCase(),
+      build: () => { order.push(name); return {}; },
+    });
+  }
+
+  it("loads a dependency before its dependent, even when the dependent is listed first", async () => {
+    const order: string[] = [];
+    const dependent = recordingPlugin("dependent", order, ["dep"]);
+    const dep = recordingPlugin("dep", order);
+    const loaded = await loadPlugins([dependent, dep], orderCtx({ enabledClis: ["dependent", "dep"] }));
+    expect(order).toEqual(["dep", "dependent"]);
+    expect(loaded.cliConfigs).toEqual({ dep: CONFIG, dependent: CONFIG });
+  });
+
+  it("keeps listing order among plugins with no dependency between them", async () => {
+    const order: string[] = [];
+    const a = recordingPlugin("a", order);
+    const b = recordingPlugin("b", order);
+    const loaded = await loadPlugins([a, b], orderCtx({ enabledClis: ["a", "b"] }));
+    expect(order).toEqual(["a", "b"]);
+    expect(loaded.cliConfigs).toEqual({ a: CONFIG, b: CONFIG });
+  });
+
+  it("skips a dependent whose dependency is not enabled — logs why, leaves the rest", async () => {
+    const logs: string[] = [];
+    const order: string[] = [];
+    const dependent = recordingPlugin("dependent", order, ["dep"]);
+    const dep = recordingPlugin("dep", order);
+    const other = recordingPlugin("other", order);
+    const loaded = await loadPlugins(
+      [dependent, dep, other],
+      orderCtx({ enabledClis: ["dependent", "other"], log: (m) => logs.push(m) }), // dep NOT enabled
+    );
+    expect(loaded.cliConfigs).toEqual({ other: CONFIG });
+    expect(order).not.toContain("dependent"); // never built
+    expect(logs.some((l) => l.includes("dependent") && l.includes("dep"))).toBe(true);
+  });
+
+  it("skips a dependent whose dependency failed to build, propagating transitively", async () => {
+    const logs: string[] = [];
+    const order: string[] = [];
+    const a = recordingPlugin("a", order); // ok
+    const b = plug({ name: "b", cliConfig: { name: "b" }, dependsOn: ["a"], build: () => { throw new Error("kaboom"); } });
+    const c = recordingPlugin("c", order, ["b"]); // depends on the one that throws
+    const loaded = await loadPlugins(
+      [a, b, c],
+      orderCtx({ enabledClis: ["a", "b", "c"], log: (m) => logs.push(m) }),
+    );
+    expect(loaded.cliConfigs).toEqual({ a: CONFIG }); // only a survives
+    expect(order).not.toContain("c");
+    expect(logs.some((l) => l.includes("b") && l.includes("kaboom"))).toBe(true);
+    expect(logs.some((l) => l.includes("c") && l.includes("b"))).toBe(true);
+  });
+
+  it("skips a dependent that names an unknown dependency", async () => {
+    const logs: string[] = [];
+    const order: string[] = [];
+    const dependent = recordingPlugin("dependent", order, ["ghost"]);
+    const loaded = await loadPlugins(
+      [dependent],
+      orderCtx({ enabledClis: ["dependent"], log: (m) => logs.push(m) }),
+    );
+    expect(loaded.cliConfigs).toEqual({});
+    expect(order).not.toContain("dependent");
+    expect(logs.some((l) => l.includes("dependent") && l.includes("ghost"))).toBe(true);
+  });
+
+  it("breaks a dependency cycle fail-soft, still loading unrelated plugins", async () => {
+    const logs: string[] = [];
+    const order: string[] = [];
+    const a = recordingPlugin("a", order, ["b"]);
+    const b = recordingPlugin("b", order, ["a"]); // a <-> b cycle
+    const c = recordingPlugin("c", order);
+    const loaded = await loadPlugins(
+      [a, b, c],
+      orderCtx({ enabledClis: ["a", "b", "c"], log: (m) => logs.push(m) }),
+    );
+    expect(loaded.cliConfigs).toEqual({ c: CONFIG });
+    expect(order).toEqual(["c"]);
+    expect(logs.some((l) => l.includes("a") && l.toLowerCase().includes("cycle"))).toBe(true);
+    expect(logs.some((l) => l.includes("b") && l.toLowerCase().includes("cycle"))).toBe(true);
+  });
+
+  it("loads a chain of dependencies in order (a <- b <- c)", async () => {
+    const order: string[] = [];
+    const a = recordingPlugin("a", order);
+    const b = recordingPlugin("b", order, ["a"]);
+    const c = recordingPlugin("c", order, ["b"]);
+    // listed out of dependency order on purpose
+    const loaded = await loadPlugins([c, b, a], orderCtx({ enabledClis: ["a", "b", "c"] }));
+    expect(order).toEqual(["a", "b", "c"]);
+    expect(loaded.cliConfigs).toEqual({ a: CONFIG, b: CONFIG, c: CONFIG });
+  });
+
+  it("loads a diamond (d depends on b and c, both on a) in a valid order", async () => {
+    const order: string[] = [];
+    const a = recordingPlugin("a", order);
+    const b = recordingPlugin("b", order, ["a"]);
+    const c = recordingPlugin("c", order, ["a"]);
+    const d = recordingPlugin("d", order, ["b", "c"]);
+    const loaded = await loadPlugins([d, b, c, a], orderCtx({ enabledClis: ["a", "b", "c", "d"] }));
+    // a before b and c; b and c before d. b and c keep listing order (b, c).
+    expect(order).toEqual(["a", "b", "c", "d"]);
+    expect(loaded.cliConfigs).toEqual({ a: CONFIG, b: CONFIG, c: CONFIG, d: CONFIG });
+  });
+
+  it("treats a self-dependency as unsatisfiable and skips it fail-soft, loading the rest", async () => {
+    const logs: string[] = [];
+    const order: string[] = [];
+    const selfish = recordingPlugin("selfish", order, ["selfish"]);
+    const other = recordingPlugin("other", order);
+    const loaded = await loadPlugins(
+      [selfish, other],
+      orderCtx({ enabledClis: ["selfish", "other"], log: (m) => logs.push(m) }),
+    );
+    expect(loaded.cliConfigs).toEqual({ other: CONFIG });
+    expect(order).toEqual(["other"]);
+    expect(logs.some((l) => l.includes("selfish"))).toBe(true);
+  });
+
+  // Regression: a duplicated name in `dependsOn` (["a","a"]) once inflated the
+  // dependency count past what the emit loop could decrement, wedging a plugin
+  // whose dependency had actually loaded into the "cycle" bucket and dropping it
+  // with a misleading reason. A present, loaded dependency must satisfy the
+  // dependent no matter how many times it's listed.
+  it("does not miscount a dependency named more than once in dependsOn", async () => {
+    const order: string[] = [];
+    const a = recordingPlugin("a", order);
+    const dependent = recordingPlugin("dependent", order, ["a", "a"]);
+    const loaded = await loadPlugins([dependent, a], orderCtx({ enabledClis: ["a", "dependent"] }));
+    expect(order).toEqual(["a", "dependent"]);
+    expect(loaded.cliConfigs).toEqual({ a: CONFIG, dependent: CONFIG });
+  });
+});
