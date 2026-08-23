@@ -172,10 +172,15 @@ export function createCliTool(
   const writeConfirmationNoteFn = opts.writeConfirmationNoteFn ?? writeConfirmationNote;
   const nowFn = opts.nowFn ?? (() => new Date());
 
+  // Anchor the example on a binary actually enabled on this instance rather than
+  // a hardcoded one: a fixed `jira …` example misleads the model on an instance
+  // without Jira. The concrete, CLI-specific example (real subcommand + flags)
+  // belongs to that CLI's own skill, not to this plugin-agnostic tool.
+  const exampleBinary = Object.keys(configs)[0] ?? "<binary>";
   const runCommand = tool({
     description:
       "Run a CLI command. Write the whole invocation as one string, exactly as you would type it in a terminal, " +
-      'e.g. `jira issue search --jql "project = KAN"`. Quote values that contain spaces.',
+      `e.g. \`${exampleBinary} <subcommand> --flag value\`. Quote values that contain spaces.`,
     inputSchema: z.object({ command: z.string().min(1) }),
     execute: async ({ command }) => {
       const parsed = parseCommand(command);
