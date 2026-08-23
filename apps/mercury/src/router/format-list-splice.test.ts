@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { collectFormattedLists, spliceFormattedLists } from "./format-list-splice.ts";
+import { collectDisplayStrings, spliceFormattedLists } from "./format-list-splice.ts";
 import type { StepInfo } from "../session/step-info.ts";
 
 function step(toolResults: StepInfo["toolResults"]): StepInfo {
@@ -33,49 +33,73 @@ describe("spliceFormattedLists", () => {
   });
 });
 
-describe("collectFormattedLists", () => {
-  it("returns the formattedList from a single tool result", () => {
-    const steps = [step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1" } } }])];
-    expect(collectFormattedLists(steps)).toEqual(["MER-1"]);
+describe("collectDisplayStrings", () => {
+  it("renders the display channel of a single tool result", () => {
+    const steps = [
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1"] } } }]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual(["MER-1"]);
   });
 
-  it("returns nothing for a formattedListNote-only result", () => {
+  it("joins an issue-list display's item lines with a blank line between them", () => {
+    const steps = [
+      step([
+        {
+          toolCallId: "1",
+          toolName: "runCommand",
+          output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x", "MER-2\nhttps://y"] } },
+        },
+      ]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual(["MER-1\nhttps://x\n\nMER-2\nhttps://y"]);
+  });
+
+  it("renders an empty issue-list display as the empty-set sentence", () => {
+    const steps = [
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: [] } } }]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual(["No matching issues."]);
+  });
+
+  it("returns nothing for a result that carries only a model-facing note and no display", () => {
     const steps = [
       step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedListNote: "retry with --select-all" } } }]),
     ];
-    expect(collectFormattedLists(steps)).toEqual([]);
+    expect(collectDisplayStrings(steps)).toEqual([]);
   });
 
-  it("returns nothing and does not throw for a non-Jira tool result with no data field", () => {
+  it("skips a display whose type has no registered renderer", () => {
+    const steps = [
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "unknown-kind", items: ["x"] } } }]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual([]);
+  });
+
+  it("returns nothing and does not throw for a non-Jira tool result with no display field", () => {
     const steps = [step([{ toolCallId: "1", toolName: "recall_tool_calls", output: { entries: [] } }])];
-    expect(collectFormattedLists(steps)).toEqual([]);
+    expect(collectDisplayStrings(steps)).toEqual([]);
   });
 
   it("returns nothing and does not throw for output that isn't an object", () => {
     const steps = [step([{ toolCallId: "1", toolName: "runCommand", output: "plain string output" }])];
-    expect(collectFormattedLists(steps)).toEqual([]);
+    expect(collectDisplayStrings(steps)).toEqual([]);
   });
 
-  it("collects distinct lists from two tool calls, in encounter order, across steps", () => {
+  it("collects distinct renderings from two tool calls, in encounter order, across steps", () => {
     const steps = [
-      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "list-a" } } }]),
-      step([{ toolCallId: "2", toolName: "runCommand", output: { ok: true, data: { formattedList: "list-b" } } }]),
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-a"] } } }]),
+      step([{ toolCallId: "2", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-b"] } } }]),
     ];
-    expect(collectFormattedLists(steps)).toEqual(["list-a", "list-b"]);
+    expect(collectDisplayStrings(steps)).toEqual(["list-a", "list-b"]);
   });
 
-  it("dedupes when the same formattedList string appears across two tool calls", () => {
+  it("dedupes when two displays render to the same string", () => {
     const steps = [
       step([
-        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "list-a" } } },
-        { toolCallId: "2", toolName: "runCommand", output: { ok: true, data: { formattedList: "list-a" } } },
+        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-a"] } } },
+        { toolCallId: "2", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-a"] } } },
       ]),
     ];
-    expect(collectFormattedLists(steps)).toEqual(["list-a"]);
-  });
-
-  it("treats the empty-results sentinel string as a real formattedList, not as falsy/empty", () => {
-    const steps = [step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "No matching issues." } } }])];
-    expect(collectFormattedLists(steps)).toEqual(["No matching issues."]);
+    expect(collectDisplayStrings(steps)).toEqual(["list-a"]);
   });
 });

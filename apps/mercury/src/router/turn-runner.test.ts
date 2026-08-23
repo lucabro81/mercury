@@ -252,15 +252,17 @@ describe("createTurnRunner", () => {
     expect(sink.finalized).toEqual(["the final answer"]);
   });
 
-  // The model never sees formattedList (omitFormattedListForModel strips it
+  // The model never sees the display channel (omitDisplayForModel strips it
   // before it reaches the model's context, see cli-tool.ts) — delivery is
   // guaranteed here instead, off the raw tool-result output onStepFinish
   // captures, independent of what the model's own text says.
-  test("appends a formattedList the model's final text omitted", async () => {
+  test("appends a display-channel rendering the model's final text omitted", async () => {
     const sink = baseSink();
     const step: StepInfo = {
       toolCalls: [],
-      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      toolResults: [
+        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
+      ],
       content: [],
     };
     const runner = createTurnRunner({
@@ -284,11 +286,13 @@ describe("createTurnRunner", () => {
     expect(sink.finalized).toEqual(["Here you go.\n\nMER-1\nhttps://x"]);
   });
 
-  test("does not duplicate a formattedList the model already relayed verbatim", async () => {
+  test("does not duplicate a display rendering the model already relayed verbatim", async () => {
     const sink = baseSink();
     const step: StepInfo = {
       toolCalls: [],
-      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      toolResults: [
+        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
+      ],
       content: [],
     };
     const runner = createTurnRunner({
@@ -561,7 +565,9 @@ describe("createTurnRunner", () => {
   describe("post-turn guards", () => {
     const formattedListStep: StepInfo = {
       toolCalls: [],
-      toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedList: "MER-1\nhttps://x" } } }],
+      toolResults: [
+        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
+      ],
       content: [],
     };
 

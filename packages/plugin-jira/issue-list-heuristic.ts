@@ -1,7 +1,7 @@
 /**
  * Cheap, code-level detector for "the model wrote its own rendition of a
  * Jira issue list" — the specific duplication problem that survives even
- * after the deterministic `formattedList` is hidden from the model and
+ * after the deterministic issue-list `display` is hidden from the model and
  * appended in code (see the core's `format-list-splice.ts`): the model still
  * has the raw `issues` data for legitimate analysis, and sometimes restates
  * it as a bulleted/numbered list instead of just commenting on it. Used both
@@ -26,7 +26,7 @@
  *    asked for "one line each", the model rendered exactly this shape and
  *    the marker-only version of this regex missed it entirely.
  *
- * Deliberately excludes the deterministic `formattedList`'s own shape
+ * Deliberately excludes the deterministic display list's own shape
  * either way: `formatOneIssue` (see `issue-list-formatter.ts`) never
  * emits a leading marker, and never puts a colon directly after the key —
  * its line is `KEY [status] summary` or, when there's no status, plain
@@ -57,7 +57,7 @@ export function looksLikeIssueList(text: string): boolean {
 /**
  * Last-resort reply when the corrector's own output still looks like a
  * rendered issue list (see `issue-list-guard.ts`) — never let a still-broken
- * free-text answer reach the user. `formattedList` still gets appended
- * after this by the core, unaffected either way.
+ * free-text answer reach the user. The deterministic display rendering still
+ * gets appended after this by the core, unaffected either way.
  */
 export const ISSUE_LIST_CORRECTION_FALLBACK = "Ecco i risultati.";

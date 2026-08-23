@@ -2,14 +2,14 @@
  * Isolated, context-free LLM call that rewrites text flagged by
  * `looksLikeIssueList` (see `./issue-list-heuristic.ts`) — the model's own
  * free-text restatement of a Jira issue list, which duplicates the
- * deterministic `formattedList` already appended in code.
+ * deterministic issue-list `display` channel already appended in code.
  *
  * Deliberately context-free: this call receives ONLY the flagged text,
  * no conversation history, no tools, no system prompt beyond the one
  * narrow instruction below. A corrector that never saw the raw ticket
- * data has nothing to "want" to re-list — same reasoning as why
- * `formattedList` itself is hidden from the main model
- * (`omitFormattedListForModel` in the core's `cli-tool.ts`), applied to a
+ * data has nothing to "want" to re-list — same reasoning as why the
+ * `display` channel itself is hidden from the main model
+ * (`omitDisplayForModel` in the core's `cli-tool.ts`), applied to a
  * second, smaller model call instead of the main turn.
  *
  * Uses plain `"ai"`'s `generateText`, not `ai-sdk-ollama`'s enhanced

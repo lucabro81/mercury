@@ -171,7 +171,7 @@ export async function startTerminalRepl(
       } else if (result.startsWith(streamedText)) {
         // The common case: nothing was streamed beyond what handleInput
         // returns, or turn-runner.ts only appended text after generation
-        // finished (e.g. format-list-splice.ts's formattedList) — the
+        // finished (e.g. format-list-splice.ts's display rendering) — the
         // already-streamed prefix is still there, so only the new suffix
         // needs writing.
         output.write(result.slice(streamedText.length));

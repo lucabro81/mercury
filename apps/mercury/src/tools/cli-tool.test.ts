@@ -4,7 +4,7 @@ import {
   matchCommand,
   formatPrefixes,
   createCliTool,
-  omitFormattedListForModel,
+  omitDisplayForModel,
   type CliConfig,
 } from "./cli-tool.ts";
 import { createConfirmationStore } from "./confirmation-store.ts";
@@ -141,47 +141,47 @@ describe("matchCommand", () => {
   });
 });
 
-describe("omitFormattedListForModel", () => {
-  it("strips formattedList from data when present", () => {
-    expect(omitFormattedListForModel({ ok: true, data: { issues: [], formattedList: "MER-1\nhttps://x" } })).toEqual({
-      ok: true,
-      data: { issues: [] },
-    });
+describe("omitDisplayForModel", () => {
+  it("strips the top-level display channel when present", () => {
+    expect(
+      omitDisplayForModel({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } }),
+    ).toEqual({ ok: true, data: { issues: [] } });
   });
 
-  it("leaves formattedListNote untouched when that's what's present instead", () => {
+  it("leaves a model-facing note in data untouched (it is not the display channel)", () => {
     const output = { ok: true, data: { formattedListNote: "could not build a list, retry with --select-all" } };
-    expect(omitFormattedListForModel(output)).toEqual(output);
+    expect(omitDisplayForModel(output)).toEqual(output);
   });
 
-  it("leaves a result with no data field untouched", () => {
+  it("leaves a result with no display untouched", () => {
     const output = { ok: false, error: "boom" };
-    expect(omitFormattedListForModel(output)).toEqual(output);
+    expect(omitDisplayForModel(output)).toEqual(output);
   });
 
-  it("leaves a result whose data has no formattedList untouched", () => {
+  it("leaves a successful result that carries no display untouched", () => {
     const output = { ok: true, data: { issues: [{ key: "MER-1" }] } };
-    expect(omitFormattedListForModel(output)).toEqual(output);
+    expect(omitDisplayForModel(output)).toEqual(output);
   });
 
   it("leaves non-object output (e.g. a plain error string) untouched", () => {
-    expect(omitFormattedListForModel("not an object")).toBe("not an object");
-    expect(omitFormattedListForModel(null)).toBe(null);
+    expect(omitDisplayForModel("not an object")).toBe("not an object");
+    expect(omitDisplayForModel(null)).toBe(null);
   });
 
-  it("keeps every other field in data intact alongside stripping formattedList", () => {
+  it("keeps data and every other top-level field intact while dropping display", () => {
     expect(
-      omitFormattedListForModel({
+      omitDisplayForModel({
         ok: true,
-        data: { issues: [{ key: "MER-1" }], total: 1, formattedList: "MER-1\nhttps://x" },
+        data: { issues: [{ key: "MER-1" }], total: 1 },
+        display: { type: "issue-list", items: ["MER-1\nhttps://x"] },
       }),
     ).toEqual({ ok: true, data: { issues: [{ key: "MER-1" }], total: 1 } });
   });
 
   it("does not mutate the input object", () => {
-    const output = { ok: true, data: { formattedList: "MER-1\nhttps://x", issues: [] } };
+    const output = { ok: true, data: { issues: [] }, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } };
     const snapshot = JSON.parse(JSON.stringify(output));
-    omitFormattedListForModel(output);
+    omitDisplayForModel(output);
     expect(output).toEqual(snapshot);
   });
 });
@@ -292,13 +292,13 @@ describe("createCliTool", () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
       const postProcessors = {
         "issue-list": (_parsed: { binary: string; args: string[] }, result: CliResult): CliResult =>
-          result.ok ? { ok: true, data: { ...(result.data as object), formattedList: "no issues" } } : result,
+          result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [] } } : result,
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
-      expect(result).toEqual({ ok: true, data: { issues: [], formattedList: "no issues" } });
+      expect(result).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
     });
 
     it("passes the parsed binary/args to the post-processor", async () => {
@@ -353,16 +353,16 @@ describe("createCliTool", () => {
       expect(result).toEqual(fakeResult);
     });
 
-    it("wires toModelOutput to strip formattedList from what the model sees, while execute's own return keeps it", async () => {
+    it("wires toModelOutput to drop the display channel from what the model sees, while execute's own return keeps it", async () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
       const postProcessors = {
         "issue-list": (_parsed: { binary: string; args: string[] }, result: CliResult): CliResult =>
-          result.ok ? { ok: true, data: { ...(result.data as object), formattedList: "no issues" } } : result,
+          result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["no issues"] } } : result,
       };
 
       const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
-      expect(result).toEqual({ ok: true, data: { issues: [], formattedList: "no issues" } });
+      expect(result).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: ["no issues"] } });
 
       const modelOutput = await runCommand.toModelOutput?.({
         toolCallId: "call-1",

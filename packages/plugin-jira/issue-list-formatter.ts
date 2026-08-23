@@ -1,9 +1,10 @@
 /**
- * Deterministic post-processor for a `jira issue search` result — adds a
- * `formattedList` field the model can relay verbatim instead of hand-
- * formatting a list of issues itself. It runs only because the plugin's
- * allowlist declares `"postProcess": "issue-list"` on the `issue search`
- * entry; this module just recognizes the *shape* of a search result
+ * Deterministic post-processor for a `jira issue search` result — emits the
+ * rendered issue lines on the result's user-facing `display` channel (see
+ * `ToolDisplay`, `type: "issue-list"`), so the list reaches the user without
+ * the model having to hand-format it or even see it. It runs only because the
+ * plugin's allowlist declares `"postProcess": "issue-list"` on the `issue
+ * search` entry; this module just recognizes the *shape* of a search result
  * (defensively — `--select` can reshape the JSON into anything, in which
  * case it backs off and returns the result unchanged rather than guessing).
  *
@@ -127,7 +128,7 @@ export function createJiraIssueListFormatter(config: IssueListConfig): CliPostPr
     const { data, issues } = shape;
 
     if (issues.length === 0) {
-      return { ok: true, data: { ...data, formattedList: "No matching issues." } };
+      return { ok: true, data, display: { type: "issue-list", items: [] } };
     }
 
     if (!issues.every(isJiraIssue)) {
@@ -144,7 +145,13 @@ export function createJiraIssueListFormatter(config: IssueListConfig): CliPostPr
       };
     }
 
-    const formattedList = issues.map((issue) => formatOneIssue(issue, siteUrl, itemTemplate)).join("\n\n");
-    return { ok: true, data: { ...data, formattedList } };
+    // One rendered line per issue on the user-facing `display` channel; the
+    // per-line rendering (default format or the configured `itemTemplate`)
+    // stays here in the plugin, which owns the config. Joining the lines and
+    // the empty-set sentence are the core renderer's job (see
+    // `src/router/format-list-splice.ts`). The raw `data` is left as the model
+    // channel, untouched.
+    const items = issues.map((issue) => formatOneIssue(issue, siteUrl, itemTemplate));
+    return { ok: true, data, display: { type: "issue-list", items } };
   };
 }

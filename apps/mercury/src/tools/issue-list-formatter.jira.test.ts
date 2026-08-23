@@ -4,11 +4,13 @@ import type { CliResult } from "./cli-executor.ts";
 
 /**
  * Integration-shaped test of the real `@mercury/plugin-jira` issue-list
- * formatter (moved out of the core in step 2.3). The default-format
- * assertions below double as the byte-for-byte characterisation of the
- * historical behaviour: a change to how a line renders when no itemTemplate
- * is configured fails here. The itemTemplate and schema blocks cover the new
- * plugin-owned configuration.
+ * formatter. The default-format assertions below characterise how the plugin
+ * renders one issue into one `display.items` line when no itemTemplate is
+ * configured. The formatter emits per-issue lines on the user-facing `display`
+ * channel; joining those lines with a blank line between them is the core
+ * renderer's job (see `format-list-splice.test.ts`), and the byte-for-byte
+ * end-to-end string is guarded by `jira-behavior.test.ts`. The itemTemplate
+ * and schema blocks cover the plugin-owned configuration.
  */
 const SITE_URL = "https://webcomperio.atlassian.net";
 const PARSED = { binary: "jira", args: ["issue", "search"] };
@@ -69,9 +71,9 @@ describe("createJiraIssueListFormatter (default format)", () => {
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
       expect(formatted.data).toMatchObject(original);
-      const data = formatted.data as { formattedListNote: string; formattedList?: unknown };
+      const data = formatted.data as { formattedListNote: string };
       expect(data.formattedListNote).toContain("--select");
-      expect(data.formattedList).toBeUndefined();
+      expect(formatted.display).toBeUndefined();
     }
   });
 
@@ -84,9 +86,9 @@ describe("createJiraIssueListFormatter (default format)", () => {
     }
   });
 
-  it("adds a 'no matching issues' formattedList for an empty issues array, without erroring", () => {
+  it("emits an empty issue-list display for an empty issues array, without erroring", () => {
     const result: CliResult = { ok: true, data: { issues: [] } };
-    expect(format(PARSED, result)).toEqual({ ok: true, data: { issues: [], formattedList: "No matching issues." } });
+    expect(format(PARSED, result)).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
   });
 
   it("returns a self-correctable error when an issue is missing summary", () => {
@@ -102,7 +104,7 @@ describe("createJiraIssueListFormatter (default format)", () => {
     }
   });
 
-  it("builds a formattedList line with status and a browse link built from siteUrl + key", () => {
+  it("builds one display item with status and a browse link built from siteUrl + key", () => {
     const issues = [
       { key: "MER-20", fields: { summary: "Ticket di test creato da Mercury", status: { name: "Da fare" } } },
     ];
@@ -110,9 +112,10 @@ describe("createJiraIssueListFormatter (default format)", () => {
     const formatted = format(PARSED, result);
     expect(formatted).toEqual({
       ok: true,
-      data: {
-        issues,
-        formattedList: "MER-20 [Da fare] Ticket di test creato da Mercury\nhttps://webcomperio.atlassian.net/browse/MER-20",
+      data: { issues },
+      display: {
+        type: "issue-list",
+        items: ["MER-20 [Da fare] Ticket di test creato da Mercury\nhttps://webcomperio.atlassian.net/browse/MER-20"],
       },
     });
   });
@@ -125,13 +128,14 @@ describe("createJiraIssueListFormatter (default format)", () => {
     const formatted = format(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({
-        formattedList: "MER-20 Ticket di test\nhttps://webcomperio.atlassian.net/browse/MER-20",
+      expect(formatted.display).toEqual({
+        type: "issue-list",
+        items: ["MER-20 Ticket di test\nhttps://webcomperio.atlassian.net/browse/MER-20"],
       });
     }
   });
 
-  it("joins multiple issues with a blank line between them", () => {
+  it("emits one display item per issue (the core renderer joins them)", () => {
     const result: CliResult = {
       ok: true,
       data: {
@@ -144,10 +148,12 @@ describe("createJiraIssueListFormatter (default format)", () => {
     const formatted = format(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({
-        formattedList:
-          "MER-1 First\nhttps://webcomperio.atlassian.net/browse/MER-1\n\n" +
+      expect(formatted.display).toEqual({
+        type: "issue-list",
+        items: [
+          "MER-1 First\nhttps://webcomperio.atlassian.net/browse/MER-1",
           "MER-2 Second\nhttps://webcomperio.atlassian.net/browse/MER-2",
+        ],
       });
     }
   });
@@ -158,8 +164,9 @@ describe("createJiraIssueListFormatter (default format)", () => {
     const formatted = withTrailingSlash(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({
-        formattedList: "MER-1 x\nhttps://webcomperio.atlassian.net/browse/MER-1",
+      expect(formatted.display).toEqual({
+        type: "issue-list",
+        items: ["MER-1 x\nhttps://webcomperio.atlassian.net/browse/MER-1"],
       });
     }
   });
@@ -191,8 +198,9 @@ describe("createJiraIssueListFormatter (itemTemplate override)", () => {
     const formatted = format(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({
-        formattedList: "MER-7: Titolo (In corso) — https://webcomperio.atlassian.net/browse/MER-7",
+      expect(formatted.display).toEqual({
+        type: "issue-list",
+        items: ["MER-7: Titolo (In corso) — https://webcomperio.atlassian.net/browse/MER-7"],
       });
     }
   });
@@ -203,11 +211,11 @@ describe("createJiraIssueListFormatter (itemTemplate override)", () => {
     const formatted = format(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({ formattedList: "MER-7 [] Titolo" });
+      expect(formatted.display).toEqual({ type: "issue-list", items: ["MER-7 [] Titolo"] });
     }
   });
 
-  it("still joins multiple templated issues with a blank line", () => {
+  it("emits one templated item per issue (the core renderer joins them)", () => {
     const format = createJiraIssueListFormatter({ siteUrl: SITE_URL, itemTemplate: "{key} {summary}" });
     const result: CliResult = {
       ok: true,
@@ -221,7 +229,7 @@ describe("createJiraIssueListFormatter (itemTemplate override)", () => {
     const formatted = format(PARSED, result);
     expect(formatted.ok).toBe(true);
     if (formatted.ok) {
-      expect(formatted.data).toMatchObject({ formattedList: "MER-1 First\n\nMER-2 Second" });
+      expect(formatted.display).toEqual({ type: "issue-list", items: ["MER-1 First", "MER-2 Second"] });
     }
   });
 });
