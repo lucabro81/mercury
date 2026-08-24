@@ -18,9 +18,7 @@ import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
-import type { Plugin } from "@mercury/plugin-types";
-import { jiraPlugin } from "@mercury/plugin-jira";
-import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
+import mercuryConfig from "../mercury.config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -111,14 +109,15 @@ const ollamaThink = process.env.OLLAMA_THINK !== "false";
 const model = provider(ollamaModel, { think: ollamaThink });
 const summarize = createSummarizer(model);
 
-// Plugins. This is the only place that names them — the loader and every other
-// module process an opaque list (see plugins/plugin-loader.ts). Each supplies
-// its allowlist as data, a system-prompt fragment, and a `build()` that turns
-// the runtime context into post-processors and post-turn guards. A plugin
-// contributes only when it's both listed in MERCURY_CLIS and its allowlist
-// validates through the same schema/version barrier a file-based config passes;
-// one that fails — bad config, throwing build — degrades only itself.
-const plugins: Plugin[] = [jiraPlugin, bitbucketPlugin];
+// Plugins are declared in `mercury.config.ts` (the instance composition config)
+// — this file no longer names them. The loader and every other module process
+// an opaque list (see plugins/plugin-loader.ts). Each supplies its allowlist as
+// data, a system-prompt fragment, and a `build()` that turns the runtime
+// context into post-processors and post-turn guards. A plugin contributes only
+// when it's both listed in MERCURY_CLIS and its allowlist validates through the
+// same schema/version barrier a file-based config passes; one that fails — bad
+// config, throwing build — degrades only itself.
+const plugins = mercuryConfig.plugins;
 const pluginNames = new Set(plugins.map((p) => p.name));
 
 // File-based CLI configs come from maintainer-authored files in cliConfigDir,
