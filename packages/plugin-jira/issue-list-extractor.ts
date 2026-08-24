@@ -20,20 +20,15 @@
  * `CliResult`/`CliPostProcessor` come from `@mercury/plugin-types`, the shared
  * contract both the core and the plugins import.
  */
-import { z } from "zod";
 import type { CliResult, CliPostProcessor } from "@mercury/plugin-types";
 
 /** The extractor's configuration: just `siteUrl`, Comperio's browsable Jira
  * site (e.g. `https://webcomperio.atlassian.net`), used to build each issue's
- * browse link. `.strict()` so a typo — including a now-removed `itemTemplate`,
- * which moved to the render handler — fails loudly. */
-export const issueListConfigSchema = z
-  .object({
-    siteUrl: z.string().min(1),
-  })
-  .strict();
-
-export type IssueListConfig = z.infer<typeof issueListConfigSchema>;
+ * browse link. It is the extractor's only input — rendering config
+ * (`itemTemplate`) moved to the render handler. The single caller (`plugin.ts`)
+ * only reaches here when `JIRA_SITE_URL` is a non-empty string, so no schema
+ * validation is layered on a one-required-field shape. */
+export type IssueListConfig = { siteUrl: string };
 
 /** One issue as emitted on the `display` channel: `status` is the status name
  * or `null` when absent/unrequested, `url` the resolved browse link. */

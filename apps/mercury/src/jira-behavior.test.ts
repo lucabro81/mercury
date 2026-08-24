@@ -143,6 +143,18 @@ describe("jira read path", () => {
     expect(result.display).toEqual({ type: "issue-list", items: ["No matching issues."] });
   });
 
+  test("an issue with no status renders without the [status] bracket, byte-identical", async () => {
+    const spy = cliSpy({ ok: true, data: { issues: [{ key: "KAN-9", fields: { summary: "No status here" } }] } });
+    const { tools } = await buildJiraTools(spy);
+
+    const result = await runCommand(tools, 'jira issue search --jql "project = KAN"');
+
+    expect(result.ok).toBe(true);
+    // Key, single space, summary — no bracket — then the browse link, exactly
+    // as before the rendering moved to the composition handler.
+    expect(result.display).toEqual({ type: "issue-list", items: [`KAN-9 No status here\n${SITE_URL}/browse/KAN-9`] });
+  });
+
   test("a --select that prunes summary fails with a self-correctable error instead of a wrong list", async () => {
     const spy = cliSpy({ ok: true, data: { issues: [{ key: "KAN-1", fields: {} }] } });
     const { tools } = await buildJiraTools(spy);

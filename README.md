@@ -26,7 +26,7 @@
 
 ## What it is
 
-Mercury is a generic agent built around a fixed orchestration loop, it has a three-layer memory management (context, episodic/semantic memory and an llm wiki), and its functionality can be esxtended through plugins.
+Mercury is an agent built on a fixed orchestration loop and a pluggable tool layer. Give it the CLI for a service and it can query and act on whatever that CLI exposes. Today that's Jira: search and get issues, create them, transition them, comment on them, delete them behind an explicit confirmation. Channels work the same way: a terminal for bootstrap and debugging, Google Chat app for actual conversations, both feeding the same loop downstream.
 
 ## Installation
 

@@ -14,7 +14,6 @@ export { jiraPlugin, jiraCliConfig } from "./plugin.ts";
 
 export {
   createJiraIssueListExtractor,
-  issueListConfigSchema,
   type IssueListConfig,
   type JiraIssueListItem,
 } from "./issue-list-extractor.ts";

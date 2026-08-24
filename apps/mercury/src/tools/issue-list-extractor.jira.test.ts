@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createJiraIssueListExtractor, issueListConfigSchema } from "@mercury/plugin-jira";
+import { createJiraIssueListExtractor } from "@mercury/plugin-jira";
 import type { CliResult } from "./cli-executor.ts";
 
 /**
@@ -188,23 +188,5 @@ describe("createJiraIssueListExtractor", () => {
       const data = extracted.data as { issues: Array<{ self: string }> };
       expect(data.issues[0]?.self).toBe("https://api.atlassian.com/...");
     }
-  });
-});
-
-describe("issueListConfigSchema", () => {
-  it("accepts a config with just siteUrl", () => {
-    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL }).success).toBe(true);
-  });
-
-  it("rejects a config missing siteUrl", () => {
-    expect(issueListConfigSchema.safeParse({}).success).toBe(false);
-  });
-
-  it("rejects itemTemplate — rendering config no longer lives on the plugin (.strict)", () => {
-    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL, itemTemplate: "{key} {summary}" }).success).toBe(false);
-  });
-
-  it("rejects an unknown extra key (.strict)", () => {
-    expect(issueListConfigSchema.safeParse({ siteUrl: SITE_URL, extra: true }).success).toBe(false);
   });
 });
