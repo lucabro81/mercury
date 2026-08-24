@@ -4,12 +4,14 @@ import { jiraPlugin, jiraCliConfig } from "@mercury/plugin-jira";
 
 /**
  * The Jira plugin's assembled module object — its static declaration (name,
- * raw allowlist, prompt fragment) and its `build()`, which turns the runtime
- * context (env + model) into the issue-list formatter and the post-turn guard.
- * The generic loader that consumes this shape is tested with synthetic plugins
- * in plugin-loader.test.ts; this file pins the Jira-specific `build()` wiring
- * that used to live inline in the composition root behind `jiraEnabled` /
- * `JIRA_SITE_URL` checks.
+ * raw allowlist, skill) and its `build()`, which turns the runtime context
+ * (env + model) into the issue-list extractor and the post-turn guard. The
+ * generic loader that consumes this shape is tested with synthetic plugins in
+ * plugin-loader.test.ts; this file pins the Jira-specific `build()` wiring that
+ * used to live inline in the composition root behind `jiraEnabled` /
+ * `JIRA_SITE_URL` checks. Rendering (the render handler + its itemTemplate) is
+ * no longer the plugin's concern — it lives at composition — so this file no
+ * longer asserts anything about it.
  */
 const MODEL = {} as never; // build() only closes over the model; it never calls it
 const noLog = () => {};
@@ -36,38 +38,28 @@ describe("jiraPlugin", () => {
     expect(c.postTurnGuards![0]!.statusId).toBe("issue-list-correction");
   });
 
-  it("registers the issue-list formatter when JIRA_SITE_URL is set", () => {
+  it("registers the issue-list extractor when JIRA_SITE_URL is set", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "https://webcomperio.atlassian.net" }, log: noLog });
     expect(c.postProcessors).toHaveProperty("issue-list");
   });
 
-  it("does not register the formatter when JIRA_SITE_URL is absent — the guard still comes through", () => {
+  it("does not register the extractor when JIRA_SITE_URL is absent — the guard still comes through", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
     expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
     expect(c.postTurnGuards).toHaveLength(1);
   });
 
-  it("treats an empty JIRA_SITE_URL as unconfigured — no formatter and no log noise", () => {
+  it("treats an empty JIRA_SITE_URL as unconfigured — no extractor and no log noise", () => {
     const logs: string[] = [];
     const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "" }, log: (m) => logs.push(m) });
     expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
     expect(logs).toEqual([]);
   });
 
-  it("logs and skips the formatter when JIRA_SITE_URL is set but the config is invalid", () => {
-    const logs: string[] = [];
-    // An empty JIRA_ISSUE_LIST_TEMPLATE is present-but-invalid (schema min(1)),
-    // distinct from absent — this must surface, unlike an unset site url.
-    const c = jiraPlugin.build!({
-      model: MODEL,
-      env: { JIRA_SITE_URL: "https://x.atlassian.net", JIRA_ISSUE_LIST_TEMPLATE: "" },
-      log: (m) => logs.push(m),
-    });
-    expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
-    expect(logs.some((l) => l.includes("invalid config"))).toBe(true);
-  });
-
-  it("registers the formatter with a valid custom JIRA_ISSUE_LIST_TEMPLATE", () => {
+  it("ignores JIRA_ISSUE_LIST_TEMPLATE — rendering config is no longer read by the plugin", () => {
+    // The plugin registers the extractor from siteUrl alone; the template is a
+    // render-handler concern read at composition, not here. A present template
+    // env must neither block nor alter the extractor's registration.
     const c = jiraPlugin.build!({
       model: MODEL,
       env: { JIRA_SITE_URL: "https://x.atlassian.net", JIRA_ISSUE_LIST_TEMPLATE: "{key}: {summary}" },

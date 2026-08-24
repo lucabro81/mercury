@@ -34,43 +34,40 @@ describe("spliceFormattedLists", () => {
 });
 
 describe("collectDisplayStrings", () => {
-  it("renders the display channel of a single tool result", () => {
+  it("collects the already-rendered string block off a display", () => {
     const steps = [
-      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1"] } } }]),
-    ];
-    expect(collectDisplayStrings(steps)).toEqual(["MER-1"]);
-  });
-
-  it("joins an issue-list display's item lines with a blank line between them", () => {
-    const steps = [
-      step([
-        {
-          toolCallId: "1",
-          toolName: "runCommand",
-          output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x", "MER-2\nhttps://y"] } },
-        },
-      ]),
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x\n\nMER-2\nhttps://y"] } } }]),
     ];
     expect(collectDisplayStrings(steps)).toEqual(["MER-1\nhttps://x\n\nMER-2\nhttps://y"]);
   });
 
-  it("renders an empty issue-list display as the empty-set sentence", () => {
+  it("does no rendering of its own — it collects string items verbatim, without joining", () => {
+    // Post-decoration a display carries a single rendered block; the core never
+    // joins. Two string items would be collected as two separate strings — the
+    // core is not where the blank-line join happens (that is the handler's job).
     const steps = [
-      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: [] } } }]),
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["a", "b"] } } }]),
     ];
-    expect(collectDisplayStrings(steps)).toEqual(["No matching issues."]);
+    expect(collectDisplayStrings(steps)).toEqual(["a", "b"]);
+  });
+
+  it("ignores structured (non-string) items — a display no formatter was applied to contributes nothing", () => {
+    const steps = [
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: [{ key: "MER-1" }] } } }]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual([]);
+  });
+
+  it("does not key on display.type — a string item is collected whatever the type", () => {
+    const steps = [
+      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "pr-list", items: ["rendered"] } } }]),
+    ];
+    expect(collectDisplayStrings(steps)).toEqual(["rendered"]);
   });
 
   it("returns nothing for a result that carries only a model-facing note and no display", () => {
     const steps = [
       step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: { formattedListNote: "retry with --select-all" } } }]),
-    ];
-    expect(collectDisplayStrings(steps)).toEqual([]);
-  });
-
-  it("skips a display whose type has no registered renderer", () => {
-    const steps = [
-      step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "unknown-kind", items: ["x"] } } }]),
     ];
     expect(collectDisplayStrings(steps)).toEqual([]);
   });
@@ -85,7 +82,7 @@ describe("collectDisplayStrings", () => {
     expect(collectDisplayStrings(steps)).toEqual([]);
   });
 
-  it("collects distinct renderings from two tool calls, in encounter order, across steps", () => {
+  it("collects distinct blocks from two tool calls, in encounter order, across steps", () => {
     const steps = [
       step([{ toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-a"] } } }]),
       step([{ toolCallId: "2", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-b"] } } }]),
@@ -93,7 +90,7 @@ describe("collectDisplayStrings", () => {
     expect(collectDisplayStrings(steps)).toEqual(["list-a", "list-b"]);
   });
 
-  it("dedupes when two displays render to the same string", () => {
+  it("dedupes when two displays carry the same string block", () => {
     const steps = [
       step([
         { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["list-a"] } } },

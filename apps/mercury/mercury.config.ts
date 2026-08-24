@@ -9,9 +9,19 @@
  * unconditional activation.
  */
 import { defineMercuryConfig } from "./src/config/define-config.ts";
+import { formatterPlugin } from "./src/plugins/formatter.ts";
+import { createJiraIssueListHandler } from "./src/plugins/jira-issue-list-handler.ts";
 import { jiraPlugin } from "@mercury/plugin-jira";
 import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
 
 export default defineMercuryConfig({
-  plugins: [jiraPlugin, bitbucketPlugin],
+  plugins: [
+    // Jira emits structured issue-list records; the formatter decorator renders
+    // them into the user-facing text block via the handler wired here. The
+    // rendering config (JIRA_ISSUE_LIST_TEMPLATE) is read at composition — the
+    // template is rendering config, so it travels with the render handler, not
+    // with the data plugin.
+    formatterPlugin(jiraPlugin, createJiraIssueListHandler({ itemTemplate: process.env.JIRA_ISSUE_LIST_TEMPLATE })),
+    bitbucketPlugin,
+  ],
 });

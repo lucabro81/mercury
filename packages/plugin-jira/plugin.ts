@@ -7,7 +7,7 @@
  *    same schema/version barrier a file-based config passes;
  *  - `systemPromptFragment`: the tool-surface description the core splices into
  *    the system prompt when the plugin is active;
- *  - `build(ctx)`: the env/model-dependent half — the `issue search` formatter
+ *  - `build(ctx)`: the env/model-dependent half — the `issue search` extractor
  *    (only when JIRA_SITE_URL is configured) and the always-on issue-list
  *    post-turn guard (model-backed). This is the logic that used to live inline
  *    in the composition root behind `jiraEnabled` and `JIRA_SITE_URL` checks.
@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury/plugin-types";
 import rawConfig from "./jira.json";
-import { createJiraIssueListFormatter, issueListConfigSchema } from "./issue-list-formatter.ts";
+import { createJiraIssueListExtractor } from "./issue-list-extractor.ts";
 import { createIssueListGuard } from "./issue-list-guard.ts";
 import { createIssueListCorrector } from "./issue-list-corrector.ts";
 
@@ -45,27 +45,18 @@ export const jiraPlugin: Plugin = {
   build: (ctx) => {
     const postProcessors: Record<string, CliPostProcessor> = {};
 
-    // The `issue search` formatter only registers when JIRA_SITE_URL is set —
+    // The `issue search` extractor only registers when JIRA_SITE_URL is set —
     // it isn't derivable from any CLI output (the API talks to
     // api.atlassian.com/ex/jira/<cloud-id>/…, unrelated to the human-facing
-    // hostname), so without it the formatter is never registered and `issue
-    // search` passes through unaugmented. An *absent* site url is "not
-    // configured" and stays silent; a *present but invalid* config (e.g. an
-    // empty JIRA_ISSUE_LIST_TEMPLATE, which the schema's min(1) rejects) is a
-    // deployment mistake and is logged. Either way the guard below still comes
-    // through — it doesn't depend on the site url.
+    // hostname), so without it the extractor is never registered and `issue
+    // search` passes through unaugmented. An absent or empty site url is "not
+    // configured" and stays silent. Rendering config (itemTemplate) is no
+    // longer here — it moved to the render handler wired in the composition
+    // config, so `siteUrl` is the extractor's only input. Either way the guard
+    // below still comes through — it doesn't depend on the site url.
     const siteUrl = ctx.env.JIRA_SITE_URL;
     if (siteUrl) {
-      const parsed = issueListConfigSchema.safeParse({
-        siteUrl,
-        itemTemplate: ctx.env.JIRA_ISSUE_LIST_TEMPLATE,
-      });
-      if (parsed.success) {
-        postProcessors["issue-list"] = createJiraIssueListFormatter(parsed.data);
-      } else {
-        const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-        ctx.log(`Jira issue-list formatter not registered: invalid config: ${issues}`);
-      }
+      postProcessors["issue-list"] = createJiraIssueListExtractor({ siteUrl });
     }
 
     return {
