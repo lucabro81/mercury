@@ -86,6 +86,9 @@ RUN find /app/packages -path '*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \
 COPY --from=clis --chown=mercury:mercury /app/bin/ /usr/local/bin/
 
 COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
+# The instance composition config lives at the app root (imported by src/index.ts
+# as ../mercury.config.ts), not under src/, so it needs its own COPY.
+COPY --chown=mercury:mercury apps/mercury/mercury.config.ts ./apps/mercury/mercury.config.ts
 # The shared plugin contract types — runtime source imported by the app and the
 # plugins. No postinstall, so copied after install (cache-friendly), unlike the
 # Jira plugin above.
