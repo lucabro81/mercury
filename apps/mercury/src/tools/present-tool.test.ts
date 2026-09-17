@@ -2,18 +2,13 @@ import { describe, it, expect } from "bun:test";
 import { createPresentTool } from "./present-tool.ts";
 import { createDisplayStore } from "./display-store.ts";
 
-async function run(t: { execute?: (args: { ref: string }, opts: unknown) => unknown }, ref: string) {
-  if (!t.execute) throw new Error("present tool has no execute");
-  return await t.execute({ ref }, {});
-}
-
 describe("createPresentTool", () => {
   it("surfaces a valid ref so it is shown at finalize", async () => {
     const store = createDisplayStore({ refFn: () => "d1" });
     store.stash("terminal", "MER-1\nhttps://x");
     const { present } = createPresentTool({ sessionKey: "terminal", store });
 
-    const result = await run(present, "d1");
+    const result = await present.execute({ ref: "d1" }, {} as never);
     expect(result).toEqual({ ok: true });
     expect(store.takeSurfaced("terminal")).toEqual(["MER-1\nhttps://x"]);
   });
@@ -23,7 +18,7 @@ describe("createPresentTool", () => {
     store.stash("terminal", "MER-1\nhttps://x");
     const { present } = createPresentTool({ sessionKey: "terminal", store });
 
-    const result = (await run(present, "d999")) as { ok: boolean; error?: string };
+    const result = (await present.execute({ ref: "d999" }, {} as never)) as { ok: boolean; error?: string };
     expect(result.ok).toBe(false);
     expect(typeof result.error).toBe("string");
     expect(store.takeSurfaced("terminal")).toEqual([]);
@@ -34,7 +29,7 @@ describe("createPresentTool", () => {
     store.stash("spaces/X:users/42", "MER-1\nhttps://x");
     const { present } = createPresentTool({ sessionKey: "terminal", store });
 
-    const result = (await run(present, "d1")) as { ok: boolean };
+    const result = (await present.execute({ ref: "d1" }, {} as never)) as { ok: boolean };
     expect(result.ok).toBe(false);
     expect(store.takeSurfaced("spaces/X:users/42")).toEqual([]);
   });
