@@ -20,7 +20,6 @@ import type { StepInfo } from "../session/step-info.ts";
 // withhold an already-generated answer.
 import type { PostTurnGuard } from "@mercury/plugin-types";
 export type { PostTurnGuard };
-import { collectDisplayStrings, spliceFormattedLists } from "./format-list-splice.ts";
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";
 import type { HandleTurn, InboundTurn, TurnSink } from "./provider.ts";
@@ -70,6 +69,14 @@ export type TurnRunnerDeps = {
   logPostTurnGuardFn?: (message: string) => void;
   /** Test seam; defaults to `Date.now`. */
   now?: () => number;
+  /**
+   * Returns the display artifacts the model surfaced via `present` this turn
+   * (see `display-store.ts`), in stash order, to append after the model's
+   * text. Absent on an instance with no display store — nothing is appended.
+   * The old unconditional splicing of every tool-produced display is gone:
+   * an artifact is shown only when the model explicitly presented it.
+   */
+  takeSurfacedDisplays?: (sessionKey: string) => string[];
 };
 
 /** Builds the shared `HandleTurn` every provider's driver calls once it has a real message to run through the model. */
@@ -143,7 +150,11 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
         history.replaceLastAssistantMessage(correctedText);
       }
 
-      const finalText = spliceFormattedLists(correctedText, collectDisplayStrings(steps));
+      // Append only what the model chose to `present` this turn — never the
+      // whole set of tool-produced displays. Appending (not replacing) keeps
+      // the already-streamed prefix intact, so terminal.ts's safe-slice holds.
+      const surfaced = deps.takeSurfacedDisplays?.(turn.sessionKey) ?? [];
+      const finalText = [correctedText, ...surfaced].filter((part) => part !== "").join("\n\n");
       await sink.finalize(finalText);
     } finally {
       sink.dispose();

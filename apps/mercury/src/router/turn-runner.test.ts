@@ -252,19 +252,12 @@ describe("createTurnRunner", () => {
     expect(sink.finalized).toEqual(["the final answer"]);
   });
 
-  // The model never sees the display channel (omitDisplayForModel strips it
-  // before it reaches the model's context, see cli-tool.ts) — delivery is
-  // guaranteed here instead, off the raw tool-result output onStepFinish
-  // captures, independent of what the model's own text says.
-  test("appends a display-channel rendering the model's final text omitted", async () => {
+  // Under #6 the display is no longer force-appended off the raw tool output:
+  // it is stashed and shown only if the model surfaced it via `present`. The
+  // turn runner asks the display store what was surfaced this turn (keyed by
+  // sessionKey) and appends only that, so this test injects takeSurfacedDisplays.
+  test("appends the display artifacts the model surfaced via present, in order", async () => {
     const sink = baseSink();
-    const step: StepInfo = {
-      toolCalls: [],
-      toolResults: [
-        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
-      ],
-      content: [],
-    };
     const runner = createTurnRunner({
       model: {} as any,
       systemPrompts: { singleUser: "s", multiUser: "m" },
@@ -275,10 +268,8 @@ describe("createTurnRunner", () => {
       maybeCapture: async () => {},
       processToolCorrections: async () => {},
       logStep: () => {},
-      runTurnFn: async (_history, _input, deps) => {
-        deps.onStepFinish?.(step);
-        return "Here you go.";
-      },
+      takeSurfacedDisplays: () => ["MER-1\nhttps://x"],
+      runTurnFn: async () => "Here you go.",
     });
 
     await runner(baseTurn(), sink);
@@ -286,15 +277,8 @@ describe("createTurnRunner", () => {
     expect(sink.finalized).toEqual(["Here you go.\n\nMER-1\nhttps://x"]);
   });
 
-  test("does not duplicate a display rendering the model already relayed verbatim", async () => {
+  test("appends multiple surfaced artifacts, joined in the order the store returns them", async () => {
     const sink = baseSink();
-    const step: StepInfo = {
-      toolCalls: [],
-      toolResults: [
-        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
-      ],
-      content: [],
-    };
     const runner = createTurnRunner({
       model: {} as any,
       systemPrompts: { singleUser: "s", multiUser: "m" },
@@ -305,15 +289,79 @@ describe("createTurnRunner", () => {
       maybeCapture: async () => {},
       processToolCorrections: async () => {},
       logStep: () => {},
-      runTurnFn: async (_history, _input, deps) => {
-        deps.onStepFinish?.(step);
-        return "Here you go:\n\nMER-1\nhttps://x";
-      },
+      takeSurfacedDisplays: () => ["list-a", "list-b"],
+      runTurnFn: async () => "Done.",
     });
 
     await runner(baseTurn(), sink);
 
-    expect(sink.finalized).toEqual(["Here you go:\n\nMER-1\nhttps://x"]);
+    expect(sink.finalized).toEqual(["Done.\n\nlist-a\n\nlist-b"]);
+  });
+
+  test("appends nothing when the model surfaced no artifact (e.g. a prose-only answer)", async () => {
+    const sink = baseSink();
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      takeSurfacedDisplays: () => [],
+      runTurnFn: async () => "There are 3 open.",
+    });
+
+    await runner(baseTurn(), sink);
+
+    expect(sink.finalized).toEqual(["There are 3 open."]);
+  });
+
+  test("appends nothing when no display store is wired (takeSurfacedDisplays absent)", async () => {
+    const sink = baseSink();
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      runTurnFn: async () => "plain reply",
+    });
+
+    await runner(baseTurn(), sink);
+
+    expect(sink.finalized).toEqual(["plain reply"]);
+  });
+
+  test("passes the turn's sessionKey to takeSurfacedDisplays", async () => {
+    const sink = baseSink();
+    const received: string[] = [];
+    const runner = createTurnRunner({
+      model: {} as any,
+      systemPrompts: { singleUser: "s", multiUser: "m" },
+      buildTools: () => ({}),
+      getOrCreateHistory: () => fakeHistory(),
+      trackSession: () => {},
+      registerCaptureCallback: () => {},
+      maybeCapture: async () => {},
+      processToolCorrections: async () => {},
+      logStep: () => {},
+      takeSurfacedDisplays: (sessionKey) => {
+        received.push(sessionKey);
+        return [];
+      },
+      runTurnFn: async () => "reply",
+    });
+
+    await runner(baseTurn({ sessionKey: "sk" }), sink);
+
+    expect(received).toEqual(["sk"]);
   });
 
   // Regression test: getOrCreateHistory (which can run the context-primer's
@@ -563,14 +611,6 @@ describe("createTurnRunner", () => {
   // is tested against @mercury/plugin-jira in issue-list-guard.jira.test.ts,
   // and end-to-end delivery in jira-behavior.test.ts.
   describe("post-turn guards", () => {
-    const formattedListStep: StepInfo = {
-      toolCalls: [],
-      toolResults: [
-        { toolCallId: "1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } },
-      ],
-      content: [],
-    };
-
     function makeGuard(overrides: Partial<PostTurnGuard> = {}): PostTurnGuard {
       return {
         statusLabel: "Checking…",
@@ -713,20 +753,20 @@ describe("createTurnRunner", () => {
       expect(logged[0]).toContain("kaboom");
     });
 
-    test("runs guards before formattedList splicing", async () => {
+    test("runs guards before appending surfaced displays", async () => {
       const sink = baseSink();
       const runner = createTurnRunner(
         baseDeps({
-          runTurnFn: async (_history, _input, deps) => {
-            deps.onStepFinish?.(formattedListStep);
-            return "flagged";
-          },
+          runTurnFn: async () => "flagged",
+          takeSurfacedDisplays: () => ["MER-1\nhttps://x"],
           postTurnGuards: [makeGuard({ run: async () => ({ text: "clean", outcome: "success" }) })],
         }),
       );
 
       await runner(baseTurn(), sink);
 
+      // the display is appended to the guard's rewritten text ("clean"), not
+      // the model's original ("flagged") — proving guards run first
       expect(sink.finalized).toEqual(["clean\n\nMER-1\nhttps://x"]);
     });
 
