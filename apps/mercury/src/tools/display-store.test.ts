@@ -94,6 +94,24 @@ describe("createDisplayStore", () => {
     expect(store.takeSurfaced("spaces/X:users/42")).toEqual(["list-b"]);
   });
 
+  it("reclaims expired entries during a takeSurfaced sweep, not just on a surface attempt", () => {
+    // Regression: takeSurfaced skipped expired entries but never deleted them,
+    // so in the process-lifetime shared store every un-surfaced (or never
+    // re-surfaced) stash leaked forever. The finalize-time sweep must reclaim
+    // them.
+    let now = 0;
+    const store = createDisplayStore({ now: () => now, ttlMs: 1000, refFn: () => "d1" });
+    store.stash("terminal", "list-a"); // stashed, never surfaced
+
+    now = 1001; // past its TTL
+    expect(store.takeSurfaced("terminal")).toEqual([]); // the sweep runs here
+
+    // proof it was actually deleted, not merely failing the expiry check:
+    // moving time back doesn't resurrect it as surfaceable
+    now = 0;
+    expect(store.surface("terminal", "d1")).toBe(false);
+  });
+
   it("mints distinct default refs when refFn isn't injected", () => {
     const store = createDisplayStore();
     const a = store.stash("terminal", "list-a");

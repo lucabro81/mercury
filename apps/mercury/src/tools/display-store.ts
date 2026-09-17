@@ -69,8 +69,15 @@ export function createDisplayStore(
     takeSurfaced(sessionKey) {
       const t = now();
       const out: string[] = [];
-      for (const entry of entries.values()) {
-        if (entry.expiresAt <= t) continue;
+      // This finalize-time sweep is also where expired entries are reclaimed:
+      // the store is a process-lifetime singleton shared across sessions, so
+      // without deleting them here an un-surfaced (or never re-surfaced) stash
+      // would live forever. Deleting during Map iteration is safe.
+      for (const [ref, entry] of entries) {
+        if (entry.expiresAt <= t) {
+          entries.delete(ref);
+          continue;
+        }
         if (entry.sessionKey !== sessionKey) continue;
         if (!entry.surfaced) continue;
         out.push(entry.artifact);
