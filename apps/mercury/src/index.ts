@@ -16,6 +16,8 @@ import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
+import { createDisplayStore } from "./tools/display-store.ts";
+import { createPresentTool } from "./tools/present-tool.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
 import mercuryConfig from "../mercury.config.ts";
@@ -432,6 +434,12 @@ const selfReviewCron = startSelfReviewCron(
 // once and shared across every session.
 const confirmationStore = createConfirmationStore();
 
+// Shared across turns (like confirmationStore): a display artifact stashed
+// while answering can be surfaced by `present` in a later turn ("show me that
+// list again"), so it's session-scoped, not rebuilt per turn. The turn runner
+// appends what was surfaced (see takeSurfacedDisplays below).
+const displayStore = createDisplayStore();
+
 // `wikiUserId` is separate from `sessionKey`: inferred/users/<userId> notes
 // are scoped per-person, not per-(space,person) pair, so it must not
 // include the space. Terminal has no real per-user identity (single
@@ -452,8 +460,13 @@ function buildTools(
         vaultPath: wikiVaultPath,
         userId: wikiUserId,
         postProcessors: cliPostProcessors,
+        displayStore,
       }),
     );
+    // `present` only makes sense alongside CLI tools: they are what produce
+    // the display artifacts it surfaces. An instance with no CLI plugin never
+    // sees it.
+    Object.assign(sessionTools, createPresentTool({ sessionKey, store: displayStore }));
   }
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
@@ -532,6 +545,9 @@ const handleTurn = createTurnRunner({
   },
   processToolCorrections,
   logStep,
+  // Appends what the model surfaced via `present` this turn — nothing if it
+  // presented nothing (see display-store.ts / present-tool.ts).
+  takeSurfacedDisplays: (sessionKey) => displayStore.takeSurfaced(sessionKey),
 });
 
 let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
