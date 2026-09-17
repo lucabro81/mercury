@@ -8,6 +8,7 @@ import {
   type CliConfig,
 } from "./cli-tool.ts";
 import { createConfirmationStore } from "./confirmation-store.ts";
+import { createDisplayStore } from "./display-store.ts";
 import type { CliResult } from "./cli-executor.ts";
 
 describe("stripGlobalFlags", () => {
@@ -675,5 +676,108 @@ describe("createCliTool", () => {
       { binary: "jira", args: ["doctor"] },
       { binary: "google-chat", args: ["spaces", "list"] },
     ]);
+  });
+});
+
+// The user-facing artifact a post-processor renders is no longer force-appended
+// at finalize: execute stashes it in the display store and hands the model only
+// a `displayRef` (so the model can choose to `present` it) — never the content.
+describe("createCliTool display staging", () => {
+  const withPostProcess: CliConfig = {
+    allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
+  };
+  const doctorConfig: CliConfig = {
+    allowedPrefixes: [{ prefix: ["doctor"], confirm: false, mutating: false }],
+  };
+  const renderingPostProcessors = {
+    "issue-list": (_p: { binary: string; args: string[] }, result: CliResult): CliResult =>
+      result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } : result,
+  };
+  function opts(displayStore: ReturnType<typeof createDisplayStore>) {
+    return {
+      sessionKey: "terminal",
+      store: createConfirmationStore(),
+      vaultPath: "/vault",
+      userId: "user-x",
+      writeConfirmationNoteFn: async () => {},
+      displayStore,
+    };
+  }
+
+  it("stashes the rendered artifact and returns its ref on the result", async () => {
+    const displayStore = createDisplayStore({ refFn: () => "d1" });
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [{ key: "MER-1" }] } });
+    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+      ...opts(displayStore),
+      postProcessors: renderingPostProcessors,
+    });
+
+    const result = (await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never)) as {
+      displayRef?: string;
+    };
+    expect(result.displayRef).toBe("d1");
+    // the ref really points at the rendered artifact
+    expect(displayStore.surface("terminal", "d1")).toBe(true);
+    expect(displayStore.takeSurfaced("terminal")).toEqual(["MER-1\nhttps://x"]);
+  });
+
+  it("hands the model the displayRef but never the rendered display content", async () => {
+    const displayStore = createDisplayStore({ refFn: () => "d1" });
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
+    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+      ...opts(displayStore),
+      postProcessors: renderingPostProcessors,
+    });
+
+    const result = await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never);
+    const modelOutput = await runCommand.toModelOutput?.({
+      toolCallId: "c",
+      input: { command: 'jira issue search --jql "x"' },
+      output: result,
+    } as never);
+    expect(modelOutput).toEqual({ type: "json", value: { ok: true, data: { issues: [] }, displayRef: "d1" } });
+  });
+
+  it("does not stash or add a displayRef for a result with no display", async () => {
+    const displayStore = createDisplayStore({ refFn: () => "d1" });
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "ok" });
+    const { runCommand } = createCliTool(runCliFn, { jira: doctorConfig }, opts(displayStore));
+
+    const result = (await runCommand.execute({ command: "jira doctor" }, {} as never)) as { displayRef?: string };
+    expect(result.displayRef).toBeUndefined();
+    expect(displayStore.surface("terminal", "d1")).toBe(false);
+  });
+
+  it("does not stash when the display carries no string items (structured, no formatter applied)", async () => {
+    const displayStore = createDisplayStore({ refFn: () => "d1" });
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    const structuredPostProcessors = {
+      "issue-list": (_p: { binary: string; args: string[] }, result: CliResult): CliResult =>
+        result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [{ key: "MER-1" }] } } : result,
+    };
+    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+      ...opts(displayStore),
+      postProcessors: structuredPostProcessors,
+    });
+
+    const result = (await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never)) as {
+      displayRef?: string;
+    };
+    expect(result.displayRef).toBeUndefined();
+  });
+
+  it("leaves execute's return unchanged (no displayRef) when no display store is wired", async () => {
+    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
+    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+      sessionKey: "terminal",
+      store: createConfirmationStore(),
+      vaultPath: "/vault",
+      userId: "user-x",
+      writeConfirmationNoteFn: async () => {},
+      postProcessors: renderingPostProcessors,
+    });
+
+    const result = await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never);
+    expect(result).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } });
   });
 });
