@@ -36,7 +36,6 @@ import { tryConfirm } from "./router/confirm-flow.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { InboundTurn, TurnSink } from "./router/provider.ts";
 import type { SessionHistory } from "./session/history.ts";
-import type { StepInfo } from "./session/step-info.ts";
 
 const SITE_URL = "https://example.atlassian.net";
 const SESSION_KEY = "session-under-test";
@@ -298,25 +297,15 @@ function collectingSink(): TurnSink & { delivered: string[] } {
   } as TurnSink & { delivered: string[] };
 }
 
-/** A tool step carrying an issue-list `display` channel, as a real issue search produces. */
-function stepWithIssueList(items: string[]): StepInfo {
-  return {
-    toolCalls: [{ toolCallId: "s1", toolName: "runCommand", input: { command: "jira issue search" } }],
-    toolResults: [
-      { toolCallId: "s1", toolName: "runCommand", output: { ok: true, data: {}, display: { type: "issue-list", items } } },
-    ],
-    content: [],
-  };
-}
-
 /**
- * Drives one turn where the model produced `modelText` after a search that
- * yielded `formattedList`, and returns what the user actually received.
- * `correctorOutput` is what the correction pass rewrites the answer to.
+ * Drives one turn where the model produced `modelText` and surfaced `surfaced`
+ * (what it chose to `present`, as the display store hands back at finalize),
+ * and returns what the user actually received. `correctorOutput` is what the
+ * issue-list guard's correction pass rewrites the answer to.
  */
 async function deliverTurn(opts: {
   modelText: string;
-  formattedList: string;
+  surfaced: string[];
   correctorOutput?: string;
 }): Promise<string> {
   const sink = collectingSink();
@@ -333,10 +322,8 @@ async function deliverTurn(opts: {
     logPostTurnGuardFn: () => {},
     recordStepFn: () => {},
     postTurnGuards: [createIssueListGuard(async () => opts.correctorOutput ?? "")],
-    runTurnFn: async (_history, _input, deps) => {
-      deps.onStepFinish?.(stepWithIssueList([opts.formattedList]));
-      return opts.modelText;
-    },
+    takeSurfacedDisplays: () => opts.surfaced,
+    runTurnFn: async () => opts.modelText,
   });
 
   await runner(baseTurn(), sink);
@@ -344,54 +331,44 @@ async function deliverTurn(opts: {
   return sink.delivered[0] as string;
 }
 
+// Deliberate behaviour change under #6: the deterministic list is no longer
+// force-appended to every issue-search turn. The formatter still produces it,
+// but it reaches the user only when the model explicitly surfaces it via
+// `present` (which the display store hands back through takeSurfacedDisplays).
+// The worst case is now omission ("show it to me"), never corruption — a
+// prose-only answer to "how many are open?" shows no list at all.
 describe("jira answer delivery", () => {
   const FORMATTED = `KAN-1 [In Progress] Fix the login redirect\n${SITE_URL}/browse/KAN-1`;
 
-  test("the deterministic list reaches the user even when the model never relays it", async () => {
+  test("a presented list is appended to the model's prose", async () => {
     const delivered = await deliverTurn({
       modelText: "Ho trovato una issue aperta.",
-      formattedList: FORMATTED,
+      surfaced: [FORMATTED],
     });
 
     expect(delivered).toBe(`Ho trovato una issue aperta.\n\n${FORMATTED}`);
   });
 
-  test("the list is not appended twice when the model already included it verbatim", async () => {
+  test("nothing is appended when the model presents no list (a prose-only answer)", async () => {
     const delivered = await deliverTurn({
-      modelText: `Ecco:\n\n${FORMATTED}`,
-      formattedList: FORMATTED,
+      modelText: "Ce ne sono due aperte.",
+      surfaced: [],
     });
 
-    expect(delivered).toBe(`Ecco:\n\n${FORMATTED}`);
+    expect(delivered).toBe("Ce ne sono due aperte.");
   });
 
-  test("a model that restates the list by hand gets its text replaced, not appended to", async () => {
+  test("the guard still runs before the presented list is appended: a hand-restated list is replaced, then the real list is appended", async () => {
     const restated = "Ecco le issue:\n- KAN-1: Fix the login redirect\n- KAN-2: Update the changelog";
     const delivered = await deliverTurn({
       modelText: restated,
-      formattedList: FORMATTED,
+      surfaced: [FORMATTED],
       correctorOutput: "Ho trovato due issue aperte.",
     });
 
+    // the list is appended to the guard's rewrite ("Ho trovato due…"), and the
+    // model's own hand-formatted lines are gone
     expect(delivered).toBe(`Ho trovato due issue aperte.\n\n${FORMATTED}`);
     expect(delivered).not.toContain("- KAN-1:");
-  });
-
-  test("a corrector whose own output still restates the list falls back to a fixed reply", async () => {
-    const restated = "Ecco le issue:\n- KAN-1: Fix the login redirect\n- KAN-2: Update the changelog";
-    const delivered = await deliverTurn({
-      modelText: restated,
-      formattedList: FORMATTED,
-      correctorOutput: "- KAN-1: ancora una lista\n- KAN-2: pure questa",
-    });
-
-    expect(delivered).toBe(`Ecco i risultati.\n\n${FORMATTED}`);
-  });
-
-  test("ordinary prose that merely mentions one issue key is left alone", async () => {
-    const prose = "Ho guardato KAN-1 e mi sembra già risolta, non serve altro.";
-    const delivered = await deliverTurn({ modelText: prose, formattedList: FORMATTED });
-
-    expect(delivered).toBe(`${prose}\n\n${FORMATTED}`);
   });
 });
