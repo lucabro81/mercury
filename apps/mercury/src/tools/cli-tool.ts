@@ -26,6 +26,7 @@ import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli, CliResult } from "./cli-executor.ts";
 import type { ConfirmationStore } from "./confirmation-store.ts";
+import type { DisplayStore } from "./display-store.ts";
 import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 // `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
@@ -114,13 +115,14 @@ export function formatPrefixes(prefixes: string[][]): string {
 /**
  * Removes the top-level `display` channel (see `ToolDisplay`) from a tool
  * result before it reaches the model. `display` is the user-facing channel —
- * a deterministic artifact the orchestration layer renders and appends to the
- * final reply (see `src/router/format-list-splice.ts`), never something the
- * model needs to read or reproduce. The model channel is exactly `data`, so
- * this is a structural drop of one known top-level key — not a heuristic
- * removal of a field nested inside `data`. Model-facing notes a plugin adds
- * inside `data` (e.g. `formattedListNote`, telling the model why formatting
- * couldn't happen and how to retry) are on the model channel and pass through.
+ * a deterministic artifact stashed in the display store and shown only when the
+ * model calls `present` (see `display-store.ts`/`present-tool.ts`), never
+ * something the model needs to read or reproduce. The model channel is `data`
+ * plus the `displayRef` pointer (kept, so the model can `present` it), so this
+ * is a structural drop of one known top-level key — not a heuristic removal of
+ * a field nested inside `data`. Model-facing notes a plugin adds inside `data`
+ * (e.g. `formattedListNote`, telling the model why formatting couldn't happen
+ * and how to retry) are on the model channel and pass through.
  */
 export function omitDisplayForModel(output: unknown): unknown {
   if (typeof output !== "object" || output === null || !("display" in output)) return output;
@@ -167,6 +169,11 @@ export function createCliTool(
      * composition root (`index.ts`) from whichever CLI-specific modules
      * are wired in — `cli-tool.ts` itself never knows what any of them do. */
     postProcessors?: Record<string, CliPostProcessor>;
+    /** Where a post-processor's rendered `display` artifact is stashed so the
+     * model can choose to `present` it (see `display-store.ts`). Optional: an
+     * instance/test with no store keeps the old inline `display` untouched and
+     * mints no `displayRef`. */
+    displayStore?: DisplayStore;
   },
 ) {
   const writeConfirmationNoteFn = opts.writeConfirmationNoteFn ?? writeConfirmationNote;
@@ -247,7 +254,22 @@ export function createCliTool(
 
       const result = await runCliFn(parsed.binary, parsed.args);
       const postProcess = match.postProcess ? opts.postProcessors?.[match.postProcess] : undefined;
-      return postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
+      const processed = postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
+
+      // A rendered display artifact is stashed, not returned to be
+      // force-appended: the model gets only a `displayRef` and decides whether
+      // to `present` it. Only string items (what the formatter renders) are
+      // showable; a display still carrying structured items (no formatter
+      // applied) has nothing to stash, matching the old collect-strings-only
+      // behavior. Without a store wired, the result is left exactly as-is.
+      if (opts.displayStore && processed.ok && processed.display) {
+        const stringItems = processed.display.items.filter((i): i is string => typeof i === "string");
+        if (stringItems.length > 0) {
+          const displayRef = opts.displayStore.stash(opts.sessionKey, stringItems.join("\n\n"));
+          return { ...processed, displayRef };
+        }
+      }
+      return processed;
     },
     toModelOutput: ({ output }) => ({ type: "json", value: omitDisplayForModel(output) as JSONValue }),
   });

@@ -172,8 +172,8 @@ describe("startTerminalRepl", () => {
   });
 
   // Regression: turn-runner.ts can append text after generation finishes
-  // (splicing in a deterministic formattedList the model didn't relay, see
-  // format-list-splice.ts) — that appended text was never streamed via
+  // (a deterministic display the model surfaced via `present`, see
+  // display-store.ts) — that appended text was never streamed via
   // onChunk, so it must still reach the terminal instead of being silently
   // dropped by the old "streamed ⇒ write nothing more" assumption.
   it("writes the part of the result that wasn't streamed, when handleInput appends more after streaming", async () => {

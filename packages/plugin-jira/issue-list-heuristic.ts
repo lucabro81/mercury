@@ -2,11 +2,12 @@
  * Cheap, code-level detector for "the model wrote its own rendition of a
  * Jira issue list" — the specific duplication problem that survives even
  * after the deterministic issue-list `display` is hidden from the model and
- * appended in code (see the core's `format-list-splice.ts`): the model still
- * has the raw `issues` data for legitimate analysis, and sometimes restates
- * it as a bulleted/numbered list instead of just commenting on it. Used both
- * as the gate deciding whether the plugin's post-turn guard engages and,
- * unchanged, to re-check the corrector's own output (see `issue-list-guard.ts`).
+ * shown only when the model surfaces it via `present` (see the app's
+ * `display-store.ts`): the model still has the raw `issues` data for
+ * legitimate analysis, and sometimes restates it as a bulleted/numbered list
+ * instead of just commenting on it. Used both as the gate deciding whether the
+ * plugin's post-turn guard engages and, unchanged, to re-check the corrector's
+ * own output (see `issue-list-guard.ts`).
  *
  * Moved out of the core (`apps/mercury/src/router/issue-list-heuristic.ts`) in
  * step 2.4: it is Jira-shaped (the `[A-Z][A-Z0-9]*-\d+` issue-key regex) and
