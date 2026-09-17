@@ -56,7 +56,7 @@ describe("looksLikeIssueList", () => {
     ).toBe(true);
   });
 
-  // Regression: the deterministic formattedList (issue-list-formatter.ts's formatOneIssue) never
+  // Regression: the deterministic list (the render handler's renderLine, jira-issue-list-handler.ts) never
   // emits a leading bullet/number marker before the key — this heuristic must never flag it, only
   // the model's own free-form rendition of a list.
   it("returns false for text in formattedList's own real shape (no leading marker)", () => {
@@ -66,8 +66,8 @@ describe("looksLikeIssueList", () => {
     expect(looksLikeIssueList(formattedList)).toBe(false);
   });
 
-  // Regression: formatOneIssue omits the "[status]" segment entirely when the issue has no status
-  // (see issue-list-formatter.ts) — the deterministic line then reads "KEY Summary", key directly
+  // Regression: renderLine omits the "[status]" segment entirely when the issue has no status
+  // (see jira-issue-list-handler.ts) — the deterministic line then reads "KEY Summary", key directly
   // followed by a space, no colon. Must still never be flagged.
   it("returns false for formattedList's no-status shape (key, space, summary — no colon, no bracket)", () => {
     const formattedList =

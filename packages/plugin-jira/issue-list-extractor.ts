@@ -1,41 +1,38 @@
 /**
- * Deterministic post-processor for a `jira issue search` result — emits the
- * rendered issue lines on the result's user-facing `display` channel (see
- * `ToolDisplay`, `type: "issue-list"`), so the list reaches the user without
- * the model having to hand-format it or even see it. It runs only because the
- * plugin's allowlist declares `"postProcess": "issue-list"` on the `issue
- * search` entry; this module just recognizes the *shape* of a search result
- * (defensively — `--select` can reshape the JSON into anything, in which
- * case it backs off and returns the result unchanged rather than guessing).
+ * Deterministic post-processor for a `jira issue search` result — the
+ * *extraction* half of Jira's issue-list handling. It recognizes the shape of a
+ * search result and emits, on the user-facing `display` channel (see
+ * `ToolDisplay`, `type: "issue-list"`), one **structured record** per issue
+ * (`{ key, status, summary, url }`) — never a pre-rendered string. Turning those
+ * records into text is the render handler's job, supplied at composition (see
+ * the app's `jira-issue-list-handler.ts`); the plugin owns only what it can know
+ * from the data: the fields, and the browse `url` resolved from `siteUrl`.
  *
- * This is the second piece of Jira to leave the core (after the allowlist).
- * It used to live at `apps/mercury/src/tools/jira/issue-list-formatter.ts`
- * and be wired with just `siteUrl`; it now travels with the plugin and owns
- * its own config schema — the first demonstration of plugin-specific
- * configuration, with two values of different nature: `siteUrl` (required,
- * a deployment constant) and `itemTemplate` (optional, with a default that
- * reproduces the historical format exactly).
+ * It runs because the plugin's allowlist declares `"postProcess": "issue-list"`
+ * on the `issue search` entry. `--select` can reshape the JSON into anything, so
+ * it classifies defensively: a non-object payload passes through untouched; a
+ * payload with no `issues` array, or issues pruned of `key`, gets a
+ * model-facing `formattedListNote` (no display); a missing `summary` is a hard,
+ * self-correctable error. `siteUrl` (Comperio's browsable Jira host) isn't
+ * derivable from any CLI output, so it's a deployment constant carried in the
+ * plugin's config.
  *
  * `CliResult`/`CliPostProcessor` come from `@mercury/plugin-types`, the shared
- * contract both the core and the plugins import — no local mirror any more.
+ * contract both the core and the plugins import.
  */
-import { z } from "zod";
 import type { CliResult, CliPostProcessor } from "@mercury/plugin-types";
 
-/** The formatter's own configuration. `siteUrl` is Comperio's browsable Jira
- * site (e.g. `https://webcomperio.atlassian.net`) — not derivable from any CLI
- * output, so a deployment constant. `itemTemplate` is optional: when set it
- * overrides how each issue line is rendered, with `{key}`/`{status}`/
- * `{summary}`/`{url}` placeholders; when unset the historical default format
- * is used verbatim. `.strict()` so a typo in the config fails loudly. */
-export const issueListConfigSchema = z
-  .object({
-    siteUrl: z.string().min(1),
-    itemTemplate: z.string().min(1).optional(),
-  })
-  .strict();
+/** The extractor's configuration: just `siteUrl`, Comperio's browsable Jira
+ * site (e.g. `https://webcomperio.atlassian.net`), used to build each issue's
+ * browse link. It is the extractor's only input — rendering config
+ * (`itemTemplate`) moved to the render handler. The single caller (`plugin.ts`)
+ * only reaches here when `JIRA_SITE_URL` is a non-empty string, so no schema
+ * validation is layered on a one-required-field shape. */
+export type IssueListConfig = { siteUrl: string };
 
-export type IssueListConfig = z.infer<typeof issueListConfigSchema>;
+/** One issue as emitted on the `display` channel: `status` is the status name
+ * or `null` when absent/unrequested, `url` the resolved browse link. */
+export type JiraIssueListItem = { key: string; status: string | null; summary: string; url: string };
 
 type JiraIssue = { key: string; fields?: { summary?: string; status?: { name?: string } } };
 
@@ -87,32 +84,26 @@ const CANNOT_FORMAT_NOTE =
   'never be reached with --select (e.g. --select formattedList always returns {}). If the user wants a ' +
   "formatted list, retry without --select (or with --select-all, or --fields including summary).";
 
-function formatOneIssue(issue: JiraIssue, siteUrl: string, itemTemplate: string | undefined): string {
-  const link = `${siteUrl.replace(/\/$/, "")}/browse/${issue.key}`;
-  if (itemTemplate !== undefined) {
-    const status = issue.fields?.status?.name;
-    return itemTemplate
-      .replaceAll("{key}", issue.key)
-      .replaceAll("{status}", typeof status === "string" ? status : "")
-      .replaceAll("{summary}", issue.fields?.summary ?? "")
-      .replaceAll("{url}", link);
-  }
-  // Historical default, reproduced verbatim: the status bracket (with its
-  // trailing space) appears only when a status name is present, so a missing
-  // status yields "KEY summary", not "KEY [] summary".
+/** Extracts one issue into the structured `display` record: the status name or
+ * `null`, and the browse `url` from `siteUrl` (trailing slash stripped). */
+function extractOneIssue(issue: JiraIssue, siteUrl: string): JiraIssueListItem {
   const status = issue.fields?.status?.name;
-  const statusPart = typeof status === "string" ? `[${status}] ` : "";
-  return `${issue.key} ${statusPart}${issue.fields?.summary}\n${link}`;
+  return {
+    key: issue.key,
+    status: typeof status === "string" ? status : null,
+    summary: issue.fields?.summary ?? "",
+    url: `${siteUrl.replace(/\/$/, "")}/browse/${issue.key}`,
+  };
 }
 
 /**
- * Builds the `issue search` post-processor from validated config. Returns a
- * function structurally compatible with the core's `CliPostProcessor`; the
- * composition root assigns it into the core's named registry, where the
- * compatibility is checked.
+ * Builds the `issue search` extractor from validated config. Returns a function
+ * structurally compatible with the core's `CliPostProcessor`; the composition
+ * root wraps it with `formatterPlugin` + a render handler and registers the
+ * result in the core's named registry.
  */
-export function createJiraIssueListFormatter(config: IssueListConfig): CliPostProcessor {
-  const { siteUrl, itemTemplate } = config;
+export function createJiraIssueListExtractor(config: IssueListConfig): CliPostProcessor {
+  const { siteUrl } = config;
   return (_parsed, result): CliResult => {
     if (!result.ok) {
       return result;
@@ -145,13 +136,10 @@ export function createJiraIssueListFormatter(config: IssueListConfig): CliPostPr
       };
     }
 
-    // One rendered line per issue on the user-facing `display` channel; the
-    // per-line rendering (default format or the configured `itemTemplate`)
-    // stays here in the plugin, which owns the config. Joining the lines and
-    // the empty-set sentence are the core renderer's job (see
-    // `src/router/format-list-splice.ts`). The raw `data` is left as the model
-    // channel, untouched.
-    const items = issues.map((issue) => formatOneIssue(issue, siteUrl, itemTemplate));
+    // Structured records on the user-facing `display` channel; the render
+    // handler (composition) turns them into text. The raw `data` is left as the
+    // model channel, untouched.
+    const items = issues.map((issue) => extractOneIssue(issue, siteUrl));
     return { ok: true, data, display: { type: "issue-list", items } };
   };
 }

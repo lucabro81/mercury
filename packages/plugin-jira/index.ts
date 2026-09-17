@@ -13,10 +13,10 @@
 export { jiraPlugin, jiraCliConfig } from "./plugin.ts";
 
 export {
-  createJiraIssueListFormatter,
-  issueListConfigSchema,
+  createJiraIssueListExtractor,
   type IssueListConfig,
-} from "./issue-list-formatter.ts";
+  type JiraIssueListItem,
+} from "./issue-list-extractor.ts";
 
 export { createIssueListCorrector } from "./issue-list-corrector.ts";
 export { createIssueListGuard } from "./issue-list-guard.ts";

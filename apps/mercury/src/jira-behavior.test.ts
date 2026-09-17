@@ -6,17 +6,17 @@
  * Purpose is narrow and deliberate — this file is the **invariance oracle**
  * for the plugin extraction. Every other Jira-touching test in this repo is
  * a unit test bound to the shape of a module that the extraction is about to
- * move (`cli-tool.ts`, `issue-list-formatter.ts`, `issue-list-heuristic.ts`,
+ * move (`cli-tool.ts`, `issue-list-extractor.ts`, `issue-list-heuristic.ts`,
  * `turn-runner.ts`), so those tests will legitimately move with their code
  * and can't tell us whether behaviour stayed the same. These assertions can:
  * they name no module that is scheduled to move.
  *
  * The single exception is `buildJiraTools` below, which is the seam itself
- * and therefore the one thing expected to change when Jira becomes a plugin.
- * Nothing under `describe` may reference `createCliTool`,
- * `createJiraIssueListFormatter`, or `looksLikeIssueList` directly — if a
- * change to this file touches anything but that helper, the extraction
- * changed behaviour rather than relocating it.
+ * and therefore the one thing expected to change when the composition changes.
+ * Nothing under `describe` may reference `createCliTool`, `formatterPlugin`,
+ * `createJiraIssueListHandler`, or `looksLikeIssueList` directly — if a change
+ * to this file touches anything but that helper, the change altered behaviour
+ * rather than relocating it.
  *
  * Config is read from the real `@mercury/plugin-jira` package, not a
  * hand-written fixture, so a semantic edit to the shipped allowlist (a prefix
@@ -26,7 +26,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
 import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig, createJiraIssueListFormatter, createIssueListGuard } from "@mercury/plugin-jira";
+import { jiraCliConfig, jiraPlugin, createIssueListGuard } from "@mercury/plugin-jira";
+import { formatterPlugin } from "./plugins/formatter.ts";
+import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import type { CliResult } from "./tools/cli-executor.ts";
@@ -54,10 +56,11 @@ function spyRunCli(spy: CliSpy) {
 }
 
 /**
- * THE SEAM. Composes the Jira toolset the same way `src/index.ts` does —
- * real config file, real post-processor, real confirmation store — and is
+ * THE SEAM. Composes the Jira toolset the same way `mercury.config.ts` +
+ * `src/index.ts` do — the real plugin wrapped by the formatter decorator with
+ * the real render handler, real config file, real confirmation store — and is
  * the only place in this file allowed to know how that composition happens.
- * When Jira becomes a plugin this function is what changes; every assertion
+ * When the composition changes this function is what changes; every assertion
  * below should survive untouched.
  */
 async function buildJiraTools(
@@ -70,6 +73,10 @@ async function buildJiraTools(
   }
   const configs = { [loaded.binary]: loaded.config };
   const store = opts.store ?? createConfirmationStore();
+  // Real composition: the Jira plugin decorated with the formatter + its render
+  // handler, built with JIRA_SITE_URL so the issue-list extractor registers.
+  const decorated = formatterPlugin(jiraPlugin, createJiraIssueListHandler({}));
+  const contributions = decorated.build!({ model: {} as never, env: { JIRA_SITE_URL: SITE_URL }, log: () => {} });
   const tools = createCliTool(spyRunCli(spy), configs, {
     sessionKey: SESSION_KEY,
     store,
@@ -78,7 +85,7 @@ async function buildJiraTools(
     // Vault writes are a paper trail, not part of the behaviour under test;
     // stubbed so these tests touch no filesystem.
     writeConfirmationNoteFn: async () => {},
-    postProcessors: { "issue-list": createJiraIssueListFormatter({ siteUrl: SITE_URL }) },
+    postProcessors: contributions.postProcessors,
   });
   return { tools, store };
 }
@@ -106,22 +113,18 @@ describe("jira read path", () => {
     const result = await runCommand(tools, 'jira issue search --jql "project = KAN"');
 
     expect(result.ok).toBe(true);
-    // The user-facing rendering now travels on the `display` channel as one
-    // line per issue; joining the lines reproduces the historical byte-exact
-    // list string (the join is the core renderer's job at delivery).
+    // The user-facing rendering now travels on the `display` channel as the one
+    // already-rendered block the composition handler produced — byte-identical
+    // to the historical list string.
     expect(result.display).toEqual({
       type: "issue-list",
       items: [
-        `KAN-1 [In Progress] Fix the login redirect\n${SITE_URL}/browse/KAN-1`,
-        `KAN-2 [Done] Update the changelog\n${SITE_URL}/browse/KAN-2`,
+        "KAN-1 [In Progress] Fix the login redirect\n" +
+          `${SITE_URL}/browse/KAN-1\n\n` +
+          "KAN-2 [Done] Update the changelog\n" +
+          `${SITE_URL}/browse/KAN-2`,
       ],
     });
-    expect(result.display.items.join("\n\n")).toBe(
-      "KAN-1 [In Progress] Fix the login redirect\n" +
-        `${SITE_URL}/browse/KAN-1\n\n` +
-        "KAN-2 [Done] Update the changelog\n" +
-        `${SITE_URL}/browse/KAN-2`,
-    );
     // The raw payload survives the post-processor untouched — the display is
     // added alongside it, never in place of it.
     expect(result.data.issues).toHaveLength(2);
@@ -135,9 +138,21 @@ describe("jira read path", () => {
     const result = await runCommand(tools, 'jira issue search --jql "project = NOPE"');
 
     expect(result.ok).toBe(true);
-    // An empty search yields an empty issue-list display; the core renderer
-    // turns it into the "No matching issues." sentence at delivery.
-    expect(result.display).toEqual({ type: "issue-list", items: [] });
+    // An empty search yields the "No matching issues." sentence, rendered by
+    // the composition handler and carried as the display's single block.
+    expect(result.display).toEqual({ type: "issue-list", items: ["No matching issues."] });
+  });
+
+  test("an issue with no status renders without the [status] bracket, byte-identical", async () => {
+    const spy = cliSpy({ ok: true, data: { issues: [{ key: "KAN-9", fields: { summary: "No status here" } }] } });
+    const { tools } = await buildJiraTools(spy);
+
+    const result = await runCommand(tools, 'jira issue search --jql "project = KAN"');
+
+    expect(result.ok).toBe(true);
+    // Key, single space, summary — no bracket — then the browse link, exactly
+    // as before the rendering moved to the composition handler.
+    expect(result.display).toEqual({ type: "issue-list", items: [`KAN-9 No status here\n${SITE_URL}/browse/KAN-9`] });
   });
 
   test("a --select that prunes summary fails with a self-correctable error instead of a wrong list", async () => {
