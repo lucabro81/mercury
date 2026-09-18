@@ -22,7 +22,6 @@
 - [Scripts](#scripts)
 - [CLIs and service authentication](#clis-and-service-authentication)
 - [HTTP API](#http-api)
-- [Architecture](apps/mercury/ARCHITECTURE.md)
 
 ## What it is
 
@@ -44,7 +43,7 @@ Leave `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty to run with the terminal channel o
 
 ## Running it
 
-Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory, see [ARCHITECTURE.md](apps/mercury/ARCHITECTURE.md)). `docker compose` starts, stops, and rebuilds both together.
+Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). `docker compose` starts, stops, and rebuilds both together.
 
 ### Starting it
 
@@ -146,8 +145,6 @@ scripts/vault.sh read curated/standards/some-file.md
 scripts/vault.sh grep "some pattern"
 cat note.md | scripts/vault.sh write-curated curated/standards/new-file.md --author yourname
 ```
-
-See [ARCHITECTURE.md](apps/mercury/ARCHITECTURE.md) for what the vault is and how Mercury itself uses it.
 
 ### Inspecting Qdrant
 

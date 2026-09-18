@@ -23,12 +23,12 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 2. **No agent framework.** Custom orchestration on top of Vercel AI SDK only.
 3. **Memory layers have boundaries.** In-context history is a prerequisite for basic functionality. Any external memory/knowledge store is an enrichment — the system must work correctly even when it's empty or unreachable.
 4. **Stateless container.** Anything that must survive a restart lives on an explicit external volume, never only in-process.
-5. **Irreversible actions require explicit confirmation.** An explicit one-time token the user has to send back — never a "probably fine" inferred by the model, and never a keyword the model has to relay or the user has to remember. Mercury is a registered Chat app on Google Chat, so confirming there is a button click on the card Mercury sends; on the terminal it's pasting the bare token back. Same underlying token/store mechanism either way — see ARCHITECTURE.md.
+5. **Irreversible actions require explicit confirmation.** An explicit one-time token the user has to send back — never a "probably fine" inferred by the model, and never a keyword the model has to relay or the user has to remember. Mercury is a registered Chat app on Google Chat, so confirming there is a button click on the card Mercury sends; on the terminal it's pasting the bare token back. Same underlying token/store mechanism either way.
 
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required (see ARCHITECTURE.md § Integration layer)
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
@@ -87,7 +87,6 @@ apps/mercury/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── docker-compose.override.yml
-├── ARCHITECTURE.md
 ├── CHANGELOG.md
 ├── .env.example
 └── package.json
@@ -95,7 +94,7 @@ apps/mercury/
 
 ## Versioning & changelog
 
-SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md` is public — same audience as README/ARCHITECTURE.md.
+SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md` is public — same audience as README.
 
 - Every relevant change gets a changeset: `bun run changeset`, describe it, pick the bump type.
 - Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context — same rule as any other public doc in this repo.
