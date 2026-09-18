@@ -12,11 +12,12 @@
 import type { LanguageModel, Tool } from "ai";
 import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
-// `PostTurnGuard` is part of the plugin contract (a plugin's `build()` returns
-// these — see `@mercury/plugin-jira`'s `createIssueListGuard`), so it lives in
+// `PostTurnGuard` is part of the plugin contract (a plugin's `build()` may
+// return these to inspect/rewrite the model's finished text), so it lives in
 // `@mercury/plugin-types` and is re-exported here for the core callers that
-// import it from this module. A guard that throws is caught by the core and
-// never blocks delivery — a guard failure is a quality miss, not a reason to
+// import it from this module. No plugin ships one today; the mechanism stays
+// generic for future use. A guard that throws is caught by the core and never
+// blocks delivery — a guard failure is a quality miss, not a reason to
 // withhold an already-generated answer.
 import type { PostTurnGuard } from "@mercury/plugin-types";
 export type { PostTurnGuard };
@@ -61,10 +62,9 @@ export type TurnRunnerDeps = {
    */
   postTurnGuards?: PostTurnGuard[];
   /**
-   * Test seam; defaults to `console.log`. Receives a guard's own `log` line
-   * (e.g. the issue-list guard's "discarded model text…" message), or the
-   * core's own note when a guard throws. Exists to measure real-world guard
-   * frequency before investing further.
+   * Test seam; defaults to `console.log`. Receives a guard's own `log` line,
+   * or the core's own note when a guard throws. Exists to measure real-world
+   * guard frequency before investing further.
    */
   logPostTurnGuardFn?: (message: string) => void;
   /** Test seam; defaults to `Date.now`. */

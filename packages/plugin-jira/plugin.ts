@@ -7,10 +7,10 @@
  *    same schema/version barrier a file-based config passes;
  *  - `systemPromptFragment`: the tool-surface description the core splices into
  *    the system prompt when the plugin is active;
- *  - `build(ctx)`: the env/model-dependent half — the `issue search` extractor
- *    (only when JIRA_SITE_URL is configured) and the always-on issue-list
- *    post-turn guard (model-backed). This is the logic that used to live inline
- *    in the composition root behind `jiraEnabled` and `JIRA_SITE_URL` checks.
+ *  - `build(ctx)`: the env/model-dependent half — the `issue search` extractor,
+ *    registered only when JIRA_SITE_URL is configured. This is the logic that
+ *    used to live inline in the composition root behind `jiraEnabled` and
+ *    `JIRA_SITE_URL` checks.
  *
  * The object is a plain literal, not typed against a core interface — a plugin
  * package must not import from the app it plugs into. The core's plugin list is
@@ -22,8 +22,6 @@ import { readFileSync } from "node:fs";
 import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury/plugin-types";
 import rawConfig from "./jira.json";
 import { createJiraIssueListExtractor } from "./issue-list-extractor.ts";
-import { createIssueListGuard } from "./issue-list-guard.ts";
-import { createIssueListCorrector } from "./issue-list-corrector.ts";
 
 /** The raw, unvalidated allowlist object. Handed to the core as data — the
  * core runs the same `.strict()` Zod barrier over it that it runs over any
@@ -52,16 +50,12 @@ export const jiraPlugin: Plugin = {
     // search` passes through unaugmented. An absent or empty site url is "not
     // configured" and stays silent. Rendering config (itemTemplate) is no
     // longer here — it moved to the render handler wired in the composition
-    // config, so `siteUrl` is the extractor's only input. Either way the guard
-    // below still comes through — it doesn't depend on the site url.
+    // config, so `siteUrl` is the extractor's only input.
     const siteUrl = ctx.env.JIRA_SITE_URL;
     if (siteUrl) {
       postProcessors["issue-list"] = createJiraIssueListExtractor({ siteUrl });
     }
 
-    return {
-      postProcessors,
-      postTurnGuards: [createIssueListGuard(createIssueListCorrector(ctx.model))],
-    };
+    return { postProcessors };
   },
 };
