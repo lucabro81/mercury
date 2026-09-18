@@ -5,7 +5,7 @@ import { jiraPlugin, jiraCliConfig } from "@mercury/plugin-jira";
 /**
  * The Jira plugin's assembled module object — its static declaration (name,
  * raw allowlist, skill) and its `build()`, which turns the runtime context
- * (env + model) into the issue-list extractor and the post-turn guard. The
+ * (env + model) into the issue-list extractor. The
  * generic loader that consumes this shape is tested with synthetic plugins in
  * plugin-loader.test.ts; this file pins the Jira-specific `build()` wiring that
  * used to live inline in the composition root behind `jiraEnabled` /
@@ -32,10 +32,9 @@ describe("jiraPlugin", () => {
     expect(skill.body).toContain("--jql");
   });
 
-  it("always contributes the issue-list post-turn guard when built, regardless of env", () => {
+  it("contributes no post-turn guard — the model-backed issue-list corrector is retired", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
-    expect(c.postTurnGuards).toHaveLength(1);
-    expect(c.postTurnGuards![0]!.statusId).toBe("issue-list-correction");
+    expect(c.postTurnGuards ?? []).toEqual([]);
   });
 
   it("registers the issue-list extractor when JIRA_SITE_URL is set", () => {
@@ -43,10 +42,9 @@ describe("jiraPlugin", () => {
     expect(c.postProcessors).toHaveProperty("issue-list");
   });
 
-  it("does not register the extractor when JIRA_SITE_URL is absent — the guard still comes through", () => {
+  it("does not register the extractor when JIRA_SITE_URL is absent", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
     expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
-    expect(c.postTurnGuards).toHaveLength(1);
   });
 
   it("treats an empty JIRA_SITE_URL as unconfigured — no extractor and no log noise", () => {

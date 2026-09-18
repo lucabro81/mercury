@@ -606,10 +606,8 @@ describe("createTurnRunner", () => {
 
   // The core runs plugin-contributed post-turn guards generically — it knows
   // nothing about what any guard does. These tests exercise that mechanism
-  // with synthetic guards; the Jira issue-list guard's own behaviour (the
-  // looksLikeIssueList gate, the corrector, the fallback, the log messages)
-  // is tested against @mercury/plugin-jira in issue-list-guard.jira.test.ts,
-  // and end-to-end delivery in jira-behavior.test.ts.
+  // with synthetic guards. No plugin ships a guard today; the mechanism is kept
+  // generic for future use.
   describe("post-turn guards", () => {
     function makeGuard(overrides: Partial<PostTurnGuard> = {}): PostTurnGuard {
       return {

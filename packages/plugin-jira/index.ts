@@ -7,8 +7,8 @@
  * used to be a maintainer-authored file scanned out of a config directory
  * (`cli-configs/jira.json`, bind-mounted at runtime), the prompt block used to
  * be hardcoded behind `if (opts.jira)` in `system-prompt.ts`, and the
- * issue-list formatting and correction used to be wired inline in the
- * composition root — all now travel as versioned assets with the plugin.
+ * issue-list extraction used to be wired inline in the composition root — all
+ * now travel as versioned assets with the plugin.
  */
 export { jiraPlugin, jiraCliConfig } from "./plugin.ts";
 
@@ -17,7 +17,3 @@ export {
   type IssueListConfig,
   type JiraIssueListItem,
 } from "./issue-list-extractor.ts";
-
-export { createIssueListCorrector } from "./issue-list-corrector.ts";
-export { createIssueListGuard } from "./issue-list-guard.ts";
-export { looksLikeIssueList, ISSUE_LIST_CORRECTION_FALLBACK } from "./issue-list-heuristic.ts";

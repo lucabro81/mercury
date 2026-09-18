@@ -6,17 +6,17 @@
  * Purpose is narrow and deliberate — this file is the **invariance oracle**
  * for the plugin extraction. Every other Jira-touching test in this repo is
  * a unit test bound to the shape of a module that the extraction is about to
- * move (`cli-tool.ts`, `issue-list-extractor.ts`, `issue-list-heuristic.ts`,
- * `turn-runner.ts`), so those tests will legitimately move with their code
- * and can't tell us whether behaviour stayed the same. These assertions can:
- * they name no module that is scheduled to move.
+ * move (`cli-tool.ts`, `issue-list-extractor.ts`, `turn-runner.ts`), so those
+ * tests will legitimately move with their code and can't tell us whether
+ * behaviour stayed the same. These assertions can: they name no module that is
+ * scheduled to move.
  *
  * The single exception is `buildJiraTools` below, which is the seam itself
  * and therefore the one thing expected to change when the composition changes.
- * Nothing under `describe` may reference `createCliTool`, `formatterPlugin`,
- * `createJiraIssueListHandler`, or `looksLikeIssueList` directly — if a change
- * to this file touches anything but that helper, the change altered behaviour
- * rather than relocating it.
+ * Nothing under `describe` may reference `createCliTool`, `formatterPlugin`, or
+ * `createJiraIssueListHandler` directly — if a change to this file touches
+ * anything but that helper, the change altered behaviour rather than
+ * relocating it.
  *
  * Config is read from the real `@mercury/plugin-jira` package, not a
  * hand-written fixture, so a semantic edit to the shipped allowlist (a prefix
@@ -26,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
 import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
-import { jiraCliConfig, jiraPlugin, createIssueListGuard } from "@mercury/plugin-jira";
+import { jiraCliConfig, jiraPlugin } from "@mercury/plugin-jira";
 import { formatterPlugin } from "./plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
@@ -300,14 +300,11 @@ function collectingSink(): TurnSink & { delivered: string[] } {
 /**
  * Drives one turn where the model produced `modelText` and surfaced `surfaced`
  * (what it chose to `present`, as the display store hands back at finalize),
- * and returns what the user actually received. `correctorOutput` is what the
- * issue-list guard's correction pass rewrites the answer to.
+ * and returns what the user actually received. No post-turn guard is wired —
+ * the model-backed issue-list corrector was retired once `present` made the
+ * rendered list something the model never holds.
  */
-async function deliverTurn(opts: {
-  modelText: string;
-  surfaced: string[];
-  correctorOutput?: string;
-}): Promise<string> {
+async function deliverTurn(opts: { modelText: string; surfaced: string[] }): Promise<string> {
   const sink = collectingSink();
   const runner = createTurnRunner({
     model: {} as never,
@@ -319,9 +316,7 @@ async function deliverTurn(opts: {
     maybeCapture: async () => {},
     processToolCorrections: async () => {},
     logStep: () => {},
-    logPostTurnGuardFn: () => {},
     recordStepFn: () => {},
-    postTurnGuards: [createIssueListGuard(async () => opts.correctorOutput ?? "")],
     takeSurfacedDisplays: () => opts.surfaced,
     runTurnFn: async () => opts.modelText,
   });
@@ -331,12 +326,11 @@ async function deliverTurn(opts: {
   return sink.delivered[0] as string;
 }
 
-// Deliberate behaviour change under #6: the deterministic list is no longer
-// force-appended to every issue-search turn. The formatter still produces it,
-// but it reaches the user only when the model explicitly surfaces it via
-// `present` (which the display store hands back through takeSurfacedDisplays).
-// The worst case is now omission ("show it to me"), never corruption — a
-// prose-only answer to "how many are open?" shows no list at all.
+// The deterministic list is not force-appended to every issue-search turn. The
+// formatter still produces it, but it reaches the user only when the model
+// explicitly surfaces it via `present` (which the display store hands back
+// through takeSurfacedDisplays). The worst case is omission ("show it to me"),
+// never corruption — a prose-only answer to "how many are open?" shows no list.
 describe("jira answer delivery", () => {
   const FORMATTED = `KAN-1 [In Progress] Fix the login redirect\n${SITE_URL}/browse/KAN-1`;
 
@@ -356,19 +350,5 @@ describe("jira answer delivery", () => {
     });
 
     expect(delivered).toBe("Ce ne sono due aperte.");
-  });
-
-  test("the guard still runs before the presented list is appended: a hand-restated list is replaced, then the real list is appended", async () => {
-    const restated = "Ecco le issue:\n- KAN-1: Fix the login redirect\n- KAN-2: Update the changelog";
-    const delivered = await deliverTurn({
-      modelText: restated,
-      surfaced: [FORMATTED],
-      correctorOutput: "Ho trovato due issue aperte.",
-    });
-
-    // the list is appended to the guard's rewrite ("Ho trovato due…"), and the
-    // model's own hand-formatted lines are gone
-    expect(delivered).toBe(`Ho trovato due issue aperte.\n\n${FORMATTED}`);
-    expect(delivered).not.toContain("- KAN-1:");
   });
 });
