@@ -16,6 +16,7 @@ import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "./tools/cli-executor.ts";
 import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
+import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
@@ -456,9 +457,14 @@ function buildTools(
       sessionTools,
       createCliTool(runCli, activeCliConfigs, {
         sessionKey,
-        store: confirmationStore,
-        vaultPath: wikiVaultPath,
-        userId: wikiUserId,
+        // Staging (token + pending note) is a core confirmation concern bound
+        // to this turn's session/user; the CLI tool just hands it a thunk.
+        stageConfirmation: createStageConfirmation({
+          store: confirmationStore,
+          sessionKey,
+          userId: wikiUserId,
+          vaultPath: wikiVaultPath,
+        }),
         postProcessors: cliPostProcessors,
         displayStore,
       }),
@@ -564,7 +570,6 @@ if (googleChatSubscription) {
     subscription: googleChatSubscription,
     store: confirmationStore,
     vaultPath: wikiVaultPath,
-    runCliFn: runCli,
     writeConfirmationNoteFn: writeConfirmationNote,
   });
   await chatProvider.start(handleTurn);
@@ -606,7 +611,6 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
     port: httpPort,
     confirmDeps: {
       store: confirmationStore,
-      runCliFn: runCli,
       vaultPath: wikiVaultPath,
       writeConfirmationNoteFn: writeConfirmationNote,
     },
@@ -631,7 +635,6 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
 await createTerminalProvider({
   confirmDeps: {
     store: confirmationStore,
-    runCliFn: runCli,
     vaultPath: wikiVaultPath,
     writeConfirmationNoteFn: writeConfirmationNote,
   },

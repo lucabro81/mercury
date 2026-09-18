@@ -1,20 +1,25 @@
 /**
- * In-memory staging area for a CLI command that matched a `confirm:true`
- * prefix (see `matchCommand` in `cli-tool.ts`) and needs explicit
- * confirmation before it executes. The model stages it here, and the
- * channel gets the returned token confirmed back to it — a card button
- * click on Google Chat, a bare token typed on the terminal — before
- * anything actually happens (see `confirm-flow.ts`). Scoped by
- * `sessionKey` so a token proposed to one session (terminal, or a given
- * Google Chat space+sender) can't be confirmed by another.
- */
-export type StagedAction = { kind: "cli"; binary: string; args: string[]; requestedAt?: string };
+ * In-memory staging area for an irreversible action that needs explicit
+ * confirmation before it runs. Something stages it here, and the channel gets
+ * the returned token confirmed back to it — a card button click on Google Chat,
+ * a bare token typed on the terminal — before anything actually happens (see
+ * `confirm-flow.ts`). Scoped by `sessionKey` so a token proposed to one session
+ * (terminal, or a given Google Chat space+sender) can't be confirmed by
+ * another.
+ *
+ * The action is opaque: a `run` thunk that performs it and a `describe` string
+ * for the paper trail. The store — and the whole confirmation subsystem — knows
+ * nothing about what kind of action it is: whoever stages it closes over the
+ * doing, and the core just runs the thunk when the token comes back. */
+export type ActionResult = { ok: true; data: unknown } | { ok: false; error: string };
+export type StagedAction = { run: () => Promise<ActionResult>; describe: string; requestedAt?: string };
 
-/** A pending staging as seen from outside, deliberately WITHOUT its token: a
- * token is a confirm capability, and the HTTP read surface is unauthenticated,
- * so listing pending confirmations must never hand out the tokens that would
- * let a reader execute them. */
-export type PendingConfirmation = { sessionKey: string; binary: string; args: string[]; expiresAt: number };
+/** A pending staging as seen from outside, deliberately WITHOUT its token or
+ * its executable thunk: a token is a confirm capability, and the HTTP read
+ * surface is unauthenticated, so listing pending confirmations must never hand
+ * out the tokens (or a way to run the action) — only the human-readable
+ * `summary` (the action's `describe`). */
+export type PendingConfirmation = { sessionKey: string; summary: string; expiresAt: number };
 
 export type ConfirmationStore = {
   /** Stages `action` for `sessionKey` and returns a fresh token. */
@@ -93,8 +98,7 @@ export function createConfirmationStore(
         if (entry.expiresAt <= t) continue;
         out.push({
           sessionKey: entry.sessionKey,
-          binary: entry.action.binary,
-          args: entry.action.args,
+          summary: entry.action.describe,
           expiresAt: entry.expiresAt,
         });
       }

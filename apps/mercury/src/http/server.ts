@@ -22,12 +22,10 @@ import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { HandleTurn, TurnSink } from "../router/provider.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
-import type { runCli } from "../tools/cli-executor.ts";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 export type HttpConfirmDeps = {
   store: ConfirmationStore;
-  runCliFn: typeof runCli;
   vaultPath: string;
   writeConfirmationNoteFn: typeof writeConfirmationNote;
   now?: () => Date;
@@ -104,7 +102,7 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
         onReasoningEnd: (id, failed) => send("reasoning_end", { id, failed }),
         onStep: (step) => {
           const pending = detectPendingConfirmation(step);
-          if (pending) send("pending", { command: pending.command, token: pending.token });
+          if (pending) send("pending", { command: pending.summary, token: pending.token });
         },
         onUsage: () => {},
         finalize: async (finalText) => send("final", { text: finalText }),

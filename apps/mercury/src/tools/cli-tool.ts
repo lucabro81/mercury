@@ -25,9 +25,8 @@ import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli, CliResult } from "./cli-executor.ts";
-import type { ConfirmationStore } from "./confirmation-store.ts";
+import type { StageConfirmation } from "./confirmation-staging.ts";
 import type { DisplayStore } from "./display-store.ts";
-import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 // `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
 // returns these) — it lives in `@mercury/plugin-types` and is re-exported here
@@ -140,30 +139,29 @@ export function omitDisplayForModel(output: unknown): unknown {
  * `runCli` in production) so tests can supply a fake without spawning a
  * real subprocess.
  *
- * `opts.sessionKey`/`opts.store` scope the confirm-required branch: a
- * confirm-gated command is staged in `store` under `sessionKey` instead of
- * running, and the result carries a structured `token` — how the user is
- * actually told to confirm is channel-specific (a card button on Google
- * Chat, a bare token typed on the terminal), not dictated here or
- * by the model (see `confirm-flow.ts` for the other half — actually
- * running it once that token comes back). Staging is inherently
- * per-session, so callers must build a fresh tool per turn, scoped to
- * that turn's own session — not a tool meant to be built once and reused
- * across sessions.
+ * `opts.stageConfirmation` scopes the confirm-required branch: a confirm-gated
+ * command is staged (see `confirmation-staging.ts`) instead of running, and the
+ * result carries a structured `token` — how the user is actually told to
+ * confirm is channel-specific (a card button on Google Chat, a bare token typed
+ * on the terminal), not dictated here or by the model (see `confirm-flow.ts` for
+ * the other half — actually running it once that token comes back). Staging is
+ * inherently per-session (the closure is bound to one sessionKey), so callers
+ * must build a fresh tool per turn, scoped to that turn's own session — not a
+ * tool meant to be built once and reused across sessions.
  */
 export function createCliTool(
   runCliFn: typeof runCli,
   configs: Record<string, CliConfig>,
   opts: {
+    /** This turn's session, used to scope a stashed `display` artifact in the
+     * display store (see `displayStore` below). Confirmation staging is scoped
+     * separately, inside the pre-bound `stageConfirmation` closure. */
     sessionKey: string;
-    store: ConfirmationStore;
-    /** Where/who to write the confirm-required lifecycle note for — see `writeConfirmationNoteFn` below. */
-    vaultPath: string;
-    userId: string;
-    /** Test seam; defaults to the real `writeConfirmationNote`. */
-    writeConfirmationNoteFn?: typeof writeConfirmationNote;
-    /** Test seam; defaults to `() => new Date()`. */
-    nowFn?: () => Date;
+    /** Stages a confirm-required command's execution behind a token, and writes
+     * its paper-trail note (see `StageConfirmation`). Pre-bound to this turn's
+     * session/user by the composition root — `cli-tool.ts` never touches the
+     * confirmation store or the wiki itself. */
+    stageConfirmation: StageConfirmation;
     /** Named post-processors (see `CliPostProcessor`), keyed by the name a
      * command's config declares via `postProcess`. Assembled at the
      * composition root (`index.ts`) from whichever CLI-specific modules
@@ -176,9 +174,6 @@ export function createCliTool(
     displayStore?: DisplayStore;
   },
 ) {
-  const writeConfirmationNoteFn = opts.writeConfirmationNoteFn ?? writeConfirmationNote;
-  const nowFn = opts.nowFn ?? (() => new Date());
-
   // Anchor the example on a binary actually enabled on this instance rather than
   // a hardcoded one: a fixed `jira …` example misleads the model on an instance
   // without Jira. The concrete, CLI-specific example (real subcommand + flags)
@@ -223,31 +218,19 @@ export function createCliTool(
         // include it on the first attempt (observed live: it usually
         // doesn't).
         const argsToStage = parsed.args.includes("--confirm") ? parsed.args : [...parsed.args, "--confirm"];
-        const requestedAt = nowFn().toISOString();
-        const token = opts.store.stage(opts.sessionKey, {
-          kind: "cli",
-          binary: parsed.binary,
-          args: argsToStage,
-          requestedAt,
+        // Stage the doing as an opaque thunk — the core confirmation subsystem
+        // never learns this is a CLI command. `describe` (the normalized argv)
+        // is the paper-trail text; `summary` on the result (the raw command the
+        // model wrote) is what a channel shows in its confirmation UI.
+        const token = await opts.stageConfirmation({
+          run: () => runCliFn(parsed.binary, argsToStage),
+          describe: [parsed.binary, ...argsToStage].join(" "),
         });
-        // Deterministic paper trail, not a precondition for staging: a
-        // wiki-write failure (disk, git) must never block the user from
-        // actually seeing/confirming the action — see writeConfirmationNote's
-        // own doc comment for why this lives outside inferred/users/<userId>/.
-        try {
-          await writeConfirmationNoteFn(opts.vaultPath, opts.userId, token, {
-            status: "pending",
-            requestedAt,
-            resolvedAt: null,
-            command: [parsed.binary, ...argsToStage].join(" "),
-          });
-        } catch (err) {
-          console.error(`[cli-tool] failed to write confirmation note: ${String(err)}`);
-        }
         return {
           ok: false,
           pendingConfirmation: true,
           token,
+          summary: command,
           error: `"${match.prefix.join(" ")}" is irreversible and requires explicit confirmation before it can run. Tell the user this action is staged and awaiting their confirmation. Never mention the token value in your reply, in any form — do not tell them how to confirm it, the channel handles that on its own.`,
         };
       }

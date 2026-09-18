@@ -31,6 +31,7 @@ import { formatterPlugin } from "./plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
 import { createCliTool } from "./tools/cli-tool.ts";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
+import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import type { CliResult } from "./tools/cli-executor.ts";
 import { tryConfirm } from "./router/confirm-flow.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
@@ -78,12 +79,16 @@ async function buildJiraTools(
   const contributions = decorated.build!({ model: {} as never, env: { JIRA_SITE_URL: SITE_URL }, log: () => {} });
   const tools = createCliTool(spyRunCli(spy), configs, {
     sessionKey: SESSION_KEY,
-    store,
-    vaultPath: "/unused",
-    userId: "user-under-test",
-    // Vault writes are a paper trail, not part of the behaviour under test;
-    // stubbed so these tests touch no filesystem.
-    writeConfirmationNoteFn: async () => {},
+    // Staging is bound to this session/user through the core closure; vault
+    // writes are a paper trail, not part of the behaviour under test, so they're
+    // stubbed and these tests touch no filesystem.
+    stageConfirmation: createStageConfirmation({
+      store,
+      sessionKey: SESSION_KEY,
+      userId: "user-under-test",
+      vaultPath: "/unused",
+      writeConfirmationNoteFn: async () => {},
+    }),
     postProcessors: contributions.postProcessors,
   });
   return { tools, store };
@@ -199,7 +204,6 @@ describe("jira confirmation gate", () => {
     const staged = await runCommand(tools, "jira issue delete KAN-1");
     const reply = await tryConfirm(staged.token, SESSION_KEY, {
       store,
-      runCliFn: spyRunCli(spy),
       userId: "user-under-test",
       vaultPath: "/unused",
       writeConfirmationNoteFn: async () => {},
@@ -216,7 +220,6 @@ describe("jira confirmation gate", () => {
     const { tools, store } = await buildJiraTools(spy);
     const confirmDeps = {
       store,
-      runCliFn: spyRunCli(spy),
       userId: "user-under-test",
       vaultPath: "/unused",
       writeConfirmationNoteFn: async () => {},
@@ -237,7 +240,6 @@ describe("jira confirmation gate", () => {
     const staged = await runCommand(tools, "jira issue delete KAN-1");
     const reply = await tryConfirm(staged.token, "a-different-session", {
       store,
-      runCliFn: spyRunCli(spy),
       userId: "user-under-test",
       vaultPath: "/unused",
       writeConfirmationNoteFn: async () => {},

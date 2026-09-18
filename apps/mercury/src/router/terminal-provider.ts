@@ -19,7 +19,6 @@ import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 import type { ConfirmationStore } from "../tools/confirmation-store.ts";
-import type { runCli } from "../tools/cli-executor.ts";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 const TERMINAL_SESSION_KEY = "terminal";
@@ -27,7 +26,6 @@ const TERMINAL_SESSION_KEY = "terminal";
 export type TerminalProviderDeps = {
   confirmDeps: {
     store: ConfirmationStore;
-    runCliFn: typeof runCli;
     vaultPath: string;
     writeConfirmationNoteFn: typeof writeConfirmationNote;
     now?: () => Date;
@@ -114,7 +112,7 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
               // say it itself, from the structured step data.
               const pending = detectPendingConfirmation(step);
               if (pending) {
-                onChunk(`Azione in sospeso: \`${pending.command}\` — scrivi: ${pending.token}\n`);
+                onChunk(`Azione in sospeso: \`${pending.summary}\` — scrivi: ${pending.token}\n`);
               }
             },
             onUsage: (tokens) => {

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { tryConfirm } from "./confirm-flow.ts";
-import { createConfirmationStore } from "../tools/confirmation-store.ts";
-import type { CliResult } from "../tools/cli-executor.ts";
+import { createConfirmationStore, type StagedAction } from "../tools/confirmation-store.ts";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 const noopWriteConfirmationNoteFn: typeof writeConfirmationNote = async () => {};
@@ -9,7 +8,6 @@ const noopWriteConfirmationNoteFn: typeof writeConfirmationNote = async () => {}
 function baseDeps(overrides: Partial<Parameters<typeof tryConfirm>[2]> = {}): Parameters<typeof tryConfirm>[2] {
   return {
     store: createConfirmationStore(),
-    runCliFn: async (): Promise<CliResult> => ({ ok: true, data: {} }),
     userId: "users/42",
     vaultPath: "/vault",
     writeConfirmationNoteFn: noopWriteConfirmationNoteFn,
@@ -17,63 +15,67 @@ function baseDeps(overrides: Partial<Parameters<typeof tryConfirm>[2]> = {}): Pa
   };
 }
 
-describe("tryConfirm", () => {
-  it("returns null for input that isn't a confirm command, never touching the store or runCliFn", async () => {
-    let called = false;
-    const runCliFn = async (): Promise<CliResult> => {
-      called = true;
-      return { ok: true, data: {} };
-    };
+// A staged action is an opaque thunk + describe; these build one whose run
+// resolves to a fixed result, standing in for what the CLI tool stages.
+function staged(describe: string, run: StagedAction["run"], requestedAt?: string): StagedAction {
+  return { run, describe, requestedAt };
+}
 
-    const result = await tryConfirm("crea un bug su KAN", "terminal", baseDeps({ runCliFn }));
+describe("tryConfirm", () => {
+  it("returns null for input that isn't a confirm command, never touching the store or running the action", async () => {
+    let called = false;
+    const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
+    store.stage(
+      "terminal",
+      staged("jira issue delete KAN-1 --confirm", async () => {
+        called = true;
+        return { ok: true, data: {} };
+      }),
+    );
+
+    const result = await tryConfirm("crea un bug su KAN", "terminal", baseDeps({ store }));
 
     expect(result).toBeNull();
     expect(called).toBe(false);
   });
 
-  it("executes the staged cli action for a valid token and reports success", async () => {
+  it("runs the staged action for a valid token and reports success", async () => {
     const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-    const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
-    let receivedBinary: string | undefined;
-    let receivedArgs: string[] | undefined;
-    const runCliFn = async (binary: string, args: string[]): Promise<CliResult> => {
-      receivedBinary = binary;
-      receivedArgs = args;
-      return { ok: true, data: { key: "KAN-1", deleted: true } };
-    };
+    let ran = false;
+    const token = store.stage(
+      "terminal",
+      staged("jira issue delete KAN-1 --confirm", async () => {
+        ran = true;
+        return { ok: true, data: { key: "KAN-1", deleted: true } };
+      }),
+    );
 
-    const result = await tryConfirm(token, "terminal", baseDeps({ store, runCliFn }));
+    const result = await tryConfirm(token, "terminal", baseDeps({ store }));
 
-    expect(receivedBinary).toBe("jira");
-    expect(receivedArgs).toEqual(["issue", "delete", "KAN-1", "--confirm"]);
+    expect(ran).toBe(true);
     expect(result).not.toBeNull();
     expect(result).toContain("KAN-1");
   });
 
-  it("returns a canned message for an unknown/expired/wrong-session token, never calling runCliFn", async () => {
-    let called = false;
-    const runCliFn = async (): Promise<CliResult> => {
-      called = true;
-      return { ok: true, data: {} };
-    };
+  it("returns a canned message for an unknown/expired/wrong-session token, never running any action", async () => {
+    const result = await tryConfirm("ABCD-EFGH", "terminal", baseDeps());
 
-    const result = await tryConfirm("ABCD-EFGH", "terminal", baseDeps({ runCliFn }));
-
-    expect(called).toBe(false);
     expect(result).not.toBeNull();
     expect(result?.toLowerCase()).toContain("nessuna conferma");
   });
 
-  it("reports failure when the staged cli action's runCliFn call fails, still consuming the token", async () => {
+  it("reports failure when the staged action's run fails, still consuming the token", async () => {
     const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-    const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
-    const runCliFn = async (): Promise<CliResult> => ({ ok: false, error: "jira exited with code 1: boom" });
+    const token = store.stage(
+      "terminal",
+      staged("jira issue delete KAN-1 --confirm", async () => ({ ok: false, error: "jira exited with code 1: boom" })),
+    );
 
-    const result = await tryConfirm(token, "terminal", baseDeps({ store, runCliFn }));
+    const result = await tryConfirm(token, "terminal", baseDeps({ store }));
 
     expect(result).toContain("boom");
     // one-shot regardless of outcome: a retry with the same token now finds nothing staged
-    const retry = await tryConfirm(token, "terminal", baseDeps({ store, runCliFn }));
+    const retry = await tryConfirm(token, "terminal", baseDeps({ store }));
     expect(retry?.toLowerCase()).toContain("nessuna conferma");
   });
 
@@ -82,15 +84,16 @@ describe("tryConfirm", () => {
   // propose half wrote, so the persistent record never gets stuck saying
   // "pending" for an action that was actually confirmed or abandoned.
   describe("confirmation note (resolve side)", () => {
-    it("overwrites the note as confirmed on a successful cli execution", async () => {
+    it("overwrites the note as confirmed on a successful run, using the action's describe as the command", async () => {
       const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", {
-        kind: "cli",
-        binary: "jira",
-        args: ["issue", "delete", "KAN-1", "--confirm"],
-        requestedAt: "2026-07-27T12:20:00.000Z",
-      });
-      const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { deleted: true } });
+      const token = store.stage(
+        "terminal",
+        staged(
+          "jira issue delete KAN-1 --confirm",
+          async () => ({ ok: true, data: { deleted: true } }),
+          "2026-07-27T12:20:00.000Z",
+        ),
+      );
       const writes: unknown[] = [];
       const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, tok, fields) => {
         writes.push({ vaultPath, userId, tok, fields });
@@ -99,7 +102,7 @@ describe("tryConfirm", () => {
       await tryConfirm(
         token,
         "terminal",
-        baseDeps({ store, runCliFn, writeConfirmationNoteFn, now: () => new Date("2026-07-27T12:25:00Z") }),
+        baseDeps({ store, writeConfirmationNoteFn, now: () => new Date("2026-07-27T12:25:00Z") }),
       );
 
       expect(writes).toEqual([
@@ -117,21 +120,18 @@ describe("tryConfirm", () => {
       ]);
     });
 
-    it("overwrites the note as failed when the cli execution fails", async () => {
+    it("overwrites the note as failed when the run fails", async () => {
       const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", {
-        kind: "cli",
-        binary: "jira",
-        args: ["issue", "delete", "KAN-1", "--confirm"],
-        requestedAt: "2026-07-27T12:20:00.000Z",
-      });
-      const runCliFn = async (): Promise<CliResult> => ({ ok: false, error: "boom" });
+      const token = store.stage(
+        "terminal",
+        staged("jira issue delete KAN-1 --confirm", async () => ({ ok: false, error: "boom" }), "2026-07-27T12:20:00.000Z"),
+      );
       const writes: unknown[] = [];
       const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, tok, fields) => {
         writes.push({ vaultPath, userId, tok, fields });
       };
 
-      await tryConfirm(token, "terminal", baseDeps({ store, runCliFn, writeConfirmationNoteFn }));
+      await tryConfirm(token, "terminal", baseDeps({ store, writeConfirmationNoteFn }));
 
       expect(writes).toEqual([
         { vaultPath: "/vault", userId: "users/42", tok: "k9m2-x7q4", fields: expect.objectContaining({ status: "failed" }) },
@@ -140,9 +140,9 @@ describe("tryConfirm", () => {
 
     it("falls back gracefully when the staged action has no requestedAt (older/test-constructed entries)", async () => {
       const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
+      const token = store.stage("terminal", staged("jira issue delete KAN-1 --confirm", async () => ({ ok: true, data: {} })));
       const writes: unknown[] = [];
-      const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, tok, fields) => {
+      const writeConfirmationNoteFn: typeof writeConfirmationNote = async (_v, _u, _t, fields) => {
         writes.push(fields);
       };
 
@@ -153,13 +153,15 @@ describe("tryConfirm", () => {
 
     it("a wiki-write failure does not break the confirm/execute flow itself", async () => {
       const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
-      const token = store.stage("terminal", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1", "--confirm"] });
-      const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { key: "KAN-1", deleted: true } });
+      const token = store.stage(
+        "terminal",
+        staged("jira issue delete KAN-1 --confirm", async () => ({ ok: true, data: { key: "KAN-1", deleted: true } })),
+      );
       const writeConfirmationNoteFn: typeof writeConfirmationNote = async () => {
         throw new Error("disk full");
       };
 
-      const result = await tryConfirm(token, "terminal", baseDeps({ store, runCliFn, writeConfirmationNoteFn }));
+      const result = await tryConfirm(token, "terminal", baseDeps({ store, writeConfirmationNoteFn }));
 
       expect(result).toContain("KAN-1");
     });

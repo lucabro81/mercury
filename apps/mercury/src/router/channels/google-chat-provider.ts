@@ -37,7 +37,6 @@ import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
 import type { ToolOutcome } from "../../session/tool-start-hook.ts";
 import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
 import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
-import type { runCli } from "../../tools/cli-executor.ts";
 import type { writeConfirmationNote } from "../../wiki/wiki-note.ts";
 
 /**
@@ -53,7 +52,7 @@ function buildConfirmCard(pending: PendingConfirmation): ChatCard {
     sections: [
       {
         widgets: [
-          { textParagraph: { text: `\`${pending.command}\`` } },
+          { textParagraph: { text: `\`${pending.summary}\`` } },
           {
             buttonList: {
               buttons: [
@@ -253,7 +252,6 @@ export type GoogleChatProviderDeps = {
   subscription: string;
   store: ConfirmationStore;
   vaultPath: string;
-  runCliFn: typeof runCli;
   writeConfirmationNoteFn: typeof writeConfirmationNote;
   /**
    * Handles a `CARD_CLICKED` event's action parameters. Defaults to
@@ -316,7 +314,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
       }
       const reply = await tryConfirm(token, deriveSessionKey(space, sender), {
         store: deps.store,
-        runCliFn: deps.runCliFn,
         userId: sender,
         vaultPath: deps.vaultPath,
         writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
@@ -456,7 +453,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         const pending = detectPendingConfirmation(step);
         if (pending) {
           enqueue(async () => {
-            log(`[chat:${space}] [out] confirm card: ${pending.command}`);
+            log(`[chat:${space}] [out] confirm card: ${pending.summary}`);
             const sent = await sendCardFn(space, buildConfirmCard(pending), clientDeps);
             sentMessageNames.add(sent.name);
           });
@@ -485,7 +482,6 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
 
     const confirmReply = await tryConfirm(event.text, sessionKey, {
       store: deps.store,
-      runCliFn: deps.runCliFn,
       userId: event.sender,
       vaultPath: deps.vaultPath,
       writeConfirmationNoteFn: deps.writeConfirmationNoteFn,

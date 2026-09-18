@@ -8,6 +8,7 @@ import {
   type CliConfig,
 } from "./cli-tool.ts";
 import { createConfirmationStore } from "./confirmation-store.ts";
+import { createStageConfirmation } from "./confirmation-staging.ts";
 import { createDisplayStore } from "./display-store.ts";
 import type { CliResult } from "./cli-executor.ts";
 
@@ -213,27 +214,37 @@ describe("createCliTool", () => {
     ],
   };
 
-  // Fresh store + sessionKey per test that doesn't care about confirmation
-  // staging specifically — a real ConfirmationStore is required by
-  // createCliTool's signature now, but only the confirm-required tests
-  // below actually exercise it. vaultPath/userId/writeConfirmationNoteFn
-  // are needed by every call now too (the confirm-required branch writes a
-  // note unconditionally), but a no-op fake is enough outside those tests.
+  // A no-op stageConfirmation is enough for tests that don't exercise the
+  // confirm-required branch — createCliTool's signature requires it, but only
+  // the confirm-required tests below actually stage anything.
   function defaultOpts() {
     return {
       sessionKey: "test-session",
-      store: createConfirmationStore(),
-      vaultPath: "/vault",
-      userId: "user-x",
-      writeConfirmationNoteFn: async () => {},
+      stageConfirmation: createStageConfirmation({
+        store: createConfirmationStore(),
+        sessionKey: "test-session",
+        userId: "user-x",
+        vaultPath: "/vault",
+        writeConfirmationNoteFn: async () => {},
+      }),
     };
   }
 
-  // Shared by the confirm-required tests below, which do care about the
-  // store/sessionKey but not usually about the note-writing side effect —
-  // tests that DO care override writeConfirmationNoteFn explicitly.
+  // Shared by the confirm-required tests below, which stage into a real store
+  // (bound here as "terminal") so they can then `take` and inspect what was
+  // staged. The note-writing side effect is covered in confirmation-staging's
+  // own tests, so a no-op writer is enough here.
   function confirmOpts(store: ReturnType<typeof createConfirmationStore>) {
-    return { sessionKey: "terminal", store, vaultPath: "/vault", userId: "user-x", writeConfirmationNoteFn: async () => {} };
+    return {
+      sessionKey: "terminal",
+      stageConfirmation: createStageConfirmation({
+        store,
+        sessionKey: "terminal",
+        userId: "user-x",
+        vaultPath: "/vault",
+        writeConfirmationNoteFn: async () => {},
+      }),
+    };
   }
 
   it("execute parses the command and calls runCliFn with the exact binary and args for an allowed command", async () => {
@@ -419,7 +430,7 @@ describe("createCliTool", () => {
   // comes back through whatever channel-specific confirmation mechanism
   // the caller's provider uses (see confirm-flow.ts and
   // terminal-provider.ts/google-chat-provider.ts).
-  it("execute stages a confirm-required command instead of running it, and returns its token", async () => {
+  it("execute stages a confirm-required command instead of running it, returning token + summary", async () => {
     let called = false;
     const runCliFn = async (): Promise<CliResult> => {
       called = true;
@@ -431,23 +442,27 @@ describe("createCliTool", () => {
     const result = (await runCommand.execute(
       { command: "jira issue delete KAN-1 --confirm" },
       {} as never,
-    )) as CliResult & { pendingConfirmation?: true; token?: string };
+    )) as CliResult & { pendingConfirmation?: true; token?: string; summary?: string };
 
+    // the CLI isn't run at stage time — only later, when the token comes back
     expect(called).toBe(false);
     expect(result.ok).toBe(false);
     expect(result.pendingConfirmation).toBe(true);
     expect(result.token).toBe("TOK1");
+    // summary is the raw command the model wrote — what a channel shows in its
+    // confirmation UI (see detectPendingConfirmation / the providers)
+    expect(result.summary).toBe("jira issue delete KAN-1 --confirm");
     if (!result.ok) {
       expect(result.error).not.toContain("not permitted");
     }
 
-    // the FULL argv was staged, not just the matched prefix
-    expect(store.take("terminal", "TOK1")).toEqual({
-      kind: "cli",
-      binary: "jira",
-      args: ["issue", "delete", "KAN-1", "--confirm"],
-      requestedAt: expect.any(String),
-    });
+    // the staged action is an opaque thunk described by the normalized argv;
+    // running it is what finally invokes the CLI with the FULL argv
+    const staged = store.take("terminal", "TOK1");
+    expect(staged?.describe).toBe("jira issue delete KAN-1 --confirm");
+    expect(staged?.requestedAt).toEqual(expect.any(String));
+    await staged?.run();
+    expect(called).toBe(true);
   });
 
   // Regression test: the model asked for "jira issue delete MER-19"
@@ -458,33 +473,37 @@ describe("createCliTool", () => {
   // one the model can't be relied on to remember. Staging must add it
   // whenever it's missing, so the confirmed command actually succeeds.
   it("adds --confirm to the staged args when the model omitted it", async () => {
-    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    let ranArgs: string[] | undefined;
+    const runCliFn = async (_binary: string, args: string[]): Promise<CliResult> => {
+      ranArgs = args;
+      return { ok: true, data: {} };
+    };
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     await runCommand.execute({ command: "jira issue delete MER-19" }, {} as never);
 
-    expect(store.take("terminal", "TOK1")).toEqual({
-      kind: "cli",
-      binary: "jira",
-      args: ["issue", "delete", "MER-19", "--confirm"],
-      requestedAt: expect.any(String),
-    });
+    const staged = store.take("terminal", "TOK1");
+    expect(staged?.describe).toBe("jira issue delete MER-19 --confirm");
+    await staged?.run();
+    expect(ranArgs).toEqual(["issue", "delete", "MER-19", "--confirm"]);
   });
 
   it("does not duplicate --confirm when the model already included it", async () => {
-    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
+    let ranArgs: string[] | undefined;
+    const runCliFn = async (_binary: string, args: string[]): Promise<CliResult> => {
+      ranArgs = args;
+      return { ok: true, data: {} };
+    };
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
 
     const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, confirmOpts(store));
     await runCommand.execute({ command: "jira issue delete MER-19 --confirm" }, {} as never);
 
-    expect(store.take("terminal", "TOK1")).toEqual({
-      kind: "cli",
-      binary: "jira",
-      args: ["issue", "delete", "MER-19", "--confirm"],
-      requestedAt: expect.any(String),
-    });
+    const staged = store.take("terminal", "TOK1");
+    expect(staged?.describe).toBe("jira issue delete MER-19 --confirm");
+    await staged?.run();
+    expect(ranArgs).toEqual(["issue", "delete", "MER-19", "--confirm"]);
   });
 
   // Confirming is now channel-specific (a card button on Google Chat, a
@@ -507,63 +526,6 @@ describe("createCliTool", () => {
     if (!result.ok) {
       expect(result.error.toLowerCase()).not.toContain("conferma");
     }
-  });
-
-  // Regression guard for the stale-primer bug: the propose half of a
-  // confirm-required action must write a deterministic "pending" record
-  // (inferred/confirmations/<userId>/<token>.md) so a persistent memory
-  // layer never has to guess/summarize this from free-text conversation —
-  // see writeConfirmationNote in wiki-note.ts.
-  it("writes a pending confirmation note when staging a confirm-required command", async () => {
-    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
-    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    const writes: Array<{ vaultPath: string; userId: string; token: string; fields: unknown }> = [];
-    const writeConfirmationNoteFn = async (vaultPath: string, userId: string, token: string, fields: unknown) => {
-      writes.push({ vaultPath, userId, token, fields });
-    };
-
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, {
-      ...confirmOpts(store),
-      vaultPath: "/my-vault",
-      userId: "users/42",
-      writeConfirmationNoteFn,
-    });
-    await runCommand.execute({ command: "jira issue delete KAN-1 --confirm" }, {} as never);
-
-    expect(writes).toEqual([
-      {
-        vaultPath: "/my-vault",
-        userId: "users/42",
-        token: "TOK1",
-        fields: {
-          status: "pending",
-          requestedAt: expect.any(String),
-          resolvedAt: null,
-          command: "jira issue delete KAN-1 --confirm",
-        },
-      },
-    ]);
-  });
-
-  // A wiki-write failure (disk issue, git problem) must not break the live
-  // confirmation flow itself — the user still needs to see the card/token
-  // and be able to confirm. The note is a secondary paper trail, not a
-  // precondition for staging to succeed.
-  it("still stages and returns the token even if writing the confirmation note fails", async () => {
-    const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
-    const store = createConfirmationStore({ tokenFn: () => "TOK1" });
-    const writeConfirmationNoteFn = async () => {
-      throw new Error("disk full");
-    };
-
-    const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...confirmOpts(store), writeConfirmationNoteFn });
-    const result = (await runCommand.execute(
-      { command: "jira issue delete KAN-1 --confirm" },
-      {} as never,
-    )) as CliResult & { pendingConfirmation?: true; token?: string };
-
-    expect(result.pendingConfirmation).toBe(true);
-    expect(result.token).toBe("TOK1");
   });
 
   it("stages a confirm-required command under the tool's own sessionKey, not a different one", async () => {
@@ -693,13 +655,19 @@ describe("createCliTool display staging", () => {
     "issue-list": (_p: { binary: string; args: string[] }, result: CliResult): CliResult =>
       result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } : result,
   };
+  function noopStage() {
+    return createStageConfirmation({
+      store: createConfirmationStore(),
+      sessionKey: "terminal",
+      userId: "user-x",
+      vaultPath: "/vault",
+      writeConfirmationNoteFn: async () => {},
+    });
+  }
   function opts(displayStore: ReturnType<typeof createDisplayStore>) {
     return {
       sessionKey: "terminal",
-      store: createConfirmationStore(),
-      vaultPath: "/vault",
-      userId: "user-x",
-      writeConfirmationNoteFn: async () => {},
+      stageConfirmation: noopStage(),
       displayStore,
     };
   }
@@ -770,10 +738,7 @@ describe("createCliTool display staging", () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
     const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
       sessionKey: "terminal",
-      store: createConfirmationStore(),
-      vaultPath: "/vault",
-      userId: "user-x",
-      writeConfirmationNoteFn: async () => {},
+      stageConfirmation: noopStage(),
       postProcessors: renderingPostProcessors,
     });
 
