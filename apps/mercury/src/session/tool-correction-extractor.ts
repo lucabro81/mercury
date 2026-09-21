@@ -1,5 +1,5 @@
 /**
- * Detects, within a single turn's steps, a `runCommand` call that failed
+ * Detects, within a single turn's steps, a CLI command call that failed
  * followed later by one for the same binary that succeeded — a candidate
  * procedural correction, distinct from `semantic-fact-extractor.ts` (which
  * is about the user, from `session.messages`) — this is about a *tool*,
@@ -53,7 +53,11 @@ function extractAttempts(steps: StepInfo[]): Attempt[] {
   const attempts: Attempt[] = [];
   for (const stepInfo of steps) {
     for (const call of stepInfo.toolCalls) {
-      if (call.toolName !== "runCommand") continue;
+      // A CLI attempt is any tool call carrying a `command` string — the
+      // generic shape every CLI tool takes, whatever its name (jiraCommand,
+      // bitbucketCommand, the residual runCommand). Keying on a fixed tool name
+      // would silently miss plugin-owned CLI tools; keying on the input shape
+      // stays correct as new CLI plugins are added.
       const input = call.input as { command?: unknown };
       if (typeof input.command !== "string") continue;
       // Group attempts by the binary they invoked, which is just the command's

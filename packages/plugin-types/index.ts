@@ -41,8 +41,8 @@ export type ToolDisplay = { type: string; items: unknown[] };
  * `data` is the model channel — the parsed JSON (or raw text) stdout the model
  * reasons on — and the optional `display` is the user channel (see
  * `ToolDisplay`), which never enters the model's context. On failure `error` is
- * a human/model-readable string. Mirrors `runCli`'s return — the core owns the
- * runner, this owns the shape both sides agree on.
+ * a human/model-readable string. Mirrors `runCli`'s return — `@mercury/cli-engine`
+ * owns the runner, this owns the shape both sides agree on.
  */
 export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
 
@@ -163,18 +163,17 @@ export type PluginRuntimeContributions = {
 export type CliCommandInfo = { binary: string; args: string[]; mutating: boolean };
 
 /** Turns a command about to run into the one-line status content shown while it
- * runs. A plugin may supply one (`Plugin.describeStatus`) to override the
- * default; the core only transports the result, the channel decides how to
- * render it. */
+ * runs. A plugin may supply one to `createCliStatusDescriber` (see
+ * `@mercury/cli-engine`) to override the default; the core only transports the
+ * result, the channel decides how to render it. */
 export type StatusDescriber = (cmd: CliCommandInfo) => string;
 
 /**
- * The default status content for a CLI command, used for every command unless
- * its plugin overrides it. A plain "esecuzione <binary> <sottocomando>", where
- * the subcommand is the leading non-flag tokens capped at two — deliberately
- * not a read/write classification, which is what the core used to hardcode and
- * 3.3 removed. A plugin that wants finer wording supplies its own
- * `describeStatus`.
+ * The default status content for a CLI command, used for every command unless a
+ * plugin overrides it. A plain "esecuzione <binary> <sottocomando>", where the
+ * subcommand is the leading non-flag tokens capped at two — deliberately not a
+ * read/write classification. A plugin that wants finer wording supplies its own
+ * `StatusDescriber`.
  */
 export const defaultStatusLabel: StatusDescriber = ({ binary, args }) => {
   const sub: string[] = [];

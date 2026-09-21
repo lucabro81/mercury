@@ -122,6 +122,14 @@ describe("describeToolDetail", () => {
     expect(describeToolDetail("runCommand", {})).toBe("{}");
   });
 
+  // Regression: detail extraction once keyed on the fixed name "runCommand", so
+  // a plugin-owned CLI tool (jiraCommand, …) fell through to a JSON dump. Any
+  // tool carrying a `command` string shows the bare command.
+  it("returns the raw command for a plugin-owned CLI tool named per service", () => {
+    expect(describeToolDetail("jiraCommand", { command: "jira issue search --jql X" })).toBe("jira issue search --jql X");
+    expect(describeToolDetail("bitbucketCommand", { command: "bitbucket pr list" })).toBe("bitbucket pr list");
+  });
+
   it("returns just the path for read_file/write_file, not the raw JSON input", () => {
     expect(describeToolDetail("read_file", { path: "curated/x.md" })).toBe("curated/x.md");
     expect(describeToolDetail("write_file", { path: "curated/x.md", content: "y" })).toBe("curated/x.md");

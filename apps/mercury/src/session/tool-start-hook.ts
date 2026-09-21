@@ -74,9 +74,11 @@ function stringField(input: unknown, key: string): string | undefined {
  * unmapped/future tool falls back to a bounded JSON dump.
  */
 export function describeToolDetail(toolName: string, input: unknown): string {
+  // Any CLI tool carries a `command` string, whatever its name (jiraCommand,
+  // bitbucketCommand, the residual runCommand) — show that bare command.
+  const command = stringField(input, "command");
+  if (command !== undefined) return truncate(command);
   switch (toolName) {
-    case "runCommand":
-      return truncate(stringField(input, "command") ?? JSON.stringify(input) ?? "");
     case "grep":
       return truncate(stringField(input, "pattern") ?? JSON.stringify(input) ?? "");
     case "read_file":
