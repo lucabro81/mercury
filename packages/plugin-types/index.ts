@@ -56,6 +56,28 @@ export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { o
 export type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
 
 /**
+ * The outcome of running a deferred, confirm-required action. Deliberately
+ * generic (no `display` channel, unlike `CliResult`): the confirmation
+ * subsystem reports `data` or `error` and nothing more. A CLI command's
+ * execution is one producer of it, a future non-CLI action another.
+ */
+export type ActionResult = { ok: true; data: unknown } | { ok: false; error: string };
+
+/**
+ * Stages an irreversible action behind a confirmation token and returns that
+ * token. The action is opaque — a `run` thunk plus a `describe` string for the
+ * paper trail — so nothing here (and nothing in the core that runs it later)
+ * needs to know what kind of action it is. The core binds an implementation to
+ * a session/user and hands it to whatever needs to defer an action; the plugin
+ * side calls it without touching the confirmation store or the wiki. See the
+ * core's confirmation-staging and confirm-flow for the two halves.
+ */
+export type StageConfirmation = (action: {
+  run: () => Promise<ActionResult>;
+  describe: string;
+}) => Promise<string>;
+
+/**
  * Minimal shape of a finished generation step — enough to see what tool was
  * called, with what input, and what came back. A subset of the AI SDK's
  * `StepResult`; function parameter types only need to be structurally

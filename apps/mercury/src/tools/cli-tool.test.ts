@@ -6,11 +6,11 @@ import {
   createCliTool,
   omitDisplayForModel,
   type CliConfig,
-} from "./cli-tool.ts";
+} from "@mercury/plugin-cli";
 import { createConfirmationStore } from "./confirmation-store.ts";
 import { createStageConfirmation } from "./confirmation-staging.ts";
 import { createDisplayStore } from "./display-store.ts";
-import type { CliResult } from "./cli-executor.ts";
+import type { CliResult } from "@mercury/plugin-cli";
 
 describe("stripGlobalFlags", () => {
   it("removes a value-taking flag and its value from anywhere in args", () => {
@@ -219,7 +219,6 @@ describe("createCliTool", () => {
   // the confirm-required tests below actually stage anything.
   function defaultOpts() {
     return {
-      sessionKey: "test-session",
       stageConfirmation: createStageConfirmation({
         store: createConfirmationStore(),
         sessionKey: "test-session",
@@ -236,7 +235,6 @@ describe("createCliTool", () => {
   // own tests, so a no-op writer is enough here.
   function confirmOpts(store: ReturnType<typeof createConfirmationStore>) {
     return {
-      sessionKey: "terminal",
       stageConfirmation: createStageConfirmation({
         store,
         sessionKey: "terminal",
@@ -666,9 +664,8 @@ describe("createCliTool display staging", () => {
   }
   function opts(displayStore: ReturnType<typeof createDisplayStore>) {
     return {
-      sessionKey: "terminal",
       stageConfirmation: noopStage(),
-      displayStore,
+      stashDisplay: (artifact: string) => displayStore.stash("terminal", artifact),
     };
   }
 
@@ -734,10 +731,9 @@ describe("createCliTool display staging", () => {
     expect(result.displayRef).toBeUndefined();
   });
 
-  it("leaves execute's return unchanged (no displayRef) when no display store is wired", async () => {
+  it("leaves execute's return unchanged (no displayRef) when no stashDisplay is wired", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
     const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
-      sessionKey: "terminal",
       stageConfirmation: noopStage(),
       postProcessors: renderingPostProcessors,
     });

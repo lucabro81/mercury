@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runCli } from "./cli-executor.ts";
+import { runCli } from "@mercury/plugin-cli";
 
 describe("runCli", () => {
   it("parses valid JSON stdout on exit code 0", async () => {

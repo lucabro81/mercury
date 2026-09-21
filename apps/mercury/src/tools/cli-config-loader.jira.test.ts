@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfigFromObject } from "./cli-config-loader.ts";
-import { matchCommand, type CliConfig } from "./cli-tool.ts";
-import type { CliResult } from "./cli-executor.ts";
+import { loadCliConfigFromObject } from "@mercury/plugin-cli";
+import { matchCommand, type CliConfig } from "@mercury/plugin-cli";
+import type { CliResult } from "@mercury/plugin-cli";
 import { jiraCliConfig } from "@mercury/plugin-jira";
 
 /**

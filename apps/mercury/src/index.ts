@@ -13,13 +13,13 @@
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
-import { runCli } from "./tools/cli-executor.ts";
-import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
+import { runCli } from "@mercury/plugin-cli";
+import { createCliTool, type CliPostProcessor } from "@mercury/plugin-cli";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
-import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
+import { loadActiveCliConfigs, loadCliConfigFromObject } from "@mercury/plugin-cli";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
 import mercuryConfig from "../mercury.config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
@@ -39,7 +39,8 @@ import {
 import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
-import { withToolStartHook, createCliStatusDescriber } from "./session/tool-start-hook.ts";
+import { withToolStartHook } from "./session/tool-start-hook.ts";
+import { createCliStatusDescriber } from "@mercury/plugin-cli";
 import {
   writeInferredNote,
   writeToolCorrectionNote,
@@ -456,7 +457,6 @@ function buildTools(
     Object.assign(
       sessionTools,
       createCliTool(runCli, activeCliConfigs, {
-        sessionKey,
         // Staging (token + pending note) is a core confirmation concern bound
         // to this turn's session/user; the CLI tool just hands it a thunk.
         stageConfirmation: createStageConfirmation({
@@ -466,7 +466,8 @@ function buildTools(
           vaultPath: wikiVaultPath,
         }),
         postProcessors: cliPostProcessors,
-        displayStore,
+        // Display stashing is scoped to this turn's session the same way.
+        stashDisplay: (artifact) => displayStore.stash(sessionKey, artifact),
       }),
     );
     // `present` only makes sense alongside CLI tools: they are what produce

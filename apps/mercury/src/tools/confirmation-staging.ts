@@ -15,15 +15,10 @@
  * can't stop the user from seeing and confirming the action.
  */
 import type { ConfirmationStore } from "./confirmation-store.ts";
+import type { StageConfirmation } from "@mercury/plugin-types";
 import { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
-/** Stages an opaque action for later confirmation and returns its token. The
- * action is a `run` thunk plus a `describe` string (the command/summary text
- * for the paper trail and the channel's confirmation UI). */
-export type StageConfirmation = (action: {
-  run: () => Promise<{ ok: true; data: unknown } | { ok: false; error: string }>;
-  describe: string;
-}) => Promise<string>;
+export type { StageConfirmation };
 
 export function createStageConfirmation(deps: {
   store: ConfirmationStore;

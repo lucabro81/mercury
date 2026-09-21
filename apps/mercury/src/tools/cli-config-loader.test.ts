@@ -5,8 +5,8 @@ import {
   loadCliConfig,
   loadCliConfigFromObject,
   loadActiveCliConfigs,
-} from "./cli-config-loader.ts";
-import type { CliResult } from "./cli-executor.ts";
+} from "@mercury/plugin-cli";
+import type { CliResult } from "@mercury/plugin-cli";
 
 const FIXTURES = new URL("./__fixtures__/cli-config-loader/", import.meta.url).pathname;
 

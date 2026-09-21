@@ -25,8 +25,7 @@ import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli, CliResult } from "./cli-executor.ts";
-import type { StageConfirmation } from "./confirmation-staging.ts";
-import type { DisplayStore } from "./display-store.ts";
+import type { StageConfirmation } from "@mercury/plugin-types";
 
 // `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
 // returns these) — it lives in `@mercury/plugin-types` and is re-exported here
@@ -153,10 +152,6 @@ export function createCliTool(
   runCliFn: typeof runCli,
   configs: Record<string, CliConfig>,
   opts: {
-    /** This turn's session, used to scope a stashed `display` artifact in the
-     * display store (see `displayStore` below). Confirmation staging is scoped
-     * separately, inside the pre-bound `stageConfirmation` closure. */
-    sessionKey: string;
     /** Stages a confirm-required command's execution behind a token, and writes
      * its paper-trail note (see `StageConfirmation`). Pre-bound to this turn's
      * session/user by the composition root — `cli-tool.ts` never touches the
@@ -167,11 +162,11 @@ export function createCliTool(
      * composition root (`index.ts`) from whichever CLI-specific modules
      * are wired in — `cli-tool.ts` itself never knows what any of them do. */
     postProcessors?: Record<string, CliPostProcessor>;
-    /** Where a post-processor's rendered `display` artifact is stashed so the
-     * model can choose to `present` it (see `display-store.ts`). Optional: an
-     * instance/test with no store keeps the old inline `display` untouched and
-     * mints no `displayRef`. */
-    displayStore?: DisplayStore;
+    /** Stashes a post-processor's rendered `display` artifact and returns a ref
+     * the model can `present`. Pre-bound to this turn's session by the
+     * composition root. Optional: with none wired the inline `display` is left
+     * untouched and no `displayRef` is minted. */
+    stashDisplay?: (artifact: string) => string;
   },
 ) {
   // Anchor the example on a binary actually enabled on this instance rather than
@@ -243,12 +238,12 @@ export function createCliTool(
       // force-appended: the model gets only a `displayRef` and decides whether
       // to `present` it. Only string items (what the formatter renders) are
       // showable; a display still carrying structured items (no formatter
-      // applied) has nothing to stash, matching the old collect-strings-only
-      // behavior. Without a store wired, the result is left exactly as-is.
-      if (opts.displayStore && processed.ok && processed.display) {
+      // applied) has nothing to stash. With no `stashDisplay` wired, the result
+      // is left exactly as-is.
+      if (opts.stashDisplay && processed.ok && processed.display) {
         const stringItems = processed.display.items.filter((i): i is string => typeof i === "string");
         if (stringItems.length > 0) {
-          const displayRef = opts.displayStore.stash(opts.sessionKey, stringItems.join("\n\n"));
+          const displayRef = opts.stashDisplay(stringItems.join("\n\n"));
           return { ...processed, displayRef };
         }
       }

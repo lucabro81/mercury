@@ -25,14 +25,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
-import { loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
+import { loadCliConfigFromObject } from "@mercury/plugin-cli";
 import { jiraCliConfig, jiraPlugin } from "@mercury/plugin-jira";
 import { formatterPlugin } from "./plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
-import { createCliTool } from "./tools/cli-tool.ts";
+import { createCliTool } from "@mercury/plugin-cli";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
-import type { CliResult } from "./tools/cli-executor.ts";
+import type { CliResult } from "@mercury/plugin-cli";
 import { tryConfirm } from "./router/confirm-flow.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { InboundTurn, TurnSink } from "./router/provider.ts";
@@ -78,7 +78,6 @@ async function buildJiraTools(
   const decorated = formatterPlugin(jiraPlugin, createJiraIssueListHandler({}));
   const contributions = decorated.build!({ model: {} as never, env: { JIRA_SITE_URL: SITE_URL }, log: () => {} });
   const tools = createCliTool(spyRunCli(spy), configs, {
-    sessionKey: SESSION_KEY,
     // Staging is bound to this session/user through the core closure; vault
     // writes are a paper trail, not part of the behaviour under test, so they're
     // stubbed and these tests touch no filesystem.

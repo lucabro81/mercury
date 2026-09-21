@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfig } from "./cli-config-loader.ts";
-import { matchCommand, type CliConfig } from "./cli-tool.ts";
-import type { CliResult } from "./cli-executor.ts";
+import { loadCliConfig } from "@mercury/plugin-cli";
+import { matchCommand, type CliConfig } from "@mercury/plugin-cli";
+import type { CliResult } from "@mercury/plugin-cli";
 
 /**
  * Integration-shaped safety net for the real, checked-in

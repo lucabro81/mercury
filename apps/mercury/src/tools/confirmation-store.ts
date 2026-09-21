@@ -11,7 +11,7 @@
  * for the paper trail. The store — and the whole confirmation subsystem — knows
  * nothing about what kind of action it is: whoever stages it closes over the
  * doing, and the core just runs the thunk when the token comes back. */
-export type ActionResult = { ok: true; data: unknown } | { ok: false; error: string };
+import type { ActionResult } from "@mercury/plugin-types";
 export type StagedAction = { run: () => Promise<ActionResult>; describe: string; requestedAt?: string };
 
 /** A pending staging as seen from outside, deliberately WITHOUT its token or

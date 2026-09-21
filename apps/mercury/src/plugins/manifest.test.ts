@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { buildPluginManifest } from "./manifest.ts";
 import { PLUGIN_API_VERSION, type Plugin } from "@mercury/plugin-types";
-import type { CliConfig } from "../tools/cli-tool.ts";
+import type { CliConfig } from "@mercury/plugin-cli";
 
 /**
  * The manifest reports what an instance actually loaded — for the HTTP read

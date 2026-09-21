@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parseCommand } from "./command-parser.ts";
+import { parseCommand } from "@mercury/plugin-cli";
 
 describe("parseCommand", () => {
   it("splits a plain command with no quoting", () => {

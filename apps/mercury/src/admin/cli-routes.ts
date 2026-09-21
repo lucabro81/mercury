@@ -6,8 +6,8 @@
  * exact same `runCli` used for real tool calls. Never constructs or runs
  * anything else; this is read-only status, not a command console.
  */
-import type { CliConfig } from "../tools/cli-tool.ts";
-import type { runCli } from "../tools/cli-executor.ts";
+import type { CliConfig } from "@mercury/plugin-cli";
+import type { runCli } from "@mercury/plugin-cli";
 
 export type CliStatusEntry = {
   binary: string;
