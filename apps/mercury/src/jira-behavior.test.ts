@@ -25,11 +25,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
-import { loadCliConfigFromObject } from "@mercury/cli-engine";
-import { jiraCliConfig, jiraPlugin } from "@mercury/plugin-jira";
+import { createJiraPlugin } from "@mercury/plugin-jira";
 import { formatterPlugin } from "./plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
-import { createCliTool } from "@mercury/cli-engine";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import type { CliResult } from "@mercury/cli-engine";
@@ -67,36 +65,37 @@ async function buildJiraTools(
   spy: CliSpy,
   opts: { store?: ConfirmationStore } = {},
 ): Promise<{ tools: Record<string, Tool>; store: ConfirmationStore }> {
-  const loaded = await loadCliConfigFromObject(jiraCliConfig, { runCliFn: spyRunCli(spy) });
-  if (!loaded.ok) {
-    throw new Error(`plugin config failed to load in test setup: ${loaded.reason}`);
-  }
-  const configs = { [loaded.binary]: loaded.config };
   const store = opts.store ?? createConfirmationStore();
-  // Real composition: the Jira plugin decorated with the formatter + its render
-  // handler, built with JIRA_SITE_URL so the issue-list extractor registers.
-  const decorated = formatterPlugin(jiraPlugin, createJiraIssueListHandler({}));
+  // Real composition: the Jira plugin (owning its own tool via the engine)
+  // decorated with the formatter + its render handler, built with JIRA_SITE_URL
+  // so the issue-list extractor registers. runCli is spied so nothing spawns.
+  const decorated = formatterPlugin(createJiraPlugin({ runCliFn: spyRunCli(spy) }), createJiraIssueListHandler({}));
   const contributions = decorated.build!({ model: {} as never, env: { JIRA_SITE_URL: SITE_URL }, log: () => {} });
-  const tools = createCliTool(spyRunCli(spy), configs, {
-    // Staging is bound to this session/user through the core closure; vault
-    // writes are a paper trail, not part of the behaviour under test, so they're
-    // stubbed and these tests touch no filesystem.
-    stageConfirmation: createStageConfirmation({
-      store,
+  // Invoke the plugin's own session-tool factory the way the composition root
+  // does, with the session's confirm-staging and display-stashing. Vault writes
+  // are a paper trail, not the behaviour under test, so they're stubbed and
+  // these tests touch no filesystem.
+  const tools = contributions.sessionTools!(
+    {
       sessionKey: SESSION_KEY,
-      userId: "user-under-test",
-      vaultPath: "/unused",
-      writeConfirmationNoteFn: async () => {},
-    }),
-    postProcessors: contributions.postProcessors,
-  });
+      stageConfirmation: createStageConfirmation({
+        store,
+        sessionKey: SESSION_KEY,
+        userId: "user-under-test",
+        vaultPath: "/unused",
+        writeConfirmationNoteFn: async () => {},
+      }),
+      stashDisplay: () => "display-ref",
+    },
+    contributions.postProcessors ?? {},
+  );
   return { tools, store };
 }
 
-/** Invokes `runCommand` exactly as the AI SDK would, and returns its raw result. */
+/** Invokes the jira tool exactly as the AI SDK would, and returns its raw result. */
 async function runCommand(tools: Record<string, Tool>, command: string): Promise<any> {
-  const tool = tools.runCommand;
-  if (!tool?.execute) throw new Error("runCommand tool is not present or has no execute");
+  const tool = tools.jiraCommand;
+  if (!tool?.execute) throw new Error("jiraCommand tool is not present or has no execute");
   return await tool.execute({ command }, { toolCallId: "call-1", messages: [] } as never);
 }
 

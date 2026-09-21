@@ -1,32 +1,33 @@
 /**
- * The Jira plugin's module object — the single value the core's composition
- * root lists and its generic loader (`loadPlugins`) processes. It bundles the
- * plugin's four contributions in one place:
- *  - `name`: the MERCURY_CLIS entry and the binary this plugin owns;
- *  - `cliConfig`: the raw, unvalidated allowlist the core validates through the
- *    same schema/version barrier a file-based config passes;
- *  - `systemPromptFragment`: the tool-surface description the core splices into
- *    the system prompt when the plugin is active;
- *  - `build(ctx)`: the env/model-dependent half — the `issue search` extractor,
- *    registered only when JIRA_SITE_URL is configured. This is the logic that
- *    used to live inline in the composition root behind `jiraEnabled` and
- *    `JIRA_SITE_URL` checks.
+ * The Jira plugin's module object — the single value the composition config
+ * lists and the core's generic loader (`loadPlugins`) processes. Jira works only
+ * through a CLI, so it owns its CLI tool outright: it depends on the
+ * `@mercury/cli-engine` library and, in `build()`, validates its own allowlist
+ * and builds its own `jiraCommand` tool from it. The core composes nothing
+ * CLI-specific for it.
+ *
+ * `build()` contributes:
+ *  - `sessionTools`: the `jiraCommand` tool, built per turn from the validated
+ *    allowlist, the session's confirm-staging/display-stashing, and the
+ *    post-processors handed in (its own `issue-list` extractor, possibly wrapped
+ *    by the formatter decorator at composition);
+ *  - `postProcessors`: the `issue search` result extractor (only when
+ *    JIRA_SITE_URL is set — see below);
+ *  - `toolStatusDescribers`: the status label for `jiraCommand`.
  *
  * The object is a plain literal, not typed against a core interface — a plugin
- * package must not import from the app it plugs into. The core's plugin list is
- * typed against `PluginModule`, and the composition root's assignment is where
- * the structural compatibility is checked; Fase 3 hoists that interface into a
- * shared type both sides import.
+ * package must not import the app it plugs into. Structural compatibility with
+ * `Plugin` is what the composition config's typing checks.
  */
 import { readFileSync } from "node:fs";
 import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury/plugin-types";
+import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury/cli-engine";
 import rawConfig from "./jira.json";
 import { createJiraIssueListExtractor } from "./issue-list-extractor.ts";
 
-/** The raw, unvalidated allowlist object. Handed to the core as data — the
- * core runs the same `.strict()` Zod barrier over it that it runs over any
- * file-based CLI config, so nothing here reaches the model's executable
- * surface unvalidated. */
+/** The raw, unvalidated allowlist object. The plugin validates it itself through
+ * `@mercury/cli-engine`'s loader (the same `.strict()` Zod + version-check
+ * barrier), so nothing reaches the model's executable surface unvalidated. */
 export const jiraCliConfig: unknown = rawConfig;
 
 /** The Jira skill (Agent Skills `SKILL.md`), read from the package asset at
@@ -35,27 +36,78 @@ export const jiraCliConfig: unknown = rawConfig;
  * it (see the core's read_skill tool). */
 const jiraSkill = parseSkill(readFileSync(new URL("./skills/jira/SKILL.md", import.meta.url), "utf8"));
 
-export const jiraPlugin: Plugin = {
-  apiVersion: PLUGIN_API_VERSION,
-  name: "jira",
-  cliConfig: jiraCliConfig,
-  skills: [jiraSkill],
-  build: (ctx) => {
-    const postProcessors: Record<string, CliPostProcessor> = {};
+/** Reads the command string off a `jiraCommand` tool call's input for the status
+ * label; a missing/non-string command falls back to the generic label. */
+function commandOf(input: unknown): string | undefined {
+  if (typeof input === "object" && input !== null && "command" in input) {
+    const command = (input as { command: unknown }).command;
+    if (typeof command === "string") return command;
+  }
+  return undefined;
+}
 
-    // The `issue search` extractor only registers when JIRA_SITE_URL is set —
-    // it isn't derivable from any CLI output (the API talks to
-    // api.atlassian.com/ex/jira/<cloud-id>/…, unrelated to the human-facing
-    // hostname), so without it the extractor is never registered and `issue
-    // search` passes through unaugmented. An absent or empty site url is "not
-    // configured" and stays silent. Rendering config (itemTemplate) is no
-    // longer here — it moved to the render handler wired in the composition
-    // config, so `siteUrl` is the extractor's only input.
-    const siteUrl = ctx.env.JIRA_SITE_URL;
-    if (siteUrl) {
-      postProcessors["issue-list"] = createJiraIssueListExtractor({ siteUrl });
-    }
+/**
+ * Builds the Jira plugin. `runCliFn` is injectable so a test can drive the tool
+ * without spawning the real jira binary (the invariance oracle does this);
+ * production uses the engine's real `runCli`.
+ */
+export function createJiraPlugin(deps: { runCliFn?: typeof runCli } = {}): Plugin {
+  const runCliFn = deps.runCliFn ?? runCli;
+  return {
+    apiVersion: PLUGIN_API_VERSION,
+    name: "jira",
+    skills: [jiraSkill],
+    build: (ctx) => {
+      // Validate the allowlist here — the plugin owns this now, not the core.
+      // Schema only, no `--version` check: the pinned binary is co-shipped with
+      // this allowlist, so they're co-versioned by construction (the check stays
+      // for file-based configs, where they can drift). A config that fails schema
+      // means no tool — contribute nothing rather than expose an unvalidated one.
+      const loaded = parseCliConfig(jiraCliConfig);
+      if (!loaded.ok) {
+        ctx.log(`jira allowlist failed to load, jira tool not contributed: ${loaded.reason}`);
+        return {};
+      }
+      const configs = { [loaded.binary]: loaded.config };
 
-    return { postProcessors };
-  },
-};
+      // The `issue search` extractor only registers when JIRA_SITE_URL is set —
+      // it isn't derivable from any CLI output (the API talks to
+      // api.atlassian.com/ex/jira/<cloud-id>/…, unrelated to the human-facing
+      // hostname), so without it `issue search` passes through unaugmented. An
+      // absent or empty site url is "not configured" and stays silent. Rendering
+      // config (itemTemplate) lives in the render handler wired at composition, so
+      // `siteUrl` is the extractor's only input.
+      const postProcessors: Record<string, CliPostProcessor> = {};
+      const siteUrl = ctx.env.JIRA_SITE_URL;
+      if (siteUrl) {
+        postProcessors["issue-list"] = createJiraIssueListExtractor({ siteUrl });
+      }
+
+      // Status label for jiraCommand, from the same allowlist that gates
+      // execution (so the label can't drift from what runs). No per-command
+      // override, so the contract default applies.
+      const describeCli = createCliStatusDescriber(configs, {});
+
+      return {
+        postProcessors,
+        sessionTools: (sctx, decoratedPostProcessors) => {
+          const { runCommand } = createCliTool(runCliFn, configs, {
+            stageConfirmation: sctx.stageConfirmation,
+            stashDisplay: sctx.stashDisplay,
+            postProcessors: decoratedPostProcessors,
+          });
+          return { jiraCommand: runCommand };
+        },
+        toolStatusDescribers: {
+          jiraCommand: (input) => {
+            const command = commandOf(input);
+            return command !== undefined ? describeCli(command) : "esecuzione di un comando";
+          },
+        },
+      };
+    },
+  };
+}
+
+/** The Jira plugin wired with the real `runCli`, as the composition config lists it. */
+export const jiraPlugin: Plugin = createJiraPlugin();

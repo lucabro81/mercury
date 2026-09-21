@@ -31,6 +31,7 @@ export {
   toCliConfig,
   loadCliConfig,
   loadCliConfigFromObject,
+  parseCliConfig,
   loadActiveCliConfigs,
   type CliConfigFileResult,
   type CliConfigLoadResult,

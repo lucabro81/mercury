@@ -1,59 +1,63 @@
 /**
  * The generic, fail-soft plugin loader. Turns a hand-listed set of plugin
- * modules (see `PluginModule`) into the four things the composition root wires
- * into a running Mercury: the tool configs `runCommand`'s allowlist is built
- * from, the system-prompt fragments describing those tools, the CLI
- * post-processors, and the post-turn guards. It knows nothing about any
- * specific plugin — the composition root names them, this loop processes them
- * identically.
+ * modules into what the composition root wires into a running Mercury: the
+ * per-plugin tool bundles the model-facing tools are built from, their status
+ * describers, the system-prompt fragments, and the post-turn guards. It knows
+ * nothing about any specific plugin — or about CLIs — the composition root
+ * names them, this loop processes them identically.
  *
  * Two properties it guarantees, both required by the plan's fail-soft step:
- *  - a plugin contributes only when it is *both* enabled on this instance (its
- *    name is in MERCURY_CLIS) *and* its cli config passes the same schema/
- *    version barrier a file-based config passes (`loadCliConfig`, injected);
- *  - a plugin that fails — its config doesn't validate, or its `build()`
- *    throws — degrades as a single unit: none of its contributions land (not
- *    even an already-validated cli config), the failure is logged with detail,
- *    and every other plugin and the process itself carry on. This is the
- *    CLAUDE.md lesson made structural: one plugin's bad tick never takes down
- *    the rest.
+ *  - a plugin contributes only when it is enabled on this instance (its name is
+ *    in MERCURY_CLIS);
+ *  - a plugin that fails — its `build()` throws — degrades as a single unit:
+ *    none of its contributions land, the failure is
+ *    logged with detail, and every other plugin and the process itself carry
+ *    on. This is the CLAUDE.md lesson made structural: one plugin's bad tick
+ *    never takes down the rest.
  *
- * The contract types (`Plugin`, `CliPostProcessor`, `PostTurnGuard`, and the
- * `build()` context) now live in `@mercury/plugin-types`, the shared package
- * both the core and the plugins import, so neither mirrors the other. This
- * module keeps only the core-runtime pieces: how a hand-listed set of plugins
- * is loaded and what the load produces.
+ * The contract types (`Plugin`, `SessionToolContext`, `CliPostProcessor`,
+ * `PostTurnGuard`, and the `build()` context) live in `@mercury/plugin-types`,
+ * the shared package both the core and the plugins import, so neither mirrors
+ * the other. This module keeps only the core-runtime pieces: how a hand-listed
+ * set of plugins is loaded and what the load produces.
  */
 import type { LanguageModel } from "ai";
 import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
-import type { Plugin, CliPostProcessor, PostTurnGuard, StatusDescriber, Skill } from "@mercury/plugin-types";
-import type { CliConfig } from "@mercury/cli-engine";
-import type { CliConfigFromObjectResult } from "@mercury/cli-engine";
+import type { Plugin, CliPostProcessor, PostTurnGuard, Skill, SessionToolContext } from "@mercury/plugin-types";
+import type { Tool } from "ai";
 
-/** What the loader hands back to the composition root, already aggregated
- * across every plugin that loaded — the composition root merges these into the
- * file-based cli configs and passes them straight to the system-prompt builder,
- * the CLI tool, and the turn runner. */
-export interface LoadedPlugins {
-  cliConfigs: Record<string, CliConfig>;
-  promptFragments: string[];
-  skills: Skill[];
+/** One plugin's tool contribution, kept paired so the composition root can build
+ * its tools from its own post-processors: the plugin authored both, but the
+ * formatter decorator wraps the post-processors after `build()` returns, so the
+ * factory receives the final set at invocation rather than closing over it. */
+export interface SessionToolBundle {
+  build: (ctx: SessionToolContext, postProcessors: Record<string, CliPostProcessor>) => Record<string, Tool>;
   postProcessors: Record<string, CliPostProcessor>;
-  postTurnGuards: PostTurnGuard[];
-  // Per-binary status describers, only for plugins that override the default
-  // (`Plugin.describeStatus`). Empty when every plugin uses `defaultStatusLabel`
-  // — the composition root falls back to that default for any binary absent
-  // here, including the file-based CLIs that aren't plugins.
-  statusDescribers: Record<string, StatusDescriber>;
 }
 
-/** Everything the loader needs from the composition root: which CLIs are
- * enabled on this instance, how to validate a plugin's raw config (the same
- * `loadCliConfigFromObject` barrier, injected so a test can stand it in), and
- * the runtime context every `build()` gets. */
+/** What the loader hands back to the composition root, aggregated across every
+ * plugin that loaded. The core knows nothing about CLIs: a plugin's tool is an
+ * opaque `SessionToolBundle` it contributed, not a config the core assembles. */
+export interface LoadedPlugins {
+  promptFragments: string[];
+  skills: Skill[];
+  /** Per-plugin tool factories + their post-processors; the composition root
+   * invokes each per turn with the session context (see `SessionToolBundle`). */
+  sessionToolBundles: SessionToolBundle[];
+  /** Merged across plugins, keyed by the tool name each contributes, turning a
+   * tool call's input into its status label. */
+  toolStatusDescribers: Record<string, (input: unknown) => string>;
+  postTurnGuards: PostTurnGuard[];
+  /** Names of the plugins that fully activated — for read-only introspection
+   * (the manifest), since a plugin's tool is opaque and there's no central
+   * config map to infer activation from anymore. */
+  activated: string[];
+}
+
+/** Everything the loader needs from the composition root: which plugins are
+ * enabled on this instance, and the runtime context every `build()` gets. */
 export interface PluginLoadContext {
   enabledClis: string[];
-  loadCliConfig: (raw: unknown) => Promise<CliConfigFromObjectResult>;
   model: LanguageModel;
   env: Record<string, string | undefined>;
   log: (msg: string) => void;
@@ -116,12 +120,11 @@ export function orderByDependencies(plugins: Plugin[]): { ordered: Plugin[]; cyc
  * unknown, or itself skipped) is skipped fail-soft too, transitively.
  */
 export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
-  const cliConfigs: Record<string, CliConfig> = {};
   const promptFragments: string[] = [];
   const skills: Skill[] = [];
-  const postProcessors: Record<string, CliPostProcessor> = {};
+  const sessionToolBundles: SessionToolBundle[] = [];
+  const toolStatusDescribers: Record<string, (input: unknown) => string> = {};
   const postTurnGuards: PostTurnGuard[] = [];
-  const statusDescribers: Record<string, StatusDescriber> = {};
 
   const { ordered, cyclic } = orderByDependencies(plugins);
   // A plugin caught in a cycle can't be ordered, so it can't load. Report it
@@ -159,7 +162,7 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     // process in dependency-first order, a dependency that was going to load
     // already has; anything still missing is disabled, failed, unknown, or
     // itself skipped — so this dependent degrades fail-soft too. Checked before
-    // touching this plugin's own config/build, so a doomed plugin does no work.
+    // touching this plugin's own build, so a doomed plugin does no work.
     const missingDeps = (plugin.dependsOn ?? []).filter((dep) => !activated.has(dep));
     if (missingDeps.length > 0) {
       ctx.log(
@@ -168,30 +171,24 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       continue;
     }
     try {
-      const loaded = await ctx.loadCliConfig(plugin.cliConfig);
-      if (!loaded.ok) {
-        ctx.log(`plugin "${plugin.name}" not activated: ${loaded.reason}`);
-        continue;
-      }
+      // Stage into locals first: build() can throw, and a plugin must degrade
+      // as a unit — nothing of it lands unless all of it succeeds.
+      const contributions = plugin.build ? plugin.build({ model: ctx.model, env: ctx.env, log: ctx.log }) : {};
 
-      // Stage into locals first: build() can still throw, and a plugin must
-      // degrade as a unit — nothing of it lands unless all of it succeeds.
-      const contributions = plugin.build
-        ? plugin.build({ model: ctx.model, env: ctx.env, log: ctx.log })
-        : {};
-
-      cliConfigs[loaded.binary] = loaded.config;
       if (plugin.systemPromptFragment !== undefined) {
         promptFragments.push(plugin.systemPromptFragment);
       }
       if (plugin.skills !== undefined) {
         skills.push(...plugin.skills);
       }
-      if (plugin.describeStatus !== undefined) {
-        statusDescribers[loaded.binary] = plugin.describeStatus;
+      if (contributions.sessionTools) {
+        sessionToolBundles.push({
+          build: contributions.sessionTools,
+          postProcessors: contributions.postProcessors ?? {},
+        });
       }
-      if (contributions.postProcessors) {
-        Object.assign(postProcessors, contributions.postProcessors);
+      if (contributions.toolStatusDescribers) {
+        Object.assign(toolStatusDescribers, contributions.toolStatusDescribers);
       }
       if (contributions.postTurnGuards) {
         postTurnGuards.push(...contributions.postTurnGuards);
@@ -204,5 +201,5 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     }
   }
 
-  return { cliConfigs, promptFragments, skills, postProcessors, postTurnGuards, statusDescribers };
+  return { promptFragments, skills, sessionToolBundles, toolStatusDescribers, postTurnGuards, activated: [...activated] };
 }

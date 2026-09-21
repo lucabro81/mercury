@@ -10,7 +10,7 @@
  * issue-list extraction used to be wired inline in the composition root — all
  * now travel as versioned assets with the plugin.
  */
-export { jiraPlugin, jiraCliConfig } from "./plugin.ts";
+export { jiraPlugin, createJiraPlugin, jiraCliConfig } from "./plugin.ts";
 
 export {
   createJiraIssueListExtractor,

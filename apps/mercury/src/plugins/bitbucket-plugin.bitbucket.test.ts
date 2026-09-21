@@ -1,25 +1,39 @@
 import { describe, it, expect } from "bun:test";
-import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
-import { bitbucketPlugin, bitbucketCliConfig } from "@mercury/plugin-bitbucket";
+import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury/plugin-types";
+import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
 
 /**
  * Bitbucket is the second plugin and the validation that the `Plugin` contract
- * isn't Jira-shaped: it's the minimal case — an allowlist and a name, with no
- * `build()` (no post-processors, no guards) and no `systemPromptFragment`. This
- * test pins exactly that minimality: if a future change quietly makes `build`
- * or `systemPromptFragment` non-optional on `Plugin`, this plugin — and this
- * test — break, which is the signal that the interface grew a Jira assumption.
+ * isn't Jira-shaped: it's the minimal CLI-based case — it owns its tool via the
+ * engine, with no post-processors, no guard, and no prompt fragment of its own.
+ * This test pins that minimality: a `build()` that contributes exactly the
+ * `bitbucketCommand` tool and its status describer, nothing else.
  */
+const sctx: SessionToolContext = {
+  sessionKey: "s",
+  stageConfirmation: async () => "tok",
+  stashDisplay: () => "d1",
+};
+
 describe("bitbucketPlugin", () => {
-  it("declares the compatible apiVersion, the bitbucket name, and its raw allowlist", () => {
+  it("declares the compatible apiVersion and the bitbucket name", () => {
     expect(bitbucketPlugin.apiVersion).toBe(PLUGIN_API_VERSION);
     expect(bitbucketPlugin.name).toBe("bitbucket");
-    expect(bitbucketPlugin.cliConfig).toBe(bitbucketCliConfig);
   });
 
-  it("contributes nothing beyond its allowlist — no build(), no prompt fragment, no surfaces", () => {
-    expect(bitbucketPlugin.build).toBeUndefined();
+  it("contributes only its own tool — no prompt fragment, no surfaces, no post-processors, no guard", () => {
     expect(bitbucketPlugin.systemPromptFragment).toBeUndefined();
     expect(bitbucketPlugin.surfaces).toBeUndefined();
+    const c = bitbucketPlugin.build!({ model: {} as never, env: {}, log: () => {} });
+    expect(c.postProcessors ?? {}).toEqual({});
+    expect(c.postTurnGuards ?? []).toEqual([]);
+  });
+
+  it("builds a bitbucketCommand tool and a status describer for it", () => {
+    const c = bitbucketPlugin.build!({ model: {} as never, env: {}, log: () => {} });
+    const tools = c.sessionTools!(sctx, {});
+    expect(Object.keys(tools)).toEqual(["bitbucketCommand"]);
+    expect(Object.keys(c.toolStatusDescribers ?? {})).toEqual(["bitbucketCommand"]);
+    expect(c.toolStatusDescribers!.bitbucketCommand!({ command: "bitbucket pr list" })).toBe("esecuzione bitbucket pr list");
   });
 });
