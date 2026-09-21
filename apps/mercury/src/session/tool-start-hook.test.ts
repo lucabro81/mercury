@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { describeToolStart, describeToolDetail, classifyToolResult, withToolStartHook } from "./tool-start-hook.ts";
-import { createCliStatusDescriber, type CliConfig } from "@mercury/plugin-cli";
+import { createCliStatusDescriber, type CliConfig } from "@mercury/cli-engine";
 import type { StatusDescriber } from "@mercury/plugin-types";
 import type { Tool } from "ai";
 

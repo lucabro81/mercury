@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { createJiraIssueListExtractor } from "@mercury/plugin-jira";
-import type { CliResult } from "@mercury/plugin-cli";
+import type { CliResult } from "@mercury/cli-engine";
 
 /**
  * Integration-shaped test of the real `@mercury/plugin-jira` issue-list

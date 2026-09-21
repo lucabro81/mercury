@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfig } from "@mercury/plugin-cli";
-import { matchCommand, type CliConfig } from "@mercury/plugin-cli";
-import type { CliResult } from "@mercury/plugin-cli";
+import { loadCliConfig } from "@mercury/cli-engine";
+import { matchCommand, type CliConfig } from "@mercury/cli-engine";
+import type { CliResult } from "@mercury/cli-engine";
 
 /**
  * Integration-shaped safety net for the real, checked-in

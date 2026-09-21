@@ -25,14 +25,14 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { Tool } from "ai";
-import { loadCliConfigFromObject } from "@mercury/plugin-cli";
+import { loadCliConfigFromObject } from "@mercury/cli-engine";
 import { jiraCliConfig, jiraPlugin } from "@mercury/plugin-jira";
 import { formatterPlugin } from "./plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./plugins/jira-issue-list-handler.ts";
-import { createCliTool } from "@mercury/plugin-cli";
+import { createCliTool } from "@mercury/cli-engine";
 import { createConfirmationStore, type ConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
-import type { CliResult } from "@mercury/plugin-cli";
+import type { CliResult } from "@mercury/cli-engine";
 import { tryConfirm } from "./router/confirm-flow.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { InboundTurn, TurnSink } from "./router/provider.ts";

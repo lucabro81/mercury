@@ -13,13 +13,13 @@
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
-import { runCli } from "@mercury/plugin-cli";
-import { createCliTool, type CliPostProcessor } from "@mercury/plugin-cli";
+import { runCli } from "@mercury/cli-engine";
+import { createCliTool, type CliPostProcessor } from "@mercury/cli-engine";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
-import { loadActiveCliConfigs, loadCliConfigFromObject } from "@mercury/plugin-cli";
+import { loadActiveCliConfigs, loadCliConfigFromObject } from "@mercury/cli-engine";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
 import mercuryConfig from "../mercury.config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
@@ -40,7 +40,7 @@ import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
-import { createCliStatusDescriber } from "@mercury/plugin-cli";
+import { createCliStatusDescriber } from "@mercury/cli-engine";
 import {
   writeInferredNote,
   writeToolCorrectionNote,

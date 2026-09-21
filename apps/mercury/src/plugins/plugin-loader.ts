@@ -27,8 +27,8 @@
 import type { LanguageModel } from "ai";
 import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
 import type { Plugin, CliPostProcessor, PostTurnGuard, StatusDescriber, Skill } from "@mercury/plugin-types";
-import type { CliConfig } from "@mercury/plugin-cli";
-import type { CliConfigFromObjectResult } from "@mercury/plugin-cli";
+import type { CliConfig } from "@mercury/cli-engine";
+import type { CliConfigFromObjectResult } from "@mercury/cli-engine";
 
 /** What the loader hands back to the composition root, already aggregated
  * across every plugin that loaded — the composition root merges these into the

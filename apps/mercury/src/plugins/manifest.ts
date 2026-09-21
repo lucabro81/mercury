@@ -8,7 +8,7 @@
  * list and `activeCliConfigs` it wired everything else from.
  */
 import { PLUGIN_API_VERSION, type Plugin, type Skill } from "@mercury/plugin-types";
-import type { CliConfig } from "@mercury/plugin-cli";
+import type { CliConfig } from "@mercury/cli-engine";
 
 export type PluginManifest = {
   coreApiVersion: number;
