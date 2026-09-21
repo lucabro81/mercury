@@ -17,7 +17,6 @@
  */
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import { parseCommand } from "../tools/command-parser.ts";
 import type { StepInfo } from "./step-info.ts";
 
 export const ProceduralCorrectionCandidateSchema = z.object({ topic: z.string(), value: z.string() });
@@ -57,8 +56,12 @@ function extractAttempts(steps: StepInfo[]): Attempt[] {
       if (call.toolName !== "runCommand") continue;
       const input = call.input as { command?: unknown };
       if (typeof input.command !== "string") continue;
-      const parsed = parseCommand(input.command);
-      if (!parsed.ok) continue;
+      // Group attempts by the binary they invoked, which is just the command's
+      // first whitespace-delimited token — no need to fully tokenize the argv
+      // (that belongs to whoever executes the command, not to procedural
+      // learning). An empty/whitespace-only command has no binary to group by.
+      const binary = input.command.trim().split(/\s+/)[0] ?? "";
+      if (binary === "") continue;
 
       const result = stepInfo.toolResults.find((r) => r.toolCallId === call.toolCallId);
       const output = result?.output as { ok?: unknown; error?: unknown } | undefined;
@@ -66,7 +69,7 @@ function extractAttempts(steps: StepInfo[]): Attempt[] {
 
       attempts.push({
         command: input.command,
-        binary: parsed.binary,
+        binary,
         ok: output.ok === true,
         error: typeof output.error === "string" ? output.error : undefined,
       });

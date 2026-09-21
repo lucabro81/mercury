@@ -147,6 +147,28 @@ describe("createToolCorrectionExtractor", () => {
     expect(result).toEqual([]);
   });
 
+  // The binary is derived by a plain first-token split, not full argv
+  // tokenization — a whitespace-only command has no binary to group by and is
+  // skipped, so it never pairs with anything.
+  it("skips a runCommand call whose command is empty/whitespace-only", async () => {
+    const steps: StepInfo[] = [
+      step([runCommandCall("1", "   ")], [runCommandResult("1", { ok: false, error: "e" })]),
+      step([runCommandCall("2", "   ")], [runCommandResult("2", { ok: true, data: {} })]),
+    ];
+
+    let calls = 0;
+    const generateObjectFn = async () => {
+      calls++;
+      return { object: [] };
+    };
+
+    const extract = createToolCorrectionExtractor(MODEL, generateObjectFn);
+    const result = await extract(steps);
+
+    expect(calls).toBe(0);
+    expect(result).toEqual([]);
+  });
+
   it("a generateObjectFn failure for one pair is caught and logged, doesn't stop other pairs", async () => {
     const steps: StepInfo[] = [
       step([runCommandCall("1", "jira issue search --jql x")], [runCommandResult("1", { ok: false, error: "e" })]),
