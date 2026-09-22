@@ -94,6 +94,24 @@ export async function loadCliConfigFromObject(
 }
 
 /**
+ * The synchronous, no-spawn sibling of `loadCliConfigFromObject`: schema
+ * validation only, skipping the `minVersion` `--version` check. It's what a
+ * plugin uses on its own allowlist in `build()` — a plugin ships its pinned CLI
+ * binary alongside its allowlist, so the two are co-versioned by construction
+ * and the runtime version check earns nothing there (it stays for file-based
+ * configs, where a deployer's binary and allowlist can drift — see
+ * `loadCliConfig`). Never throws.
+ */
+export function parseCliConfig(raw: unknown): CliConfigFromObjectResult {
+  const validated = CliConfigFileSchema.safeParse(raw);
+  if (!validated.success) {
+    const issues = validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    return { ok: false, reason: `plugin config does not match the expected schema: ${issues}` };
+  }
+  return { ok: true, binary: validated.data.binary, config: toCliConfig(validated.data) };
+}
+
+/**
  * Loads and validates `<configDir>/<binary>.json`, checking that the
  * file's own declared `binary` matches (catches a maintainer copying
  * one CLI's config into a new file without updating its contents), then

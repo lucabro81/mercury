@@ -3,22 +3,24 @@
  * has enabled, and the channels (terminal always, Google Chat if
  * configured) into running conversations.
  *
- * This is the only file that decides which tools actually exist on
- * this instance — `runCommand` only if `loadActiveCliConfigs` (see
- * `src/tools/cli-config-loader.ts`) successfully loads at least one
- * maintainer-authored CLI config for a name listed in `MERCURY_CLIS`.
- * Every other module (`runTurn`, the channels) takes tools/system as
- * inputs rather than assuming any of them exist, specifically so this
- * file can make that call in one place.
+ * This is the only file that decides which tools actually exist on this
+ * instance. A CLI-based plugin (Jira, Bitbucket) owns its own tool, built via
+ * `@mercury/cli-engine` — the core just collects what each plugin contributes.
+ * File-based CLIs with no owning plugin ride a residual `runCommand` built here
+ * from `loadActiveCliConfigs` (the "not-yet-pluginized" bucket). Every other
+ * module (`runTurn`, the channels) takes tools/system as inputs rather than
+ * assuming any of them exist, specifically so this file can make that call in
+ * one place.
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
-import { runCli } from "./tools/cli-executor.ts";
-import { createCliTool, type CliPostProcessor } from "./tools/cli-tool.ts";
+import { runCli } from "@mercury/cli-engine";
+import { createCliTool } from "@mercury/cli-engine";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
+import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
-import { loadActiveCliConfigs, loadCliConfigFromObject } from "./tools/cli-config-loader.ts";
+import { loadActiveCliConfigs } from "@mercury/cli-engine";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
 import mercuryConfig from "../mercury.config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
@@ -38,7 +40,8 @@ import {
 import type { StepInfo } from "./session/step-info.ts";
 import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
-import { withToolStartHook, createCliStatusDescriber } from "./session/tool-start-hook.ts";
+import { withToolStartHook } from "./session/tool-start-hook.ts";
+import { createCliStatusDescriber } from "@mercury/cli-engine";
 import {
   writeInferredNote,
   writeToolCorrectionNote,
@@ -128,28 +131,41 @@ const pluginNames = new Set(plugins.map((p) => p.name));
 // excluded here: they carry their allowlist as data, validated by loadPlugins
 // below, and are never looked for on disk (no spurious "not activated" for a
 // jira.json that no longer exists).
+// File-based CLIs (google-chat, atlassian-admin) have no owning plugin — a
+// deployer drops their allowlist in cliConfigDir. They ride a residual,
+// composition-built `runCommand` tool: the "not-yet-pluginized" bucket, which
+// shrinks to zero as those CLIs become plugins. Plugin-provided names are
+// excluded (they own their own tool via the plugin, see below).
 const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
-const activeCliConfigs = await loadActiveCliConfigs(
+const fileCliConfigs = await loadActiveCliConfigs(
   enabledClis.filter((name) => !pluginNames.has(name)),
   { configDir: cliConfigDir, runCliFn: runCli },
 );
+const hasFileClis = Object.keys(fileCliConfigs).length > 0;
 
 const loadedPlugins = await loadPlugins(plugins, {
   enabledClis,
-  loadCliConfig: (raw) => loadCliConfigFromObject(raw, { runCliFn: runCli }),
   model,
   env: process.env,
   log: (msg) => console.error(msg),
 });
-Object.assign(activeCliConfigs, loadedPlugins.cliConfigs);
-const cliPostProcessors: Record<string, CliPostProcessor> = loadedPlugins.postProcessors;
 
-// The status content for a `runCommand` call comes from the command's plugin
-// (its `describeStatus`, or the shared default) — the core stops classifying
-// read/write. Built once from the active configs (for the mutating flag a
-// custom describer may use) and the plugins' overrides; the terminal and
-// Google Chat channels render whatever string it returns.
-const describeCliStatus = createCliStatusDescriber(activeCliConfigs, loadedPlugins.statusDescribers);
+// Status labels for the tool-start hook, keyed by tool name: the plugins'
+// describers for their own tools (jiraCommand, …), plus one for the residual
+// file-based `runCommand` if any file CLIs are configured. The core doesn't
+// classify read/write — a plugin's describer does; the file-based residual
+// reuses the engine's default describer for the same reason.
+const toolStatusDescribers: Record<string, (input: unknown) => string> = { ...loadedPlugins.toolStatusDescribers };
+if (hasFileClis) {
+  const describeFileCli = createCliStatusDescriber(fileCliConfigs, {});
+  toolStatusDescribers.runCommand = (input) => {
+    const command =
+      typeof input === "object" && input !== null && "command" in input
+        ? (input as { command: unknown }).command
+        : undefined;
+    return typeof command === "string" ? describeFileCli(command) : "esecuzione di un comando";
+  };
+}
 
 // A single subscription for the whole app (Cloud Pub/Sub deployment) —
 // unlike the retired impersonation channel, there's no per-space Workspace
@@ -451,23 +467,44 @@ function buildTools(
   onToolFinish?: TurnSink["onToolFinish"],
 ): Record<string, Tool> {
   const sessionTools: Record<string, Tool> = {};
-  if (Object.keys(activeCliConfigs).length > 0) {
-    Object.assign(
-      sessionTools,
-      createCliTool(runCli, activeCliConfigs, {
-        sessionKey,
-        store: confirmationStore,
-        vaultPath: wikiVaultPath,
-        userId: wikiUserId,
-        postProcessors: cliPostProcessors,
-        displayStore,
-      }),
-    );
-    // `present` only makes sense alongside CLI tools: they are what produce
-    // the display artifacts it surfaces. An instance with no CLI plugin never
-    // sees it.
+
+  // The session-scoped capabilities every CLI tool needs, bound to this turn:
+  // staging a confirm-required action (token + pending note) and stashing a
+  // display artifact the model can `present`.
+  const sessionToolContext = {
+    sessionKey,
+    stageConfirmation: createStageConfirmation({
+      store: confirmationStore,
+      sessionKey,
+      userId: wikiUserId,
+      vaultPath: wikiVaultPath,
+    }),
+    stashDisplay: (artifact: string) => displayStore.stash(sessionKey, artifact),
+  };
+
+  // Each CLI-based plugin owns its tool (jiraCommand, …), built from its own
+  // allowlist and post-processors. The core just invokes what they contributed.
+  for (const bundle of loadedPlugins.sessionToolBundles) {
+    Object.assign(sessionTools, bundle.build(sessionToolContext, bundle.postProcessors));
+  }
+
+  // Residual `runCommand` for file-based CLIs with no owning plugin — the same
+  // engine, no post-processors. Shrinks to nothing as those CLIs get pluginized.
+  if (hasFileClis) {
+    const { runCommand } = createCliTool(runCli, fileCliConfigs, {
+      stageConfirmation: sessionToolContext.stageConfirmation,
+      stashDisplay: sessionToolContext.stashDisplay,
+    });
+    sessionTools.runCommand = runCommand;
+  }
+
+  // `present` only makes sense alongside CLI tools: they are what produce the
+  // display artifacts it surfaces. An instance with no CLI tool never sees it.
+  const hasCliTool = loadedPlugins.sessionToolBundles.length > 0 || hasFileClis;
+  if (hasCliTool) {
     Object.assign(sessionTools, createPresentTool({ sessionKey, store: displayStore }));
   }
+
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
   // read_skill only exists when a plugin contributed at least one skill — an
@@ -476,7 +513,7 @@ function buildTools(
   if (loadedPlugins.skills.length > 0) {
     Object.assign(sessionTools, createReadSkillTool(loadedPlugins.skills));
   }
-  return onToolStart ? withToolStartHook(sessionTools, onToolStart, describeCliStatus, onToolFinish) : sessionTools;
+  return onToolStart ? withToolStartHook(sessionTools, onToolStart, toolStatusDescribers, onToolFinish) : sessionTools;
 }
 
 // Raw tool output can be tens of KB (e.g. a Jira issue search) — too long
@@ -564,7 +601,6 @@ if (googleChatSubscription) {
     subscription: googleChatSubscription,
     store: confirmationStore,
     vaultPath: wikiVaultPath,
-    runCliFn: runCli,
     writeConfirmationNoteFn: writeConfirmationNote,
   });
   await chatProvider.start(handleTurn);
@@ -583,7 +619,9 @@ if (process.env.ADMIN_PANEL_ENABLED === "true") {
     model,
     qdrant,
     qdrantCollections: { episodic: episodicCollection, semanticFacts: semanticFactsCollection },
-    activeCliConfigs,
+    // Only the file-based CLIs have a central config now — plugin CLIs own their
+    // tool. The POC admin's CLI status therefore covers the file-based ones.
+    activeCliConfigs: fileCliConfigs,
     runCliFn: runCli,
     ollamaHost,
     ollamaModel,
@@ -606,7 +644,6 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
     port: httpPort,
     confirmDeps: {
       store: confirmationStore,
-      runCliFn: runCli,
       vaultPath: wikiVaultPath,
       writeConfirmationNoteFn: writeConfirmationNote,
     },
@@ -614,7 +651,7 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
     // plugins/manifest, redacted pending confirmations, and the wiki/memory/
     // tool-log reads reused from the admin panel's own functions.
     reads: {
-      manifest: () => buildPluginManifest(plugins, activeCliConfigs, loadedPlugins.skills),
+      manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, Object.keys(fileCliConfigs), loadedPlugins.skills),
       pendingConfirmations: () => confirmationStore.pending(),
       wikiList: () => listWikiVault(wikiVaultPath),
       wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
@@ -631,7 +668,6 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
 await createTerminalProvider({
   confirmDeps: {
     store: confirmationStore,
-    runCliFn: runCli,
     vaultPath: wikiVaultPath,
     writeConfirmationNoteFn: writeConfirmationNote,
   },

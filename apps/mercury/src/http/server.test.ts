@@ -62,7 +62,7 @@ describe("handleTurnRequest", () => {
     const pendingStep: StepInfo = {
       toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1" } }],
       toolResults: [
-        { toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK-123" } },
+        { toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK-123", summary: "jira issue delete KAN-1" } },
       ],
       content: [],
     } as unknown as StepInfo;

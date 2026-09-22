@@ -1,14 +1,16 @@
 /**
  * Deterministic text interception for the "confirm" half of the
- * confirm-required flow (`cli-tool.ts`'s confirm-required branch stages
- * the command and hands the model a token — see there for the "propose"
- * half). `tryConfirm` is called from each channel BEFORE the model ever
- * sees the message, same pattern as `/dump` (`tool-log.ts`) and `NO_REPLY`
- * — running a previously-approved mutation must never depend on the
- * model's own tool-calling judgment.
+ * confirm-required flow (something stages an action and hands back a token —
+ * see `confirmation-staging.ts` for the "propose" half). `tryConfirm` is called
+ * from each channel BEFORE the model ever sees the message, same pattern as
+ * `/dump` (`tool-log.ts`) and `NO_REPLY` — running a previously-approved
+ * mutation must never depend on the model's own tool-calling judgment.
+ *
+ * It knows nothing about what the staged action is: it runs the opaque `run`
+ * thunk (see `StagedAction`) and reports the outcome. A CLI delete, a future
+ * memory purge — same path, because the doing was closed over at stage time.
  */
 import { isTokenShaped, type ConfirmationStore } from "../tools/confirmation-store.ts";
-import type { runCli } from "../tools/cli-executor.ts";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 /**
@@ -16,7 +18,7 @@ import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
  * the caller should proceed with its normal flow (`runTurn`, etc.).
  * Otherwise always returns a user-facing string, resolved without ever
  * invoking the model: an unknown/expired/wrong-session token gets a
- * canned message, a valid one actually executes the staged action and
+ * canned message, a valid one actually runs the staged action and
  * reports the outcome. No `conferma ` keyword to type or match — the
  * real gate was always `store.take()`'s existence/session/expiry check,
  * not that prefix (see `isTokenShaped`'s own doc comment). A card button
@@ -28,7 +30,6 @@ export async function tryConfirm(
   sessionKey: string,
   deps: {
     store: ConfirmationStore;
-    runCliFn: typeof runCli;
     userId: string;
     vaultPath: string;
     writeConfirmationNoteFn: typeof writeConfirmationNote;
@@ -45,10 +46,10 @@ export async function tryConfirm(
     return "Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita.";
   }
 
-  const result = await deps.runCliFn(staged.binary, staged.args);
+  const result = await staged.run();
   const resolvedAt = (deps.now?.() ?? new Date()).toISOString();
-  // Overwrites the same note the propose half wrote (writeConfirmationNoteFn
-  // in cli-tool.ts) so the persistent record reflects what actually
+  // Overwrites the same note the propose half wrote (see
+  // `confirmation-staging.ts`) so the persistent record reflects what actually
   // happened, never stuck saying "pending" — see the stale-primer bug this
   // guards against. Same resilience tradeoff as the propose side: a
   // wiki-write failure must not stop the user from getting their result.
@@ -57,7 +58,7 @@ export async function tryConfirm(
       status: result.ok ? "confirmed" : "failed",
       requestedAt: staged.requestedAt ?? resolvedAt,
       resolvedAt,
-      command: [staged.binary, ...staged.args].join(" "),
+      command: staged.describe,
     });
   } catch (err) {
     console.error(`[confirm-flow] failed to write confirmation note: ${String(err)}`);

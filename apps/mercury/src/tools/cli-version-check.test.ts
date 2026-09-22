@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { parseVersion, compareVersions, checkCliVersion } from "./cli-version-check.ts";
-import type { CliResult } from "./cli-executor.ts";
+import { parseVersion, compareVersions, checkCliVersion } from "@mercury/cli-engine";
+import type { CliResult } from "@mercury/cli-engine";
 
 describe("parseVersion", () => {
   it("extracts major.minor.patch from typical --version output", () => {

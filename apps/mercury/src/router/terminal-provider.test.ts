@@ -8,7 +8,6 @@ type CapturedHandleInput = (input: string, onChunk: (chunk: string) => void) => 
 function fakeConfirmDeps() {
   return {
     store: {} as any,
-    runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
     vaultPath: "/vault",
     writeConfirmationNoteFn: (async () => {}) as any,
   };
@@ -148,7 +147,7 @@ describe("createTerminalProvider", () => {
     const handleTurn: HandleTurn = async (_turn, sink) => {
       sink.onStep?.({
         toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1 --confirm" } }],
-        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1", summary: "jira issue delete KAN-1 --confirm" } }],
         content: [],
       });
       await sink.finalize("Questa azione richiede conferma.");

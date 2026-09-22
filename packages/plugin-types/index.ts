@@ -14,7 +14,7 @@
  * them, but because adding either later would be a retrofit on every plugin
  * already written.
  */
-import type { LanguageModel } from "ai";
+import type { LanguageModel, Tool } from "ai";
 
 /**
  * Contract version. The core and a plugin are versioned and installed
@@ -23,7 +23,7 @@ import type { LanguageModel } from "ai";
  * plugin's declared `apiVersion` and refuses a mismatch (fail-soft). A single
  * integer, bumped only on a breaking change to the shapes in this file.
  */
-export const PLUGIN_API_VERSION = 1;
+export const PLUGIN_API_VERSION = 2;
 
 /**
  * The user-facing channel of a tool result: structured output destined for the
@@ -41,8 +41,8 @@ export type ToolDisplay = { type: string; items: unknown[] };
  * `data` is the model channel — the parsed JSON (or raw text) stdout the model
  * reasons on — and the optional `display` is the user channel (see
  * `ToolDisplay`), which never enters the model's context. On failure `error` is
- * a human/model-readable string. Mirrors `runCli`'s return — the core owns the
- * runner, this owns the shape both sides agree on.
+ * a human/model-readable string. Mirrors `runCli`'s return — `@mercury/cli-engine`
+ * owns the runner, this owns the shape both sides agree on.
  */
 export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
 
@@ -54,6 +54,28 @@ export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { o
  * result into `{ ok: false }` when the data isn't shaped as it needs.
  */
 export type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
+
+/**
+ * The outcome of running a deferred, confirm-required action. Deliberately
+ * generic (no `display` channel, unlike `CliResult`): the confirmation
+ * subsystem reports `data` or `error` and nothing more. A CLI command's
+ * execution is one producer of it, a future non-CLI action another.
+ */
+export type ActionResult = { ok: true; data: unknown } | { ok: false; error: string };
+
+/**
+ * Stages an irreversible action behind a confirmation token and returns that
+ * token. The action is opaque — a `run` thunk plus a `describe` string for the
+ * paper trail — so nothing here (and nothing in the core that runs it later)
+ * needs to know what kind of action it is. The core binds an implementation to
+ * a session/user and hands it to whatever needs to defer an action; the plugin
+ * side calls it without touching the confirmation store or the wiki. See the
+ * core's confirmation-staging and confirm-flow for the two halves.
+ */
+export type StageConfirmation = (action: {
+  run: () => Promise<ActionResult>;
+  describe: string;
+}) => Promise<string>;
 
 /**
  * Minimal shape of a finished generation step — enough to see what tool was
@@ -96,12 +118,39 @@ export type PluginRuntimeContext = {
 };
 
 /**
+ * The per-turn context a `sessionTools` factory receives: the session it's
+ * building tools for, and the two core capabilities a tool may need bound to
+ * that session — staging a confirm-required action, and stashing a display
+ * artifact for the model to `present`. All generic; nothing here is CLI-shaped.
+ */
+export type SessionToolContext = {
+  sessionKey: string;
+  stageConfirmation: StageConfirmation;
+  stashDisplay: (artifact: string) => string;
+};
+
+/**
  * The env/model-dependent half of a plugin's contributions, produced by
- * `build()`. Both optional: a plugin may contribute neither (a pure read-only
- * CLI with no formatting or guard).
+ * `build()` (which may be async, e.g. to validate its own config before
+ * building its tool). Every field optional: a plugin may contribute nothing.
+ *
+ * - `postProcessors`: named result transforms for the plugin's own tool, keyed
+ *   by the name its allowlist declares. The formatter decorator wraps these to
+ *   render a display; the composition then hands the final set to `sessionTools`
+ *   (which is why the factory takes them as an argument rather than closing over
+ *   them — the wrapping happens after `build()` returns).
+ * - `sessionTools`: builds the plugin's model-facing tools for one turn, given
+ *   the session context and the plugin's (possibly decorated) post-processors.
+ *   This is how a tool reaches the model without the core knowing what it is.
+ * - `toolStatusDescribers`: one per tool name the plugin contributes, turning a
+ *   tool call's input into the one-line status shown while it runs — so the core
+ *   can label a plugin's tool without knowing it's a CLI.
+ * - `postTurnGuards`: run over the model's finished text (see `PostTurnGuard`).
  */
 export type PluginRuntimeContributions = {
   postProcessors?: Record<string, CliPostProcessor>;
+  sessionTools?: (ctx: SessionToolContext, postProcessors: Record<string, CliPostProcessor>) => Record<string, Tool>;
+  toolStatusDescribers?: Record<string, (input: unknown) => string>;
   postTurnGuards?: PostTurnGuard[];
 };
 
@@ -114,18 +163,17 @@ export type PluginRuntimeContributions = {
 export type CliCommandInfo = { binary: string; args: string[]; mutating: boolean };
 
 /** Turns a command about to run into the one-line status content shown while it
- * runs. A plugin may supply one (`Plugin.describeStatus`) to override the
- * default; the core only transports the result, the channel decides how to
- * render it. */
+ * runs. A plugin may supply one to `createCliStatusDescriber` (see
+ * `@mercury/cli-engine`) to override the default; the core only transports the
+ * result, the channel decides how to render it. */
 export type StatusDescriber = (cmd: CliCommandInfo) => string;
 
 /**
- * The default status content for a CLI command, used for every command unless
- * its plugin overrides it. A plain "esecuzione <binary> <sottocomando>", where
- * the subcommand is the leading non-flag tokens capped at two — deliberately
- * not a read/write classification, which is what the core used to hardcode and
- * 3.3 removed. A plugin that wants finer wording supplies its own
- * `describeStatus`.
+ * The default status content for a CLI command, used for every command unless a
+ * plugin overrides it. A plain "esecuzione <binary> <sottocomando>", where the
+ * subcommand is the leading non-flag tokens capped at two — deliberately not a
+ * read/write classification. A plugin that wants finer wording supplies its own
+ * `StatusDescriber`.
  */
 export const defaultStatusLabel: StatusDescriber = ({ binary, args }) => {
   const sub: string[] = [];
@@ -204,29 +252,29 @@ export type PluginSurface = {
  * - `dependsOn`: names of plugins this one requires present. The loader loads
  *   dependencies first and skips this plugin fail-soft if any is absent or
  *   failed (see `loadPlugins`). Presence + ordering only — a dependency shares
- *   its capability through the usual registries (post-processors, …), not a
- *   handle injected here. Absent/empty ⇒ no dependency.
- * - `cliConfig`: the raw, unvalidated allowlist data; the core validates it
- *   through the same schema/version barrier a file-based config passes.
+ *   its capability through the usual registries, not a handle injected here.
+ *   Absent/empty ⇒ no dependency.
  * - `systemPromptFragment`: the tool-surface description spliced into the
  *   system prompt when the plugin is active.
- * - `build`: the env/model-dependent contributions (post-processors, guards).
+ * - `build`: the env/model-dependent contributions (its tool, post-processors,
+ *   status describers, guards). A plugin that owns a CLI tool validates its own
+ *   allowlist here (schema only — its pinned binary is co-shipped) before
+ *   building the tool.
  * - `skills`: Agent-Skills the plugin contributes (see `Skill`); their
  *   descriptors go in the system prompt, their bodies load on demand.
- * - `describeStatus`: optional override for the status content of this plugin's
- *   commands (see `StatusDescriber`); when unset the core uses
- *   `defaultStatusLabel`. The core transports the result and never classifies a
- *   command itself.
  * - `surfaces`: reserved (see `PluginSurface`); absent for a plugin with none.
+ *
+ * A plugin no longer carries a raw `cliConfig`: the core knows nothing about
+ * CLIs. A CLI-based plugin owns its allowlist and, using `@mercury/cli-engine`,
+ * builds its own tool in `build()` — the core just collects the contributed
+ * tools.
  */
 export type Plugin = {
   apiVersion: number;
   name: string;
   dependsOn?: string[];
-  cliConfig: unknown;
   systemPromptFragment?: string;
   build?: (ctx: PluginRuntimeContext) => PluginRuntimeContributions;
   skills?: Skill[];
-  describeStatus?: StatusDescriber;
   surfaces?: PluginSurface[];
 };

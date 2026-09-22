@@ -46,7 +46,6 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
     subscription: "projects/p/subscriptions/s",
     store: createConfirmationStore(),
     vaultPath: "/vault",
-    runCliFn: (async () => ({ ok: true as const, data: {} })) as any,
     writeConfirmationNoteFn: (async () => {}) as any,
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
@@ -261,7 +260,10 @@ describe("createGoogleChatProvider — StreamingPull", () => {
 
   test("a bare confirmation token message is intercepted before handleTurn, and never reaches it", async () => {
     const store = createConfirmationStore();
-    const token = store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
+    const token = store.stage("spaces/X:users/42", {
+      run: async () => ({ ok: true, data: { deleted: true } }),
+      describe: "jira issue delete KAN-1",
+    });
     let handleTurnCalled = false;
     const sent: string[] = [];
     const sub = fakeSubscription();
@@ -269,7 +271,6 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     const deps = baseDeps({
       store,
       subscriptionFn: () => sub as any,
-      runCliFn: (async () => ({ ok: true as const, data: { deleted: true } })) as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
@@ -344,14 +345,16 @@ describe("createGoogleChatProvider — StreamingPull", () => {
   // when the caller doesn't override `onCardClick` (the default behavior).
   test("clicking the confirm button with a valid token executes the staged command", async () => {
     const store = createConfirmationStore();
-    const token = store.stage("spaces/X:users/42", { kind: "cli", binary: "jira", args: ["issue", "delete", "KAN-1"] });
+    const token = store.stage("spaces/X:users/42", {
+      run: async () => ({ ok: true, data: { deleted: true } }),
+      describe: "jira issue delete KAN-1",
+    });
     const sent: string[] = [];
     const sub = fakeSubscription();
 
     const deps = baseDeps({
       store,
       subscriptionFn: () => sub as any,
-      runCliFn: (async () => ({ ok: true as const, data: { deleted: true } })) as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
@@ -373,16 +376,14 @@ describe("createGoogleChatProvider — StreamingPull", () => {
   });
 
   test("clicking the confirm button with an unknown/expired token gets a clean error, nothing executes", async () => {
+    // No action is staged for this token, so there is nothing to run — the
+    // store's take() returns null and tryConfirm short-circuits to the canned
+    // message without ever touching a staged thunk.
     const sent: string[] = [];
-    let runCliCalled = false;
     const sub = fakeSubscription();
 
     const deps = baseDeps({
       subscriptionFn: () => sub as any,
-      runCliFn: (async () => {
-        runCliCalled = true;
-        return { ok: true as const, data: {} };
-      }) as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
         return { name: "spaces/X/messages/2" };
@@ -400,7 +401,6 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(runCliCalled).toBe(false);
     expect(sent).toEqual(["Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita."]);
   });
 
@@ -509,7 +509,7 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     await provider.start(async (_turn, sink) => {
       sink.onStep?.({
         toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1 --confirm" } }],
-        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1", summary: "jira issue delete KAN-1 --confirm" } }],
         content: [],
       });
       await sink.finalize("Questa azione richiede conferma.");

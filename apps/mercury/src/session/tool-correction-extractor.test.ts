@@ -122,7 +122,7 @@ describe("createToolCorrectionExtractor", () => {
     expect(result).toEqual([{ tool: "jira", topic: "select-prefix", value: "v" }]);
   });
 
-  it("ignores tool calls other than runCommand", async () => {
+  it("ignores tool calls that carry no command input (e.g. wiki tools)", async () => {
     const steps: StepInfo[] = [
       step(
         [{ toolCallId: "1", toolName: "read_file", input: { path: "x" } }],
@@ -132,6 +132,53 @@ describe("createToolCorrectionExtractor", () => {
         [{ toolCallId: "2", toolName: "read_file", input: { path: "y" } }],
         [{ toolCallId: "2", toolName: "read_file", output: { ok: true, content: "hi" } }],
       ),
+    ];
+
+    let calls = 0;
+    const generateObjectFn = async () => {
+      calls++;
+      return { object: [] };
+    };
+
+    const extract = createToolCorrectionExtractor(MODEL, generateObjectFn);
+    const result = await extract(steps);
+
+    expect(calls).toBe(0);
+    expect(result).toEqual([]);
+  });
+
+  // Regression: the extractor once filtered on the fixed tool name "runCommand".
+  // After CLI execution became plugin-owned, plugin tools are named per service
+  // (jiraCommand, bitbucketCommand), so that filter silently dropped every
+  // plugin CLI attempt — killing procedural learning for exactly the CLIs it
+  // exists to serve. A CLI attempt is now recognized by its `command` input,
+  // whatever the tool is named.
+  it("learns corrections from a plugin-owned CLI tool, not just a tool literally named runCommand", async () => {
+    const steps: StepInfo[] = [
+      step(
+        [{ toolCallId: "1", toolName: "jiraCommand", input: { command: 'jira issue search --jql "x" --fields summary' } }],
+        [{ toolCallId: "1", toolName: "jiraCommand", output: { ok: false, error: "refusing to print without --select" } }],
+      ),
+      step(
+        [{ toolCallId: "2", toolName: "jiraCommand", input: { command: 'jira issue search --jql "x" --select issues.key' } }],
+        [{ toolCallId: "2", toolName: "jiraCommand", output: { ok: true, data: {} } }],
+      ),
+    ];
+    const generateObjectFn = async () => ({ object: [{ topic: "select-prefix", value: "v" }] });
+
+    const extract = createToolCorrectionExtractor(MODEL, generateObjectFn);
+    const result = await extract(steps);
+
+    expect(result).toEqual([{ tool: "jira", topic: "select-prefix", value: "v" }]);
+  });
+
+  // The binary is derived by a plain first-token split, not full argv
+  // tokenization — a whitespace-only command has no binary to group by and is
+  // skipped, so it never pairs with anything.
+  it("skips a runCommand call whose command is empty/whitespace-only", async () => {
+    const steps: StepInfo[] = [
+      step([runCommandCall("1", "   ")], [runCommandResult("1", { ok: false, error: "e" })]),
+      step([runCommandCall("2", "   ")], [runCommandResult("2", { ok: true, data: {} })]),
     ];
 
     let calls = 0;

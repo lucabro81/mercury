@@ -1,5 +1,5 @@
 /**
- * Detects, within a single turn's steps, a `runCommand` call that failed
+ * Detects, within a single turn's steps, a CLI command call that failed
  * followed later by one for the same binary that succeeded — a candidate
  * procedural correction, distinct from `semantic-fact-extractor.ts` (which
  * is about the user, from `session.messages`) — this is about a *tool*,
@@ -17,7 +17,6 @@
  */
 import { generateObject, type LanguageModel } from "ai";
 import { z } from "zod";
-import { parseCommand } from "../tools/command-parser.ts";
 import type { StepInfo } from "./step-info.ts";
 
 export const ProceduralCorrectionCandidateSchema = z.object({ topic: z.string(), value: z.string() });
@@ -54,11 +53,19 @@ function extractAttempts(steps: StepInfo[]): Attempt[] {
   const attempts: Attempt[] = [];
   for (const stepInfo of steps) {
     for (const call of stepInfo.toolCalls) {
-      if (call.toolName !== "runCommand") continue;
+      // A CLI attempt is any tool call carrying a `command` string — the
+      // generic shape every CLI tool takes, whatever its name (jiraCommand,
+      // bitbucketCommand, the residual runCommand). Keying on a fixed tool name
+      // would silently miss plugin-owned CLI tools; keying on the input shape
+      // stays correct as new CLI plugins are added.
       const input = call.input as { command?: unknown };
       if (typeof input.command !== "string") continue;
-      const parsed = parseCommand(input.command);
-      if (!parsed.ok) continue;
+      // Group attempts by the binary they invoked, which is just the command's
+      // first whitespace-delimited token — no need to fully tokenize the argv
+      // (that belongs to whoever executes the command, not to procedural
+      // learning). An empty/whitespace-only command has no binary to group by.
+      const binary = input.command.trim().split(/\s+/)[0] ?? "";
+      if (binary === "") continue;
 
       const result = stepInfo.toolResults.find((r) => r.toolCallId === call.toolCallId);
       const output = result?.output as { ok?: unknown; error?: unknown } | undefined;
@@ -66,7 +73,7 @@ function extractAttempts(steps: StepInfo[]): Attempt[] {
 
       attempts.push({
         command: input.command,
-        binary: parsed.binary,
+        binary,
         ok: output.ok === true,
         error: typeof output.error === "string" ? output.error : undefined,
       });
