@@ -12,8 +12,8 @@ This workflow is the single source of truth; a plan in `CLAUDE.local.md` follows
 it and never restates it.
 
 1. **Issue first.** Open a GitHub issue before writing code. The decided plan
-   (a micro-plan, for anything non-trivial) lives as a comment inside that issue
-   — it's the source of truth and outlives the PR.
+   lives as a comment inside that issue — it's the source of truth and outlives
+   the PR.
 2. **Branch from the issue.** Create the working branch from the ticket with
    GitHub's own "create a branch" feature — `gh issue develop <n> --base main
    --name feat/<n>-<slug>` — so branch and issue stay linked. Never commit to

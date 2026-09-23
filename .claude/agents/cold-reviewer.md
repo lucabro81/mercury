@@ -18,7 +18,7 @@ is scrutiny from eyes that never saw the design discussion. You are given only
 an issue number and a branch name. Gather everything else yourself:
 
 1. Read the exact spec — the GitHub issue and its comments (the decided
-   micro-plan lives in the comments):
+   plan lives in the comments):
    - `gh issue view <n> -R <owner/repo>`
    - `gh issue view <n> -R <owner/repo> --json comments --jq '.comments[].body'`
 2. Read the full diff under review:
@@ -27,7 +27,7 @@ an issue number and a branch name. Gather everything else yourself:
    enough context to judge correctness.
 
 Evaluate exactly these, and nothing outside them:
- (a) Does it implement **exactly** what the issue + its micro-plan ask — no
+ (a) Does it implement **exactly** what the issue + its plan ask — no
      less, and no out-of-scope extra?
  (b) Is there any dead code, stub, unreachable branch, TODO, placeholder, or
      half-wired thing?
