@@ -4,6 +4,32 @@ Before working in this repo, read `CLAUDE.local.md` (not committed, gitignored).
 
 If `CLAUDE.local.md` is missing or unreadable, stop and ask — don't guess scope, architecture, or what to build.
 
+## Development workflow
+
+Every unit of work — a decision, a feature, or a bugfix — starts as a GitHub
+issue and ships through its own branch and PR. Nothing goes straight to `main`.
+This workflow is the single source of truth; a plan in `CLAUDE.local.md` follows
+it and never restates it.
+
+1. **Issue first.** Open a GitHub issue before writing code. The decided plan
+   (a micro-plan, for anything non-trivial) lives as a comment inside that issue
+   — it's the source of truth and outlives the PR.
+2. **Branch from the issue.** Create the working branch from the ticket with
+   GitHub's own "create a branch" feature — `gh issue develop <n> --base main
+   --name feat/<n>-<slug>` — so branch and issue stay linked. Never commit to
+   `main` directly.
+3. **TDD on the branch**, atomic commits, one changeset per issue; open a PR
+   with `Closes #N`.
+4. **Cold-review gate.** Before merge, run the `cold-reviewer` subagent
+   (`.claude/agents/cold-reviewer.md`) over the change — it sees only the issue
+   text and `git diff main...HEAD`, no conversation context. Report its findings
+   and resolve them in-branch.
+5. **Merge on approval:** squash-merge (the issue auto-closes), sync `main`,
+   delete the branch.
+
+Bugfixes still follow the TDD rule below: discuss the root cause first, then a
+regression test that fails before the fix and passes after.
+
 ## What it is
 
 Mercury is an internal AI agent for Comperio: answers natural-language Jira queries, performs actions (create/transition/comment/delete) behind explicit confirmation when irreversible, keeps memory across three layers, proactively watches stalled PRs and tickets. Google Chat bot, with a terminal interface for bootstrap and debugging.
