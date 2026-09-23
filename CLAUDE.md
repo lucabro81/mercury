@@ -26,6 +26,9 @@ it and never restates it.
    and resolve them in-branch.
 5. **Merge on approval:** squash-merge (the issue auto-closes), sync `main`,
    delete the branch.
+6. **Close the loop.** At the end of each unit of work, update project memory
+   with anything worth carrying to a future session, and bring `README.md` in
+   line with the change whenever it affects what the README documents.
 
 Bugfixes still follow the TDD rule below: discuss the root cause first, then a
 regression test that fails before the fix and passes after.
