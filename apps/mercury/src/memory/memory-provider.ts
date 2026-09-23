@@ -36,7 +36,6 @@ export type MemoryProviderContext = {
  * provider may only capture, or only recall.
  */
 export type MemoryProvider = {
-  name: string;
   captureExchange?(exchange: VerbatimExchange): Promise<void>;
   sessionTools?(ctx: MemoryProviderContext): Record<string, Tool>;
 };
@@ -62,8 +61,13 @@ const RECALL_MAX_LIMIT = 20;
 export function createVerbatimArchiveProvider(deps: VerbatimArchiveProviderDeps): MemoryProvider {
   const now = deps.now ?? (() => new Date());
   return {
-    name: "verbatim-archive",
     captureExchange: async (exchange) => {
+      // An empty/whitespace-only message (e.g. a present()-only turn with no
+      // prose) has nothing to archive — skip it rather than store a
+      // meaningless point and embed an empty string.
+      if (exchange.content.trim() === "") {
+        return;
+      }
       await appendVerbatimMessage(deps.client, deps.collectionName, deps.embed, {
         ...exchange,
         timestamp: now().toISOString(),

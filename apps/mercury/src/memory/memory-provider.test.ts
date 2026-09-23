@@ -36,6 +36,39 @@ describe("createVerbatimArchiveProvider — captureExchange", () => {
       timestamp: "2026-09-22T12:00:00.000Z",
     });
   });
+
+  // Regression: a turn whose model output is only a present()/tool call (no
+  // prose) leaves the assistant text empty. Capturing it would store a
+  // meaningless empty point AND risk embed("") throwing — which, being the
+  // second capture await, would strand the already-captured user message with
+  // no assistant counterpart. Empty content must be skipped, not stored.
+  it("skips capture entirely when the content is empty or whitespace-only", async () => {
+    let upsertCalls = 0;
+    let embedCalls = 0;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => {
+        upsertCalls++;
+        return {};
+      },
+      query: async () => ({ points: [] }),
+    };
+    const provider = createVerbatimArchiveProvider({
+      client,
+      collectionName: "verbatim_archive",
+      embed: async () => {
+        embedCalls++;
+        return [1, 2, 3];
+      },
+    });
+
+    await provider.captureExchange!({ userId: "u", sessionKey: "s", role: "assistant", content: "" });
+    await provider.captureExchange!({ userId: "u", sessionKey: "s", role: "assistant", content: "   \n  " });
+
+    expect(upsertCalls).toBe(0);
+    expect(embedCalls).toBe(0);
+  });
 });
 
 describe("createVerbatimArchiveProvider — recall_verbatim tool", () => {
