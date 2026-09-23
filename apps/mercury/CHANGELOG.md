@@ -1,5 +1,43 @@
 # mercury
 
+## 0.17.0
+
+### Minor Changes
+
+- 67bc076: CLI execution is now plugin-owned. The mechanism for running a CLI command against an allowlist lives in `@mercury/cli-engine`, a library that a CLI-based plugin depends on and uses to build its own tool from its own allowlist — the core composes nothing CLI-specific and validates no allowlists itself. An instance with no CLI plugin exposes no CLI tool at all.
+
+  Each CLI-based plugin now contributes its own model-facing tool, named for the service (`jiraCommand`, `bitbucketCommand`), instead of a single shared `runCommand`. The command is still written as a full terminal string. File-based CLIs with no owning plugin keep a residual `runCommand` built at composition.
+
+  The plugin contract drops `cliConfig` (a plugin owns and validates its allowlist), a plugin contributes its tools via `sessionTools` and their status labels via `toolStatusDescribers`, and the plugin apiVersion is bumped accordingly.
+
+- 6e20e7f: - Make output formatting a composition-time decorator: `formatterPlugin(dataPlugin, handler)` wraps a plugin and renders the structured `display` its post-processors emit, with the render handler supplied in `mercury.config.ts`. Data plugins now emit structured records only, the render logic lives in the handler, and the core no longer holds any format-specific rendering.
+- 797b1a8: - A new opt-in HTTP channel: `POST /turn` runs a conversation and streams the reply back as Server-Sent Events (reasoning, tool activity, text, and the confirmation token when an irreversible action is staged), resolving a confirmation through the same path every channel uses. Off by default, no authentication, and meant to stay unreachable from outside the container network — the same posture as the admin panel.
+  - Read-only HTTP introspection on the same server: a manifest of the loaded plugins, their apiVersion and skills, and the active CLIs; the currently staged confirm-required actions with their tokens redacted; and the wiki, episodic/semantic memory, tool log, and health, reusing the admin panel's own functions.
+- 5aab9aa: - Jira is now a standalone package, `@mercury/plugin-jira`, instead of being wired into the core.
+  - Its command allowlist, its system-prompt block, and its issue-list formatting and correction all travel with the package.
+  - Its CLI binary is pinned to a specific version and fetched by the package's own postinstall, so image builds are reproducible — previously the binary was resolved to "latest" at build time and two builds could differ.
+  - The core loads plugins through a generic, fail-soft loader: a plugin that fails to load degrades only itself, and the core no longer names any integration at build time.
+  - No change to behaviour: the same tools, prompts, and output as before.
+- 2729ae0: - Add a `mercury.config.ts` composition entrypoint and a `defineMercuryConfig` helper: an instance now declares its plugin set in one app-root config file (`defineConfig`-style) instead of inline in the composition root, with no change to which plugins load or how.
+- 2495c7a: - A shared plugin contract (`@mercury/plugin-types`) that the core and every plugin build against, with a required `apiVersion` so a core and a plugin built separately can detect a version mismatch instead of failing obscurely.
+  - Bitbucket is now its own plugin package, extracted with the same contract as Jira and no widening of it — a second plugin that keeps the contract honest.
+  - The shared CLI-binary provisioning is factored into `@mercury/utils`, so each plugin's postinstall pins and fetches its binary through one dependency-free helper.
+  - The status line shown while a command runs now comes from its plugin (defaulting to "esecuzione <binary> <subcommand>") rather than the core classifying it as a read or a write.
+  - Plugins can ship Agent Skills (`SKILL.md`): a skill's name and one-line description stay in the system prompt, and its full instructions load on demand via a `read_skill` tool — instead of every plugin's instructions sitting in the prompt on every turn. Jira's guidance moved to a skill.
+- e930bbb: - Let a plugin declare `dependsOn` other plugins: the loader loads dependencies first and skips a plugin fail-soft, with a logged reason, when a declared dependency is absent, failed, or forms a cycle — leaving every other plugin and the process unaffected.
+- df9f0a9: - Show a formatted list only when the model asks to. A tool's rendered display artifact is now stashed in a session-scoped store and the model receives only a `displayRef`; it surfaces the artifact by calling the new `present` tool. At finalize only what was presented is appended to the reply — a prose answer ("how many are open?") no longer drags the full list along. The old unconditional list-splicing is gone; when a list is shown it is always the deterministic artifact.
+- f021b4e: - Retire the model-backed issue-list corrector. Now that a formatted list reaches the user only when the model surfaces it via `present`, the extra per-turn inference that rewrote a hand-formatted list is gone. The Jira skill instead states a recall-vs-re-query rule for follow-ups: recall the prior answer when the question is about what was already said, re-query (the default) when current state or new fields are needed. The core's generic post-turn-guard mechanism stays for future use; no plugin ships a guard today.
+- 58b722a: - Give a tool result two explicit channels: the `data` the model reasons on, and a separate structured `display` channel that is shown to the user but never placed in the model's context. This replaces the earlier implicit removal of a known rendered field, so the separation is now part of the contract rather than a heuristic strip.
+- 2bf6534: - Add a durable, lossless verbatim conversation archive. Every user and model message is captured verbatim to its own Qdrant collection — separate from the sliding Layer-1 window and the derived episodic summaries — and the model can resurface earlier exchanges on demand with a new `recall_verbatim` tool, scoped to the person asking. Capture is fail-soft enrichment: a storage failure never affects the live turn. Built behind a small memory-provider interface so the mechanism is wired in at composition, not hardwired into the pipeline.
+
+### Patch Changes
+
+- 4e2be1d: - Upgrade `@qdrant/js-client-rest` to 1.19 and the Qdrant server image to match, moving similarity search onto the `query` endpoint that replaced `search`.
+  - Upgrade the AI SDK to `ai` 7 and `ai-sdk-ollama` 4, adopting the ai 7 canonical API (instructions, onStepEnd, isStepCount, the `stream`/`usage` result fields).
+  - Bump the pinned Bun toolchain to 1.4.
+  - No change to behaviour: the same turns, tools, and memory operations, verified against a real model and a real Qdrant.
+- 74dd723: - Build the `runCommand` tool's usage example from the CLIs actually enabled on the instance instead of a hardcoded one, so the example never names a CLI that isn't configured.
+
 ## 0.16.3
 
 ### Patch Changes
