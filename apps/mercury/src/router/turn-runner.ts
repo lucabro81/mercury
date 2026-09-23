@@ -48,6 +48,20 @@ export type TurnRunnerDeps = {
   registerCaptureCallback: (sessionKey: string, onToolStart: TurnSink["onToolStart"], onToolFinish: TurnSink["onToolFinish"]) => void;
   /** Mid-conversation Layer-3 capture threshold check. Only for turns that carry a userId. */
   maybeCapture: (sessionKey: string, history: SessionHistory) => Promise<void>;
+  /**
+   * Archives one message of the verbatim user↔model exchange (issue #4).
+   * Wired by the composition root to the verbatim-archive provider; absent
+   * on an instance with no such provider. Only called for turns that carry a
+   * `userId` (the archive is per-user, like Layer-3 capture), keyed on the
+   * space-independent `wikiUserId`, and only ever with the model's own answer
+   * text — never the appended `present` displays.
+   */
+  captureVerbatim?: (msg: {
+    sessionKey: string;
+    userId: string;
+    role: "user" | "assistant";
+    content: string;
+  }) => Promise<void>;
   processToolCorrections: (steps: StepInfo[], onToolStart: TurnSink["onToolStart"], onToolFinish: TurnSink["onToolFinish"]) => Promise<void>;
   logStep: (prefix: string, step: StepInfo) => void;
   /** Test seam; defaults to the real `recordStep`. */
@@ -93,6 +107,10 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
 
     const steps: StepInfo[] = [];
     let history: SessionHistory;
+    // The model's own answer text (post-guards, before any surfaced `present`
+    // display is appended) — what the verbatim archive stores as the
+    // assistant's message. Assigned once the turn resolves successfully.
+    let assistantText = "";
 
     try {
       // Inside the try, not before it: a failure building the history
@@ -149,6 +167,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
       if (correctedText !== text) {
         history.replaceLastAssistantMessage(correctedText);
       }
+      assistantText = correctedText;
 
       // Append only what the model chose to `present` this turn — never the
       // whole set of tool-produced displays. Appending (not replacing) keeps
@@ -162,6 +181,23 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
 
     if (tracked) {
       await deps.maybeCapture(turn.sessionKey, history);
+      // Fail-soft: the verbatim archive is pure enrichment (principle #3).
+      // The answer is already delivered; a capture failure must never
+      // propagate out of this awaited handler and take the process down.
+      if (deps.captureVerbatim) {
+        // The archive is per-person and space-independent, so it keys on
+        // wikiUserId — Mercury's canonical per-user id, the same identity the
+        // wiki notes use — not the space-scoped session.
+        const userId = turn.wikiUserId;
+        try {
+          await deps.captureVerbatim({ sessionKey: turn.sessionKey, userId, role: "user", content: turn.text });
+          await deps.captureVerbatim({ sessionKey: turn.sessionKey, userId, role: "assistant", content: assistantText });
+        } catch (err) {
+          console.log(
+            `[verbatim-archive] capture failed, turn unaffected: ${String(err instanceof Error ? err.message : err)}`,
+          );
+        }
+      }
     }
     await deps.processToolCorrections(steps, sink.onToolStart, sink.onToolFinish);
   };

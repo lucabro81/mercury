@@ -839,4 +839,168 @@ describe("createTurnRunner", () => {
       expect(sink.finalized).toEqual(["abc"]);
     });
   });
+
+  describe("verbatim capture", () => {
+    test("captures the user input and the model's answer verbatim, in order, scoped to the turn's identity", async () => {
+      const captured: Array<{ sessionKey: string; userId: string; role: string; content: string }> = [];
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        captureVerbatim: async (msg) => {
+          captured.push(msg);
+        },
+        runTurnFn: async () => "the answer",
+      });
+
+      await runner(baseTurn({ sessionKey: "sk", userId: "u1", wikiUserId: "wu1", text: "the question" }), baseSink());
+
+      // Keyed on the space-independent wikiUserId, not the raw userId.
+      expect(captured).toEqual([
+        { sessionKey: "sk", userId: "wu1", role: "user", content: "the question" },
+        { sessionKey: "sk", userId: "wu1", role: "assistant", content: "the answer" },
+      ]);
+    });
+
+    test("does not capture anything when the turn carries no userId", async () => {
+      let called = false;
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        captureVerbatim: async () => {
+          called = true;
+        },
+        runTurnFn: async () => "reply",
+      });
+
+      await runner(baseTurn({ userId: undefined }), baseSink());
+
+      expect(called).toBe(false);
+    });
+
+    test("captures the guard-corrected assistant text, not the raw model text", async () => {
+      const captured: Array<{ role: string; content: string }> = [];
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        captureVerbatim: async (msg) => {
+          captured.push({ role: msg.role, content: msg.content });
+        },
+        postTurnGuards: [
+          {
+            statusLabel: "…",
+            statusId: "g",
+            shouldRun: () => true,
+            run: async () => ({ text: "rewritten", outcome: "success" }),
+          },
+        ],
+        runTurnFn: async () => "original",
+      });
+
+      await runner(baseTurn({ userId: "u1" }), baseSink());
+
+      expect(captured.find((m) => m.role === "assistant")?.content).toBe("rewritten");
+    });
+
+    // The archive holds the verbatim user<->model exchange only. Surfaced
+    // `present` displays are formatting-layer artifacts (like tool results,
+    // excluded by design), so the captured assistant text must be the model's
+    // own words, without the appended display block.
+    test("excludes surfaced present() displays from the captured assistant text", async () => {
+      const captured: Array<{ role: string; content: string }> = [];
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        takeSurfacedDisplays: () => ["MER-1\nhttps://x"],
+        captureVerbatim: async (msg) => {
+          captured.push({ role: msg.role, content: msg.content });
+        },
+        runTurnFn: async () => "Here you go.",
+      });
+
+      await runner(baseTurn({ userId: "u1" }), sink);
+
+      // what the user saw includes the display...
+      expect(sink.finalized).toEqual(["Here you go.\n\nMER-1\nhttps://x"]);
+      // ...but the archived assistant message is the model's own words only
+      expect(captured.find((m) => m.role === "assistant")?.content).toBe("Here you go.");
+    });
+
+    // Fail-soft: the archive is pure enrichment (principle #3). A failure
+    // capturing it must never take down the turn — the answer is already
+    // delivered, and an unhandled rejection here would otherwise propagate out
+    // of the awaited handler.
+    test("a failing captureVerbatim never breaks the turn: it still finalizes and runs corrections", async () => {
+      let correctionsRan = false;
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {
+          correctionsRan = true;
+        },
+        logStep: () => {},
+        captureVerbatim: async () => {
+          throw new Error("qdrant down");
+        },
+        runTurnFn: async () => "delivered anyway",
+      });
+
+      await expect(runner(baseTurn({ userId: "u1" }), sink)).resolves.toBeUndefined();
+      expect(sink.finalized).toEqual(["delivered anyway"]);
+      expect(correctionsRan).toBe(true);
+    });
+
+    test("does nothing when no captureVerbatim is wired (verbatim archive disabled)", async () => {
+      const sink = baseSink();
+      const runner = createTurnRunner({
+        model: {} as any,
+        systemPrompts: { singleUser: "s", multiUser: "m" },
+        buildTools: () => ({}),
+        getOrCreateHistory: () => fakeHistory(),
+        trackSession: () => {},
+        registerCaptureCallback: () => {},
+        maybeCapture: async () => {},
+        processToolCorrections: async () => {},
+        logStep: () => {},
+        runTurnFn: async () => "reply",
+      });
+
+      await expect(runner(baseTurn({ userId: "u1" }), sink)).resolves.toBeUndefined();
+      expect(sink.finalized).toEqual(["reply"]);
+    });
+  });
 });

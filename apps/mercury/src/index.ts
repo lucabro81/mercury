@@ -57,6 +57,8 @@ import {
   storeEpisodicSummary,
   getLastSessionEpisodicSummaries,
 } from "./memory/episodic-store.ts";
+import { ensureVerbatimCollection } from "./memory/verbatim-archive-store.ts";
+import { createVerbatimArchiveProvider } from "./memory/memory-provider.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
 import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
 import { consolidateSemanticFact, consolidateToolCorrection, type ToolCorrectionConsolidationDeps } from "./cron/semantic-consolidation.ts";
@@ -254,6 +256,14 @@ const qdrant = new QdrantClient({ url: process.env.QDRANT_URL ?? "http://qdrant:
 const episodicCollection = process.env.QDRANT_EPISODIC_COLLECTION ?? "episodic_memory";
 const episodicVectorSize = Number(process.env.QDRANT_EPISODIC_VECTOR_SIZE ?? "768");
 await ensureEpisodicCollection(qdrant, episodicCollection, episodicVectorSize);
+
+// Verbatim conversation archive (#4): a distinct collection holding the raw
+// user<->model exchange, lossless and durable — separate from the lossy
+// Layer-1 window and the derived episodic summaries above.
+const verbatimCollection = process.env.QDRANT_VERBATIM_COLLECTION ?? "verbatim_archive";
+const verbatimVectorSize = Number(process.env.QDRANT_VERBATIM_VECTOR_SIZE ?? "768");
+await ensureVerbatimCollection(qdrant, verbatimCollection, verbatimVectorSize);
+const verbatimProvider = createVerbatimArchiveProvider({ client: qdrant, collectionName: verbatimCollection, embed });
 
 // Semantic consolidation (D-22/D-34): a separate Qdrant collection from
 // episodic memory above — one point per extracted {topic, value} candidate,
@@ -507,6 +517,9 @@ function buildTools(
 
   Object.assign(sessionTools, createWikiTools({ vaultPath: wikiVaultPath, userId: wikiUserId }));
   Object.assign(sessionTools, createToolLogRecallTool({ sessionKey }));
+  // Verbatim archive recall, scoped to this person — lets the model resurface
+  // what was actually said in earlier conversations, beyond the live window.
+  Object.assign(sessionTools, verbatimProvider.sessionTools!({ sessionKey, userId: wikiUserId }));
   // read_skill only exists when a plugin contributed at least one skill — an
   // instance with none never sees the tool (and its prompt has no skills
   // section to point at it).
@@ -580,6 +593,7 @@ const handleTurn = createTurnRunner({
       await captureIncrement(key, messages);
     }
   },
+  captureVerbatim: verbatimProvider.captureExchange,
   processToolCorrections,
   logStep,
   // Appends what the model surfaced via `present` this turn — nothing if it

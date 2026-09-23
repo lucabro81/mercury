@@ -59,6 +59,14 @@ export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Ski
       "- If asked what you actually ran/queried/did earlier in this same conversation, call recall_tool_calls and quote it verbatim — you have no memory of your own past tool calls otherwise, only your own prior reply text, so reconstructing from memory instead of calling this tool risks getting it wrong.",
     ].join("\n"),
   );
+  lines.push(
+    [
+      "You have access to the recall_verbatim tool.",
+      "DO:",
+      "- If asked about something said in an EARLIER conversation — beyond what you can see in this one — call recall_verbatim to retrieve the actual past messages and quote them, don't reconstruct from memory. This searches a durable archive of what you and this person really said before.",
+      "- Use recall_tool_calls, not this, for what you ran in the CURRENT conversation; use recall_verbatim for what was said in past ones.",
+    ].join("\n"),
+  );
 
   if (opts.multiUserChannel) {
     // Interim, explicitly non-deterministic mitigation for Mercury replying
