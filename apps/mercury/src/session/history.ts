@@ -83,14 +83,19 @@ function primerMessage(primer: string): Message {
 /**
  * Creates an empty `SessionHistory`.
  *
- * @param summarize - Called with the full raw message batch (including
- *   the message that just crossed the threshold, plus any prior summary
- *   re-injected as a leading message) whenever a single append pushes the
- *   total content length over `MAX_HISTORY_CHARS`. Its return value
- *   becomes the new summary, and the raw message array is cleared — the
- *   threshold check runs after every individual append (not once per
- *   turn), so the crossing point is caught precisely regardless of
- *   whether it's the user or assistant message that tips it over.
+ * @param summarize - Called with the messages that precede the current
+ *   user turn (any prior summary re-injected as a leading message) whenever
+ *   a single append pushes the total content length over
+ *   `MAX_HISTORY_CHARS`. Its return value becomes the new summary; the
+ *   trailing run from the last user message onward is retained as the raw
+ *   window rather than cleared, so the current turn is never summarized away
+ *   (a model call always follows `addUserMessage`, and the primer/summary
+ *   leading messages are both `role:"assistant"` — folding the user turn
+ *   into them would hand the model a user-less array). The threshold check
+ *   runs after every individual append (not once per turn), so the crossing
+ *   point is caught precisely regardless of whether it's the user or
+ *   assistant message that tips it over. A lone crossing user message with
+ *   nothing before it is left live and `summarize` is not called.
  * @param onBeforeCompress - Optional, called synchronously with the exact
  *   same batch `summarize` is about to receive, right before it's
  *   compressed out of the live context — a second, independent signal a
