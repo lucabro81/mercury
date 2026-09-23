@@ -33,14 +33,19 @@ describe("createSessionHistory", () => {
     expect(calls.length).toBe(0);
   });
 
-  it("calls summarize exactly once when a single message pushes the total over the threshold, including that message in the batch", async () => {
+  // Uses a realistic multi-message trigger (prior context + a crossing user
+  // turn) rather than a lone oversized message: since bug #19's fix the
+  // crossing user turn is retained, not summarized, so the batch is exactly
+  // the context preceding it.
+  it("summarizes exactly once when an append crosses the threshold, over the context preceding the retained user turn", async () => {
     const calls: Message[][] = [];
     const history = createSessionHistory(fakeSummarizer({ calls }));
-    const big = "x".repeat(MAX_HISTORY_CHARS + 1);
-    await history.addUserMessage(big);
+    const filler = "x".repeat(MAX_HISTORY_CHARS); // at the boundary, no trigger
+    await history.addAssistantMessage(filler);
+    await history.addUserMessage("latest question"); // crosses → compresses the filler, retains this turn
 
     expect(calls.length).toBe(1);
-    expect(calls[0]).toEqual([{ role: "user", content: big }]);
+    expect(calls[0]).toEqual([{ role: "assistant", content: filler }]);
   });
 
   it("boundary: exactly MAX_HISTORY_CHARS does not trigger, +1 does", async () => {
@@ -53,25 +58,31 @@ describe("createSessionHistory", () => {
     const overBoundary = createSessionHistory(
       fakeSummarizer({ calls: callsOverBoundary }),
     );
-    await overBoundary.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1));
+    // Assistant filler sits at the boundary; a following user turn tips it one
+    // char past MAX, so there is preceding context to compress.
+    await overBoundary.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+    await overBoundary.addUserMessage("x");
     expect(callsOverBoundary.length).toBe(1);
   });
 
   it("keeps the summary alongside new raw messages after a summarization happens", async () => {
     const history = createSessionHistory(fakeSummarizer());
-    const big = "x".repeat(MAX_HISTORY_CHARS + 1);
-    await history.addUserMessage(big);
+    await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+    await history.addUserMessage("first question after fill"); // triggers compression, retains this turn
 
-    // summarization already happened; raw history should be cleared
+    // The compressed context became a summary; the current user turn was
+    // retained live alongside it (bug #19: never summarized away).
     const afterSummary = history.getMessages();
-    expect(afterSummary.length).toBe(1);
+    expect(afterSummary.length).toBe(2);
     expect(afterSummary[0]?.content).toContain("a summary");
+    expect(afterSummary[1]).toEqual({ role: "user", content: "first question after fill" });
 
-    await history.addUserMessage("what's next?");
+    await history.addAssistantMessage("an answer");
     const messages = history.getMessages();
-    expect(messages.length).toBe(2);
+    expect(messages.length).toBe(3);
     expect(messages[0]?.content).toContain("a summary");
-    expect(messages[1]).toEqual({ role: "user", content: "what's next?" });
+    expect(messages[1]).toEqual({ role: "user", content: "first question after fill" });
+    expect(messages[2]).toEqual({ role: "assistant", content: "an answer" });
   });
 
   // Lets the terminal show a live "how full is the context" indicator
@@ -88,12 +99,59 @@ describe("createSessionHistory", () => {
 
   it("getCharCount counts the summary message's length after a summarization happens", async () => {
     const history = createSessionHistory(fakeSummarizer());
-    const big = "x".repeat(MAX_HISTORY_CHARS + 1);
-    await history.addUserMessage(big);
+    await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+    await history.addUserMessage("latest"); // triggers compression → a summary now leads getMessages()
 
     const messages = history.getMessages();
     const expected = messages.reduce((sum, m) => sum + m.content.length, 0);
     expect(history.getCharCount()).toBe(expected);
+  });
+
+  // Regression guard for bug #19: on a long conversation, the append that
+  // crosses the threshold used to clear the ENTIRE raw history — including the
+  // current user turn when it was the message that tipped it over. Since the
+  // primer and summary leading messages are both role:"assistant",
+  // getMessages() then had no role:"user" at all, and Ollama rejects that
+  // array with "no user query found in messages". Compression must always
+  // retain at least the current user turn.
+  describe("bug #19: the current user turn survives compression", () => {
+    it("keeps a role:'user' message (the latest turn) after a user append triggers compression", async () => {
+      const history = createSessionHistory(fakeSummarizer());
+      // Prior context sits at the boundary without triggering; the next user
+      // turn tips it over — exactly the runTurn() sequence (addUserMessage
+      // then getMessages()) that surfaced the bug live.
+      await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+      await history.addUserMessage("what's the status of MER-1?");
+
+      const messages = history.getMessages();
+      expect(messages.some((m) => m.role === "user")).toBe(true);
+      expect(messages[messages.length - 1]).toEqual({
+        role: "user",
+        content: "what's the status of MER-1?",
+      });
+    });
+
+    it("keeps the user turn even with a primer set (primer + summary alone are both assistant)", async () => {
+      const history = createSessionHistory(fakeSummarizer(), undefined, "prior session facts");
+      await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+      await history.addUserMessage("and MER-2?");
+
+      const messages = history.getMessages();
+      expect(messages.some((m) => m.role === "user")).toBe(true);
+      expect(messages[messages.length - 1]).toEqual({ role: "user", content: "and MER-2?" });
+    });
+
+    it("leaves a lone oversized user message live and does not summarize it away", async () => {
+      const calls: Message[][] = [];
+      const history = createSessionHistory(fakeSummarizer({ calls }));
+      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      await history.addUserMessage(big);
+
+      // Nothing precedes the current turn, so there is nothing to compress:
+      // the user's question stays verbatim rather than being summarized away.
+      expect(calls.length).toBe(0);
+      expect(history.getMessages()).toEqual([{ role: "user", content: big }]);
+    });
   });
 
   // onBeforeCompress lets an episodic/semantic capture mirror a batch of
@@ -102,14 +160,15 @@ describe("createSessionHistory", () => {
   describe("onBeforeCompress", () => {
     it("is called with exactly the batch about to be compressed, before summarize resolves", async () => {
       const seen: Message[][] = [];
-      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      const filler = "x".repeat(MAX_HISTORY_CHARS);
       const history = createSessionHistory(fakeSummarizer(), (messages) => {
         seen.push(messages);
       });
 
-      await history.addUserMessage(big);
+      await history.addAssistantMessage(filler);
+      await history.addUserMessage("latest"); // compresses the filler; retained user turn is excluded
 
-      expect(seen).toEqual([[{ role: "user", content: big }]]);
+      expect(seen).toEqual([[{ role: "assistant", content: filler }]]);
     });
 
     it("is never called while under the threshold", async () => {
@@ -123,20 +182,26 @@ describe("createSessionHistory", () => {
     });
 
     it("is optional — omitting it changes nothing about summarization behavior", async () => {
-      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
       const history = createSessionHistory(fakeSummarizer());
-      await history.addUserMessage(big);
+      await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+      await history.addUserMessage("latest");
       expect(history.getMessages()[0]?.content).toContain("a summary");
     });
 
     it("receives the prior summary re-injected as a leading message, same batch summarize() gets", async () => {
       const seen: Message[][] = [];
+      const filler = "x".repeat(MAX_HISTORY_CHARS);
       const history = createSessionHistory(fakeSummarizer(), (messages) => {
         seen.push(messages);
       });
 
-      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1)); // first compression
-      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1)); // second compression, summary now exists
+      // First compression: the filler is summarized, "first" retained.
+      await history.addAssistantMessage(filler);
+      await history.addUserMessage("first");
+      // Second compression: a later oversized user turn crosses again, so the
+      // prior summary + the intervening messages form the new batch.
+      await history.addAssistantMessage("an answer");
+      await history.addUserMessage(filler);
 
       expect(seen.length).toBe(2);
       expect(seen[1]?.[0]).toEqual({ role: "assistant", content: "Earlier conversation summary: a summary" });
@@ -157,7 +222,8 @@ describe("createSessionHistory", () => {
 
     it("orders the primer before the summary message once a real compression produces one", async () => {
       const history = createSessionHistory(fakeSummarizer(), undefined, "prior session facts");
-      await history.addUserMessage("x".repeat(MAX_HISTORY_CHARS + 1));
+      await history.addAssistantMessage("x".repeat(MAX_HISTORY_CHARS));
+      await history.addUserMessage("latest");
 
       const messages = history.getMessages();
       expect(messages[0]).toEqual({
@@ -179,12 +245,13 @@ describe("createSessionHistory", () => {
 
     it("survives a real compression event unchanged — it is never part of the batch sent to summarize()", async () => {
       const calls: Message[][] = [];
-      const big = "x".repeat(MAX_HISTORY_CHARS + 1);
+      const filler = "x".repeat(MAX_HISTORY_CHARS);
       const history = createSessionHistory(fakeSummarizer({ calls }), undefined, "prior session facts");
 
-      await history.addUserMessage(big);
+      await history.addAssistantMessage(filler);
+      await history.addUserMessage("latest");
 
-      expect(calls).toEqual([[{ role: "user", content: big }]]);
+      expect(calls).toEqual([[{ role: "assistant", content: filler }]]);
       expect(history.getMessages()[0]).toEqual({
         role: "assistant",
         content: "Context from your last session: prior session facts",
