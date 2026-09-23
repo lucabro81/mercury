@@ -117,10 +117,23 @@ export function createSessionHistory(
 
     const total = rawMessages.reduce((sum, m) => sum + m.content.length, 0);
     if (total > MAX_HISTORY_CHARS) {
-      const batch = summary ? [summaryMessage(summary), ...rawMessages] : rawMessages;
+      // Retain the trailing run from the last user message onward instead of
+      // clearing everything: getMessages() for a model call always follows an
+      // addUserMessage, and the primer/summary leading messages are both
+      // role:"assistant", so summarizing the current user turn away would hand
+      // Ollama a user-less array ("no user query found in messages") — bug #19.
+      // Compress only what precedes that turn; if nothing precedes it (a lone
+      // oversized user message), leave it live — its question can't be summarized.
+      const lastUserIdx = rawMessages.findLastIndex((m) => m.role === "user");
+      const toCompress = lastUserIdx >= 0 ? rawMessages.slice(0, lastUserIdx) : rawMessages;
+      const retained = lastUserIdx >= 0 ? rawMessages.slice(lastUserIdx) : [];
+      if (toCompress.length === 0) {
+        return;
+      }
+      const batch = summary ? [summaryMessage(summary), ...toCompress] : toCompress;
       onBeforeCompress?.(batch);
       summary = await summarize(batch);
-      rawMessages = [];
+      rawMessages = retained;
     }
   }
 
