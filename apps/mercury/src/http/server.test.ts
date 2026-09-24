@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { handleTurnRequest, handleConfirmRequest, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
+import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 
@@ -211,6 +211,17 @@ describe("handleConfirmRequest", () => {
       tryConfirmFn: async () => null,
     });
     expect(noConv.status).toBe(400);
+  });
+});
+
+describe("openApiResponse", () => {
+  it("serves the OpenAPI document as text/yaml with CORS", async () => {
+    const res = openApiResponse();
+    expect(res.headers.get("content-type")).toContain("text/yaml");
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const body = await res.text();
+    expect(body).toContain("openapi:");
+    expect(body).toContain("Mercury HTTP surface");
   });
 });
 

@@ -1,0 +1,417 @@
+openapi: 3.1.0
+info:
+  title: Mercury HTTP surface
+  version: 0.17.1
+  description: >
+    The opt-in HTTP surface of Mercury — the intended primary channel for a
+    custom web UI. It is enabled with `HTTP_SURFACE_ENABLED=true` and, by design,
+    carries **no authentication**: it must not be published outside the trusted
+    container network (production simply does not expose the port). CORS is
+    enabled on every response (`Access-Control-Allow-Origin`, configurable via
+    `HTTP_SURFACE_CORS_ORIGIN`, default `*`) and every route answers an `OPTIONS`
+    preflight, so a browser UI on another origin can call it.
+
+
+    ## Conversations
+
+    A conversation is identified by an opaque, client-owned `conversationId`,
+    which becomes Mercury's session key. Omitting it on `POST /turn` starts a
+    fresh ephemeral conversation. The durable transcript of a conversation is
+    readable via `GET /conversation`, and the list of known conversations via
+    `GET /conversations` (both backed by the verbatim archive; they degrade to
+    empty when the vector store is unreachable).
+
+
+    ## Streaming and cancellation
+
+    `POST /turn` streams the answer as Server-Sent Events: reasoning and text
+    arrive as **incremental deltas** (never a single finished block), followed by
+    an authoritative `final` event. To cancel a turn whose generation is
+    diverging, the client simply closes the connection — Mercury aborts the
+    in-flight generation.
+
+
+    ## Confirmation
+
+    An irreversible action is never executed on the model's say-so: the turn
+    emits a `pending` event carrying a one-time `token`. The client confirms by
+    sending that token back — either as the `text` of a follow-up `POST /turn`,
+    or via `POST /confirm`.
+servers:
+  - url: http://localhost:4100
+    description: Local/dev surface (HTTP_SURFACE_PORT, default 4100)
+paths:
+  /turn:
+    post:
+      summary: Run a conversational turn (SSE stream)
+      description: >
+        Runs one model turn and streams the result as `text/event-stream`. If
+        `text` is a pending confirmation token it is resolved deterministically
+        without ever consulting the model. Close the connection to cancel an
+        in-flight turn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TurnRequest"
+      responses:
+        "200":
+          description: >
+            An SSE stream. Each event is one of the types in `TurnEvent`:
+            `reasoning`/`reasoning_end`, `text` (incremental deltas), `tool`/
+            `tool_finish` (status of a tool call), `pending` (a staged
+            confirm-required action, with its command and token), `final` (the
+            authoritative complete answer), and `error`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: Missing/invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /confirm:
+    post:
+      summary: Confirm a staged irreversible action
+      description: >
+        Runs a one-time confirmation token through the same mechanism the
+        bare-token-in-`text` path uses, keyed on `conversationId`. Never touches
+        the model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
+      responses:
+        "200":
+          description: >
+            `resolved: true` (with the reply `text`) when the token was a pending
+            confirmation, `resolved: false` when it was not (unknown, expired, or
+            already used).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmResult"
+        "400":
+          description: Missing token or conversationId.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /conversation:
+    get:
+      summary: A conversation's durable transcript
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: The conversationId (session key) whose messages to return.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 200
+        - name: offset
+          in: query
+          required: false
+          description: Opaque pagination cursor from a previous page's `nextOffset`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The conversation's messages in chronological order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPage"
+        "400":
+          description: Missing `?id`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /conversations:
+    get:
+      summary: List known conversations (most-recently-active first)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: The conversation list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationList"
+  /health:
+    get:
+      summary: Liveness/health of Mercury and its dependencies
+      responses:
+        "200":
+          description: Health snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+  /manifest:
+    get:
+      summary: The loaded plugins, tools and skills
+      responses:
+        "200":
+          description: Plugin manifest.
+          content:
+            application/json:
+              schema:
+                type: object
+  /confirmations:
+    get:
+      summary: Currently pending confirmations (tokens redacted)
+      responses:
+        "200":
+          description: Pending confirmations.
+          content:
+            application/json:
+              schema:
+                type: object
+  /tool-log:
+    get:
+      summary: Recent tool-call log entries
+      responses:
+        "200":
+          description: Tool log.
+          content:
+            application/json:
+              schema:
+                type: object
+  /wiki/list:
+    get:
+      summary: List the wiki vault's files
+      responses:
+        "200":
+          description: File list.
+          content:
+            application/json:
+              schema:
+                type: object
+  /wiki/read:
+    get:
+      summary: Read one wiki vault file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Missing `?path`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /wiki/grep:
+    get:
+      summary: Grep the wiki vault
+      parameters:
+        - name: pattern
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matches.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Missing `?pattern`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /memory/scroll:
+    get:
+      summary: Scroll a Qdrant memory collection
+      parameters:
+        - name: collection
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of points.
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Missing `?collection`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /openapi.yaml:
+    get:
+      summary: This OpenAPI document
+      responses:
+        "200":
+          description: The raw OpenAPI YAML.
+          content:
+            text/yaml:
+              schema:
+                type: string
+components:
+  schemas:
+    TurnRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: The user's message, or a bare confirmation token.
+        conversationId:
+          type: string
+          description: Opaque, client-owned. Omit to start a fresh ephemeral conversation.
+    TurnEvent:
+      type: object
+      description: The shape carried by each SSE `data:` line, per event type.
+      properties:
+        chunk:
+          type: string
+          description: On `text`/`reasoning` — an incremental delta.
+        id:
+          type: string
+          description: On `reasoning`/`reasoning_end` — the reasoning block id.
+        failed:
+          type: boolean
+          description: On `reasoning_end`.
+        label:
+          type: string
+          description: On `tool` — a human status label.
+        detail:
+          type: string
+          description: On `tool` — optional detail.
+        toolCallId:
+          type: string
+          description: On `tool`/`tool_finish`.
+        outcome:
+          type: string
+          description: On `tool_finish` — success/failed.
+        command:
+          type: string
+          description: On `pending` — the staged action's summary.
+        token:
+          type: string
+          description: On `pending` — the one-time confirmation token.
+        text:
+          type: string
+          description: On `final` — the authoritative complete answer.
+        message:
+          type: string
+          description: On `error` — the failure message.
+    ConfirmRequest:
+      type: object
+      required: [token, conversationId]
+      properties:
+        token:
+          type: string
+        conversationId:
+          type: string
+    ConfirmResult:
+      type: object
+      required: [ok, resolved]
+      properties:
+        ok:
+          type: boolean
+        resolved:
+          type: boolean
+        text:
+          type: string
+          description: The confirmation reply, present when `resolved` is true.
+    Message:
+      type: object
+      required: [role, content, timestamp]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        timestamp:
+          type: string
+          description: ISO 8601, millisecond precision — the durable ordering key.
+    ConversationPage:
+      type: object
+      required: [ok, messages]
+      properties:
+        ok:
+          type: boolean
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        nextOffset:
+          description: Opaque cursor for the next page, or null when exhausted.
+          oneOf:
+            - type: string
+            - type: "null"
+    ConversationSummary:
+      type: object
+      required: [sessionKey, lastTimestamp, preview]
+      properties:
+        sessionKey:
+          type: string
+        lastTimestamp:
+          type: string
+        preview:
+          type: string
+    ConversationList:
+      type: object
+      required: [ok, conversations]
+      properties:
+        ok:
+          type: boolean
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationSummary"
+    Error:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          enum: [false]
+        error:
+          type: string

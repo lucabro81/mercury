@@ -68,6 +68,19 @@ function preflight(origin: string): Response {
 }
 
 /**
+ * Serves the OpenAPI document that describes this surface — the single source
+ * of truth in `apps/mercury/openapi.yaml`, also rendered as the GitHub Pages
+ * API docs. Served raw as `text/yaml` (no YAML parser needed at runtime); most
+ * tooling (Redoc, Swagger UI, Postman) reads YAML directly.
+ */
+export function openApiResponse(corsOrigin = "*"): Response {
+  const file = Bun.file(new URL("../../openapi.yaml", import.meta.url));
+  return new Response(file, {
+    headers: { "content-type": "text/yaml; charset=utf-8", ...corsHeaders(corsOrigin) },
+  });
+}
+
+/**
  * Runs one `POST /turn` request and returns an SSE stream Response. The body is
  * `{ text, conversationId? }`; `conversationId` (opaque, client-owned) becomes
  * the session key so a client can continue a conversation — Mercury already
@@ -322,6 +335,7 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
         POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin, tryConfirmFn: deps.tryConfirmFn }),
         OPTIONS: () => preflight(origin),
       },
+      "/openapi.yaml": { GET: () => openApiResponse(origin), OPTIONS: () => preflight(origin) },
       ...(deps.reads ? readRoutes(deps.reads, origin) : {}),
     },
     error: (err) =>
