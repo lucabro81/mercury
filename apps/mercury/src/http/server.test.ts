@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { handleTurnRequest, type HttpConfirmDeps } from "./server.ts";
+import { handleTurnRequest, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 
@@ -117,5 +117,60 @@ describe("handleTurnRequest", () => {
       tryConfirmFn: async () => null,
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// A browser UI on another origin (the separate custom-UI project) can only call
+// this surface if it answers CORS preflight and echoes an allow-origin header.
+describe("CORS", () => {
+  const reads: HttpReads = {
+    manifest: () => ({ plugins: [] }),
+    pendingConfirmations: () => [],
+    wikiList: async () => [],
+    wikiRead: async () => "",
+    wikiGrep: async () => [],
+    memoryScroll: async () => ({ points: [] }),
+    toolLog: () => [],
+    health: async () => ({}),
+  };
+
+  it("adds Access-Control-Allow-Origin to a read route response (default *)", async () => {
+    const res = await readRoutes(reads)["/manifest"]!.GET(new Request("http://x/manifest"));
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("answers an OPTIONS preflight with 204 and the allow headers", async () => {
+    const res = readRoutes(reads)["/manifest"]!.OPTIONS();
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-methods")).toContain("GET");
+    expect(res.headers.get("access-control-allow-headers")).toContain("content-type");
+  });
+
+  it("honors a custom corsOrigin on read routes", async () => {
+    const res = await readRoutes(reads, "https://ui.example")["/manifest"]!.GET(
+      new Request("http://x/manifest"),
+    );
+    expect(res.headers.get("access-control-allow-origin")).toBe("https://ui.example");
+  });
+
+  it("adds Access-Control-Allow-Origin to the /turn SSE response", async () => {
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn: async (_t, sink) => {
+        await sink.finalize("x");
+      },
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("adds Access-Control-Allow-Origin to a 400 response", async () => {
+    const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
+      handleTurn: async () => {},
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
   });
 });

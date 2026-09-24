@@ -656,6 +656,7 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
   const httpPort = Number(process.env.HTTP_SURFACE_PORT ?? "4100");
   httpProvider = createHttpProvider({
     port: httpPort,
+    corsOrigin: process.env.HTTP_SURFACE_CORS_ORIGIN ?? "*",
     confirmDeps: {
       store: confirmationStore,
       vaultPath: wikiVaultPath,

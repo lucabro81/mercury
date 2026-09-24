@@ -34,6 +34,8 @@ export type HttpConfirmDeps = {
 export type TurnRequestDeps = {
   handleTurn: HandleTurn;
   confirmDeps: HttpConfirmDeps;
+  /** Allowed CORS origin echoed back to a browser UI; defaults to `*`. */
+  corsOrigin?: string;
   /** Test seam; defaults to the real `tryConfirm`. */
   tryConfirmFn?: typeof tryConfirm;
   /** Test seam for the ephemeral session key when the client sends no conversationId. */
@@ -47,6 +49,25 @@ const SSE_HEADERS = {
 };
 
 /**
+ * The CORS headers echoed on every response so a browser UI served from a
+ * different origin (the separate custom-UI project) can call this surface.
+ * No credentials are ever used here, so a wildcard origin is safe; a specific
+ * origin can still be pinned via `HTTP_SURFACE_CORS_ORIGIN`.
+ */
+function corsHeaders(origin: string): Record<string, string> {
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
+
+/** 204 preflight response for an `OPTIONS` request, carrying only CORS headers. */
+function preflight(origin: string): Response {
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
+}
+
+/**
  * Runs one `POST /turn` request and returns an SSE stream Response. The body is
  * `{ text, conversationId? }`; `conversationId` (opaque, client-owned) becomes
  * the session key so a client can continue a conversation — Mercury already
@@ -56,14 +77,16 @@ const SSE_HEADERS = {
  * event on the stream.
  */
 export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Promise<Response> {
+  const origin = deps.corsOrigin ?? "*";
+  const cors = corsHeaders(origin);
   let body: { text?: unknown; conversationId?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400 });
+    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400, headers: cors });
   }
   if (typeof body.text !== "string" || body.text.trim().length === 0) {
-    return Response.json({ ok: false, error: "missing text" }, { status: 400 });
+    return Response.json({ ok: false, error: "missing text" }, { status: 400, headers: cors });
   }
   const text = body.text;
   const sessionKey =
@@ -128,7 +151,7 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
     },
   });
 
-  return new Response(stream, { headers: SSE_HEADERS });
+  return new Response(stream, { headers: { ...SSE_HEADERS, ...cors } });
 }
 
 /**
@@ -149,42 +172,50 @@ export type HttpReads = {
   health: () => Promise<unknown>;
 };
 
-function badRequest(message: string): Response {
-  return Response.json({ ok: false, error: message }, { status: 400 });
-}
+/** A single read route: its `GET` handler plus the shared `OPTIONS` preflight. */
+type ReadRoute = {
+  GET: (req: Request) => Response | Promise<Response>;
+  OPTIONS: () => Response;
+};
 
-function readRoutes(reads: HttpReads): Record<string, { GET: (req: Request) => Response | Promise<Response> }> {
+/**
+ * Builds the read-only routes, each carrying CORS headers on its `GET` and a
+ * shared `OPTIONS` preflight so a browser UI on `corsOrigin` (default `*`) can
+ * reach them. `jsonRoute` wraps a getter into a `GET` that always JSON-encodes
+ * with the CORS headers merged in; `badRequest` does the same for a 400.
+ */
+export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, ReadRoute> {
+  const cors = corsHeaders(corsOrigin);
+  const json = (payload: object, status = 200): Response =>
+    Response.json(payload, { status, headers: cors });
+  const badRequest = (message: string): Response => json({ ok: false, error: message }, 400);
   const requireParam = (req: Request, name: string): string | null => new URL(req.url).searchParams.get(name);
+  const options = () => preflight(corsOrigin);
+  const route = (GET: ReadRoute["GET"]): ReadRoute => ({ GET, OPTIONS: options });
   return {
-    "/manifest": { GET: () => Response.json({ ok: true, manifest: reads.manifest() }) },
-    "/confirmations": { GET: () => Response.json({ ok: true, pending: reads.pendingConfirmations() }) },
-    "/tool-log": { GET: () => Response.json({ ok: true, entries: reads.toolLog() }) },
-    "/health": { GET: async () => Response.json({ ok: true, ...(await reads.health() as object) }) },
-    "/wiki/list": { GET: async () => Response.json({ ok: true, files: await reads.wikiList() }) },
-    "/wiki/read": {
-      GET: async (req) => {
-        const path = requireParam(req, "path");
-        if (!path) return badRequest("missing ?path");
-        return Response.json({ ok: true, content: await reads.wikiRead(path) });
-      },
-    },
-    "/wiki/grep": {
-      GET: async (req) => {
-        const pattern = requireParam(req, "pattern");
-        if (!pattern) return badRequest("missing ?pattern");
-        return Response.json({ ok: true, matches: await reads.wikiGrep(pattern) });
-      },
-    },
-    "/memory/scroll": {
-      GET: async (req) => {
-        const url = new URL(req.url);
-        const collection = url.searchParams.get("collection");
-        if (!collection) return badRequest("missing ?collection");
-        const limit = Number(url.searchParams.get("limit") ?? "50");
-        const offset = url.searchParams.get("offset") ?? undefined;
-        return Response.json({ ok: true, ...(await reads.memoryScroll(collection, limit, offset) as object) });
-      },
-    },
+    "/manifest": route(() => json({ ok: true, manifest: reads.manifest() })),
+    "/confirmations": route(() => json({ ok: true, pending: reads.pendingConfirmations() })),
+    "/tool-log": route(() => json({ ok: true, entries: reads.toolLog() })),
+    "/health": route(async () => json({ ok: true, ...(await reads.health() as object) })),
+    "/wiki/list": route(async () => json({ ok: true, files: await reads.wikiList() })),
+    "/wiki/read": route(async (req) => {
+      const path = requireParam(req, "path");
+      if (!path) return badRequest("missing ?path");
+      return json({ ok: true, content: await reads.wikiRead(path) });
+    }),
+    "/wiki/grep": route(async (req) => {
+      const pattern = requireParam(req, "pattern");
+      if (!pattern) return badRequest("missing ?pattern");
+      return json({ ok: true, matches: await reads.wikiGrep(pattern) });
+    }),
+    "/memory/scroll": route(async (req) => {
+      const url = new URL(req.url);
+      const collection = url.searchParams.get("collection");
+      if (!collection) return badRequest("missing ?collection");
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const offset = url.searchParams.get("offset") ?? undefined;
+      return json({ ok: true, ...(await reads.memoryScroll(collection, limit, offset) as object) });
+    }),
   };
 }
 
@@ -193,6 +224,7 @@ export type HttpServerDeps = TurnRequestDeps & { port: number; reads?: HttpReads
 /** Starts the HTTP surface: `POST /turn` (4a) plus the read-only routes (4b)
  * when `reads` is supplied. */
 export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.serve> {
+  const origin = deps.corsOrigin ?? "*";
   return Bun.serve({
     port: deps.port,
     // Bind all interfaces inside the container so a published port can reach it
@@ -205,9 +237,13 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     // subprocess — and a timeout there would reset the stream mid-turn.
     idleTimeout: 0,
     routes: {
-      "/turn": { POST: (req) => handleTurnRequest(req, deps) },
-      ...(deps.reads ? readRoutes(deps.reads) : {}),
+      "/turn": { POST: (req) => handleTurnRequest(req, deps), OPTIONS: () => preflight(origin) },
+      ...(deps.reads ? readRoutes(deps.reads, origin) : {}),
     },
-    error: (err) => Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 }),
+    error: (err) =>
+      Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500, headers: corsHeaders(origin) },
+      ),
   });
 }
