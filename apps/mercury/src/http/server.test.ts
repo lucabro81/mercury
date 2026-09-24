@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
+import { createConfirmationStore } from "../tools/confirmation-store.ts";
 
 /**
  * The conversational endpoint's streaming behaviour, exercised without a socket:
@@ -155,6 +156,28 @@ describe("handleTurnRequest", () => {
     expect(captured?.aborted).toBe(true);
   });
 
+  it("delivers no error event to a client that canceled mid-turn, even when the turn then throws", async () => {
+    const handleTurn: HandleTurn = async (turn, sink) => {
+      sink.onTextChunk?.("partial");
+      // On cancel the turn's generation throws (an aborted model call) — this
+      // must not surface as an `error` event: cancellation is a clean stop.
+      await new Promise<void>((_resolve, reject) => {
+        turn.abortSignal?.addEventListener("abort", () => reject(new Error("aborted mid-flight")));
+      });
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    const reader = res.body!.getReader();
+    const first = await reader.read();
+    const seen = first.value ? new TextDecoder().decode(first.value) : "";
+    await reader.cancel();
+    expect(seen).toContain("event: text");
+    expect(seen).not.toContain("event: error");
+  });
+
   it("returns 400 for a body with no text", async () => {
     const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
       handleTurn: async () => {},
@@ -166,50 +189,60 @@ describe("handleTurnRequest", () => {
 });
 
 // An explicit confirmation endpoint: a nicer contract than re-POSTing the bare
-// token as `text` to /turn. Wraps the same tryConfirm every channel uses.
+// token as `text` to /turn. Resolves through the same resolveConfirmation the
+// other channels use — exercised here against a REAL ConfirmationStore, so the
+// `resolved` flag's meaning is actually verified end-to-end.
 describe("handleConfirmRequest", () => {
   const confirmReq = (body: unknown): Request =>
     new Request("http://x/confirm", { method: "POST", body: JSON.stringify(body) });
+  const realDeps = (store: ReturnType<typeof createConfirmationStore>) => ({
+    confirmDeps: { store, vaultPath: "v", writeConfirmationNoteFn: async () => {} } as unknown as HttpConfirmDeps,
+  });
 
-  it("resolves a pending token and returns the confirmation text (with CORS)", async () => {
-    const res = await handleConfirmRequest(confirmReq({ token: "TOK", conversationId: "c" }), {
-      confirmDeps,
-      tryConfirmFn: async () => "Confermato ed eseguito: {}",
-    });
+  it("resolves a pending token (real store) and reports resolved:true with CORS", async () => {
+    const store = createConfirmationStore();
+    const token = store.stage("c", { run: async () => ({ ok: true, data: { deleted: "KAN-1" } }), describe: "delete KAN-1" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
-    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: "Confermato ed eseguito: {}" });
+    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("Confermato ed eseguito") });
   });
 
-  it("reports resolved:false when the token is not a pending confirmation", async () => {
-    const res = await handleConfirmRequest(confirmReq({ token: "nope", conversationId: "c" }), {
-      confirmDeps,
-      tryConfirmFn: async () => null,
-    });
-    expect(await res.json()).toMatchObject({ ok: true, resolved: false });
+  // Regression for the #35 cold review: a well-shaped token that isn't pending
+  // for this conversation must report resolved:false. tryConfirm returns a
+  // canned *string* (not null) for the not-found case, so the original
+  // `reply !== null -> resolved:true` mapping wrongly reported success — a UI
+  // branching on `resolved` would treat an expired/unknown token as confirmed.
+  it("reports resolved:false for a well-shaped token that isn't pending for this conversation", async () => {
+    const store = createConfirmationStore();
+    // A real, correctly-shaped token, but staged for a different session.
+    const token = store.stage("other-session", { run: async () => ({ ok: true, data: {} }), describe: "x" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+    expect(await res.json()).toEqual({ ok: true, resolved: false });
   });
 
-  it("passes the conversationId as the session key to tryConfirm", async () => {
+  it("reports resolved:true even when the staged action's execution fails", async () => {
+    const store = createConfirmationStore();
+    const token = store.stage("c", { run: async () => ({ ok: false, error: "boom" }), describe: "x" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("l'esecuzione è fallita") });
+  });
+
+  it("passes the conversationId as the session key", async () => {
     let seenKey: string | undefined;
-    await handleConfirmRequest(confirmReq({ token: "TOK", conversationId: "conv-9" }), {
+    await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "conv-9" }), {
       confirmDeps,
-      tryConfirmFn: async (_token, sessionKey) => {
+      resolveConfirmationFn: async (_token, sessionKey) => {
         seenKey = sessionKey;
-        return "ok";
+        return { status: "not-found" };
       },
     });
     expect(seenKey).toBe("conv-9");
   });
 
   it("returns 400 when token or conversationId is missing", async () => {
-    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), {
-      confirmDeps,
-      tryConfirmFn: async () => null,
-    });
+    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), { confirmDeps });
     expect(noToken.status).toBe(400);
-    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), {
-      confirmDeps,
-      tryConfirmFn: async () => null,
-    });
+    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), { confirmDeps });
     expect(noConv.status).toBe(400);
   });
 });

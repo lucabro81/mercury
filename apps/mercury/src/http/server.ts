@@ -17,7 +17,7 @@
  * outside the container network (see `src/index.ts`'s enable gate), the same
  * posture as the admin panel.
  */
-import { tryConfirm } from "../router/confirm-flow.ts";
+import { tryConfirm, resolveConfirmation } from "../router/confirm-flow.ts";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { HandleTurn, TurnSink } from "../router/provider.ts";
@@ -198,18 +198,20 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 export type ConfirmRequestDeps = {
   confirmDeps: HttpConfirmDeps;
   corsOrigin?: string;
-  /** Test seam; defaults to the real `tryConfirm`. */
-  tryConfirmFn?: typeof tryConfirm;
+  /** Test seam; defaults to the real `resolveConfirmation`. */
+  resolveConfirmationFn?: typeof resolveConfirmation;
 };
 
 /**
  * `POST /confirm { token, conversationId }` — the explicit confirmation
  * endpoint. A nicer contract for a UI than re-POSTing the bare token as `text`
- * to `/turn`, but the exact same mechanism underneath: it runs the token
- * through the same `tryConfirm` every channel uses, keyed on `conversationId`
- * as the session. `resolved: true` (+ the reply `text`) when the token was a
- * pending confirmation, `resolved: false` when it wasn't (unknown/expired/
- * already used). Never touches the model.
+ * to `/turn`, but the exact same mechanism underneath: it resolves the token
+ * through the same `resolveConfirmation` `tryConfirm` uses, keyed on
+ * `conversationId` as the session. `resolved: true` means the token matched a
+ * pending confirmation and its staged action was consumed and run; the `text`
+ * then reports whether that execution succeeded. `resolved: false` means the
+ * token was not a pending confirmation (unknown, expired, already used, or not
+ * even token-shaped). Never touches the model.
  */
 export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDeps): Promise<Response> {
   const cors = corsHeaders(deps.corsOrigin ?? "*");
@@ -224,11 +226,17 @@ export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDep
   if (token.length === 0 || sessionKey.length === 0) {
     return Response.json({ ok: false, error: "missing token or conversationId" }, { status: 400, headers: cors });
   }
-  const tryConfirmFn = deps.tryConfirmFn ?? tryConfirm;
-  const reply = await tryConfirmFn(token, sessionKey, { ...deps.confirmDeps, userId: sessionKey });
-  return reply !== null
-    ? Response.json({ ok: true, resolved: true, text: reply }, { headers: cors })
-    : Response.json({ ok: true, resolved: false }, { headers: cors });
+  const resolveFn = deps.resolveConfirmationFn ?? resolveConfirmation;
+  const outcome = await resolveFn(token, sessionKey, { ...deps.confirmDeps, userId: sessionKey });
+  switch (outcome.status) {
+    case "not-a-token":
+    case "not-found":
+      return Response.json({ ok: true, resolved: false }, { headers: cors });
+    case "ok":
+      return Response.json({ ok: true, resolved: true, text: `Confermato ed eseguito: ${JSON.stringify(outcome.data)}` }, { headers: cors });
+    case "failed":
+      return Response.json({ ok: true, resolved: true, text: `Confermato, ma l'esecuzione è fallita: ${outcome.error}` }, { headers: cors });
+  }
 }
 
 /**
@@ -332,7 +340,7 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     routes: {
       "/turn": { POST: (req) => handleTurnRequest(req, deps), OPTIONS: () => preflight(origin) },
       "/confirm": {
-        POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin, tryConfirmFn: deps.tryConfirmFn }),
+        POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin }),
         OPTIONS: () => preflight(origin),
       },
       "/openapi.yaml": { GET: () => openApiResponse(origin), OPTIONS: () => preflight(origin) },
