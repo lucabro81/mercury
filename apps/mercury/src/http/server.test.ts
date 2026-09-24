@@ -172,6 +172,7 @@ describe("CORS", () => {
     manifest: () => ({ plugins: [] }),
     pendingConfirmations: () => [],
     conversation: async () => ({ messages: [], nextOffset: null }),
+    conversations: async () => ({ conversations: [] }),
     wikiList: async () => [],
     wikiRead: async () => "",
     wikiGrep: async () => [],
@@ -227,6 +228,7 @@ describe("GET /conversation", () => {
     manifest: () => ({}),
     pendingConfirmations: () => [],
     conversation: async () => ({ messages: [], nextOffset: null }),
+    conversations: async () => ({ conversations: [] }),
     wikiList: async () => [],
     wikiRead: async () => "",
     wikiGrep: async () => [],
@@ -260,5 +262,23 @@ describe("GET /conversation", () => {
     expect(payload.ok).toBe(true);
     expect(payload.messages).toHaveLength(1);
     expect(payload.nextOffset).toBeNull();
+  });
+
+  it("GET /conversations lists conversations and forwards the limit", async () => {
+    let seenLimit: number | undefined;
+    const reads: HttpReads = {
+      ...baseReads,
+      conversations: async (limit) => {
+        seenLimit = limit;
+        return { conversations: [{ sessionKey: "conv-1", lastTimestamp: "t", preview: "hi" }] };
+      },
+    };
+    const res = await readRoutes(reads)["/conversations"]!.GET(
+      new Request("http://x/conversations?limit=5"),
+    );
+    const payload = (await res.json()) as { ok: boolean; conversations: unknown[] };
+    expect(seenLimit).toBe(5);
+    expect(payload.ok).toBe(true);
+    expect(payload.conversations).toHaveLength(1);
   });
 });

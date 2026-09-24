@@ -111,6 +111,61 @@ export async function searchVerbatim(
   return results.points.map((r) => r.payload ?? null).filter(isVerbatimMessage);
 }
 
+/**
+ * How many recent messages `listVerbatimSessions` scans to build the
+ * conversation list. Qdrant has no native DISTINCT, so we dedup client-side
+ * over a bounded window of the newest points — a conversation whose newest
+ * message falls outside this window won't appear. Ample for a live-testing UI
+ * sidebar; retention/aggregation is a separate later concern.
+ */
+const SESSION_SCAN_LIMIT = 500;
+
+/** One conversation in the list view: its key, the timestamp of its most recent message, and a short preview of it. */
+export type VerbatimSession = {
+  sessionKey: string;
+  lastTimestamp: string;
+  preview: string;
+};
+
+/** Max characters of the most-recent message shown as a conversation's preview. */
+const PREVIEW_CHARS = 120;
+
+/**
+ * The known conversations, most-recently-active first — the sidebar a UI shows
+ * to switch between conversations. Scrolls the newest `SESSION_SCAN_LIMIT`
+ * messages (timestamp desc) and dedups by `sessionKey`, keeping each
+ * conversation's most recent message for its timestamp and preview, then caps
+ * the result at `limit`. Returns empty if the client can't scroll.
+ */
+export async function listVerbatimSessions(
+  client: QdrantClientLike,
+  collectionName: string,
+  query: { limit: number },
+): Promise<{ conversations: VerbatimSession[] }> {
+  if (!client.scroll) {
+    return { conversations: [] };
+  }
+  const result = await client.scroll(collectionName, {
+    filter: { must: [] },
+    order_by: { key: "timestamp", direction: "desc" },
+    limit: SESSION_SCAN_LIMIT,
+    with_payload: true,
+  });
+  const messages = result.points.map((p) => p.payload ?? null).filter(isVerbatimMessage);
+  const seen = new Map<string, VerbatimSession>();
+  for (const m of messages) {
+    if (seen.has(m.sessionKey)) {
+      continue; // desc order → first occurrence is the most recent
+    }
+    seen.set(m.sessionKey, {
+      sessionKey: m.sessionKey,
+      lastTimestamp: m.timestamp,
+      preview: m.content.length <= PREVIEW_CHARS ? m.content : `${m.content.slice(0, PREVIEW_CHARS)}…`,
+    });
+  }
+  return { conversations: [...seen.values()].slice(0, query.limit) };
+}
+
 /** A page of a conversation's verbatim messages, plus the opaque cursor for the next page (null when exhausted). */
 export type VerbatimPage = {
   messages: VerbatimMessage[];

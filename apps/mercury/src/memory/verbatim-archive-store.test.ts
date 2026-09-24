@@ -4,6 +4,7 @@ import {
   appendVerbatimMessage,
   searchVerbatim,
   listVerbatimBySession,
+  listVerbatimSessions,
 } from "./verbatim-archive-store.ts";
 import type { QdrantClientLike } from "./episodic-store.ts";
 
@@ -391,5 +392,77 @@ describe("listVerbatimBySession", () => {
       messages: [],
       nextOffset: null,
     });
+  });
+});
+
+describe("listVerbatimSessions", () => {
+  const msg = (sessionKey: string, content: string, timestamp: string) => ({
+    userId: "u",
+    sessionKey,
+    role: "user" as const,
+    content,
+    timestamp,
+  });
+
+  it("scrolls newest-first and dedups by sessionKey, keeping each conversation's most recent message", async () => {
+    let received: { params: Record<string, unknown> } | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async (_collection, params) => {
+        received = { params };
+        return {
+          points: [
+            { id: "p1", payload: msg("conv-b", "latest in b", "2026-09-24T12:00:03.000Z") },
+            { id: "p2", payload: msg("conv-a", "latest in a", "2026-09-24T12:00:02.000Z") },
+            { id: "p3", payload: msg("conv-b", "older in b", "2026-09-24T12:00:01.000Z") },
+            { id: "p4", payload: msg("conv-a", "older in a", "2026-09-24T12:00:00.000Z") },
+          ],
+        };
+      },
+    };
+
+    const result = await listVerbatimSessions(client, "verbatim_archive", { limit: 10 });
+
+    expect((received?.params as { order_by: unknown }).order_by).toEqual({ key: "timestamp", direction: "desc" });
+    expect(result).toEqual({
+      conversations: [
+        { sessionKey: "conv-b", lastTimestamp: "2026-09-24T12:00:03.000Z", preview: "latest in b" },
+        { sessionKey: "conv-a", lastTimestamp: "2026-09-24T12:00:02.000Z", preview: "latest in a" },
+      ],
+    });
+  });
+
+  it("caps the number of returned conversations at limit", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async () => ({
+        points: [
+          { id: "p1", payload: msg("conv-a", "a", "2026-09-24T12:00:03.000Z") },
+          { id: "p2", payload: msg("conv-b", "b", "2026-09-24T12:00:02.000Z") },
+          { id: "p3", payload: msg("conv-c", "c", "2026-09-24T12:00:01.000Z") },
+        ],
+      }),
+    };
+
+    const result = await listVerbatimSessions(client, "verbatim_archive", { limit: 2 });
+
+    expect(result.conversations.map((c) => c.sessionKey)).toEqual(["conv-a", "conv-b"]);
+  });
+
+  it("returns empty when the client has no scroll support", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+    };
+
+    expect(await listVerbatimSessions(client, "verbatim_archive", { limit: 10 })).toEqual({ conversations: [] });
   });
 });

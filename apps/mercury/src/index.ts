@@ -57,7 +57,7 @@ import {
   storeEpisodicSummary,
   getLastSessionEpisodicSummaries,
 } from "./memory/episodic-store.ts";
-import { ensureVerbatimCollection, listVerbatimBySession } from "./memory/verbatim-archive-store.ts";
+import { ensureVerbatimCollection, listVerbatimBySession, listVerbatimSessions } from "./memory/verbatim-archive-store.ts";
 import { createVerbatimArchiveProvider } from "./memory/memory-provider.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
 import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
@@ -672,6 +672,7 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
       // in the HTTP surface the client's conversationId is the sessionKey.
       conversation: (sessionKey, limit, offset) =>
         listVerbatimBySession(qdrant, verbatimCollection, { sessionKey, limit, offset }),
+      conversations: (limit) => listVerbatimSessions(qdrant, verbatimCollection, { limit }),
       wikiList: () => listWikiVault(wikiVaultPath),
       wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
       wikiGrep: (pattern) => grepWikiVault(wikiVaultPath, pattern),

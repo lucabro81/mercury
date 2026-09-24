@@ -194,6 +194,8 @@ export type HttpReads = {
   pendingConfirmations: () => unknown;
   /** A conversation's durable verbatim transcript, chronological, paginated. */
   conversation: (sessionKey: string, limit: number, offset?: string) => Promise<unknown>;
+  /** The known conversations, most-recently-active first (sidebar view). */
+  conversations: (limit: number) => Promise<unknown>;
   wikiList: () => Promise<unknown>;
   wikiRead: (path: string) => Promise<unknown>;
   wikiGrep: (pattern: string) => Promise<unknown>;
@@ -232,6 +234,10 @@ export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, R
       const limit = Number(url.searchParams.get("limit") ?? "200");
       const offset = url.searchParams.get("offset") ?? undefined;
       return json({ ok: true, ...(await reads.conversation(id, limit, offset) as object) });
+    }),
+    "/conversations": route(async (req) => {
+      const limit = Number(new URL(req.url).searchParams.get("limit") ?? "50");
+      return json({ ok: true, ...(await reads.conversations(limit) as object) });
     }),
     "/tool-log": route(() => json({ ok: true, entries: reads.toolLog() })),
     "/health": route(async () => json({ ok: true, ...(await reads.health() as object) })),
