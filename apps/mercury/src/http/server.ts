@@ -182,6 +182,42 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
   return new Response(stream, { headers: { ...SSE_HEADERS, ...cors } });
 }
 
+export type ConfirmRequestDeps = {
+  confirmDeps: HttpConfirmDeps;
+  corsOrigin?: string;
+  /** Test seam; defaults to the real `tryConfirm`. */
+  tryConfirmFn?: typeof tryConfirm;
+};
+
+/**
+ * `POST /confirm { token, conversationId }` — the explicit confirmation
+ * endpoint. A nicer contract for a UI than re-POSTing the bare token as `text`
+ * to `/turn`, but the exact same mechanism underneath: it runs the token
+ * through the same `tryConfirm` every channel uses, keyed on `conversationId`
+ * as the session. `resolved: true` (+ the reply `text`) when the token was a
+ * pending confirmation, `resolved: false` when it wasn't (unknown/expired/
+ * already used). Never touches the model.
+ */
+export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDeps): Promise<Response> {
+  const cors = corsHeaders(deps.corsOrigin ?? "*");
+  let body: { token?: unknown; conversationId?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400, headers: cors });
+  }
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  const sessionKey = typeof body.conversationId === "string" ? body.conversationId.trim() : "";
+  if (token.length === 0 || sessionKey.length === 0) {
+    return Response.json({ ok: false, error: "missing token or conversationId" }, { status: 400, headers: cors });
+  }
+  const tryConfirmFn = deps.tryConfirmFn ?? tryConfirm;
+  const reply = await tryConfirmFn(token, sessionKey, { ...deps.confirmDeps, userId: sessionKey });
+  return reply !== null
+    ? Response.json({ ok: true, resolved: true, text: reply }, { headers: cors })
+    : Response.json({ ok: true, resolved: false }, { headers: cors });
+}
+
 /**
  * Read-only introspection getters (4b), injected by the composition root so
  * this server stays decoupled from Qdrant, the vault, and the plugin list — it
@@ -282,6 +318,10 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     idleTimeout: 0,
     routes: {
       "/turn": { POST: (req) => handleTurnRequest(req, deps), OPTIONS: () => preflight(origin) },
+      "/confirm": {
+        POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin, tryConfirmFn: deps.tryConfirmFn }),
+        OPTIONS: () => preflight(origin),
+      },
       ...(deps.reads ? readRoutes(deps.reads, origin) : {}),
     },
     error: (err) =>

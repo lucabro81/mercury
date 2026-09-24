@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { handleTurnRequest, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
+import { handleTurnRequest, handleConfirmRequest, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
 
@@ -162,6 +162,55 @@ describe("handleTurnRequest", () => {
       tryConfirmFn: async () => null,
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// An explicit confirmation endpoint: a nicer contract than re-POSTing the bare
+// token as `text` to /turn. Wraps the same tryConfirm every channel uses.
+describe("handleConfirmRequest", () => {
+  const confirmReq = (body: unknown): Request =>
+    new Request("http://x/confirm", { method: "POST", body: JSON.stringify(body) });
+
+  it("resolves a pending token and returns the confirmation text (with CORS)", async () => {
+    const res = await handleConfirmRequest(confirmReq({ token: "TOK", conversationId: "c" }), {
+      confirmDeps,
+      tryConfirmFn: async () => "Confermato ed eseguito: {}",
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: "Confermato ed eseguito: {}" });
+  });
+
+  it("reports resolved:false when the token is not a pending confirmation", async () => {
+    const res = await handleConfirmRequest(confirmReq({ token: "nope", conversationId: "c" }), {
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(await res.json()).toMatchObject({ ok: true, resolved: false });
+  });
+
+  it("passes the conversationId as the session key to tryConfirm", async () => {
+    let seenKey: string | undefined;
+    await handleConfirmRequest(confirmReq({ token: "TOK", conversationId: "conv-9" }), {
+      confirmDeps,
+      tryConfirmFn: async (_token, sessionKey) => {
+        seenKey = sessionKey;
+        return "ok";
+      },
+    });
+    expect(seenKey).toBe("conv-9");
+  });
+
+  it("returns 400 when token or conversationId is missing", async () => {
+    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), {
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(noToken.status).toBe(400);
+    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), {
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(noConv.status).toBe(400);
   });
 });
 
