@@ -96,11 +96,29 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 
   const tryConfirmFn = deps.tryConfirmFn ?? tryConfirm;
 
+  // Aborted when the client disconnects (see the stream's `cancel` below) so
+  // the in-flight turn stops instead of running to completion — the "stop"
+  // affordance for a diverging generation.
+  const abort = new AbortController();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
+      // Once the client is gone the controller is closed; enqueuing then throws.
+      // Swallow it — there's no consumer left to receive the event anyway.
       const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          /* stream already closed/canceled */
+        }
+      };
+      const close = () => {
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       };
 
       // Same deterministic interception as every other channel — a
@@ -111,7 +129,7 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
       });
       if (confirmReply !== null) {
         send("final", { text: confirmReply });
-        controller.close();
+        close();
         return;
       }
 
@@ -141,13 +159,23 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
             sessionKey,
             wikiUserId: sessionKey,
             logPrefix: `[http:${sessionKey}] `,
+            abortSignal: abort.signal,
           },
           sink,
         );
       } catch (err) {
-        send("error", { message: err instanceof Error ? err.message : String(err) });
+        // A client-initiated cancellation is a clean stop, not a failure —
+        // don't surface it as an `error` event (and there's no client left).
+        if (!abort.signal.aborted) {
+          send("error", { message: err instanceof Error ? err.message : String(err) });
+        }
       }
-      controller.close();
+      close();
+    },
+    // Fires when the client disconnects (closes the EventSource / aborts the
+    // fetch): abort the in-flight turn so generation stops promptly.
+    cancel() {
+      abort.abort();
     },
   });
 

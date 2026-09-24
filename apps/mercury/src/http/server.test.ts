@@ -134,6 +134,27 @@ describe("handleTurnRequest", () => {
     expect(body).toContain("model exploded");
   });
 
+  it("aborts the in-flight turn's signal when the client cancels the stream (stop button)", async () => {
+    let captured: AbortSignal | undefined;
+    const handleTurn: HandleTurn = async (turn) => {
+      captured = turn.abortSignal;
+      // A long turn that only unblocks when the client cancels.
+      await new Promise<void>((resolve) => {
+        turn.abortSignal?.addEventListener("abort", () => resolve());
+      });
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    // Let start() reach handleTurn (signal captured, listener registered)...
+    await new Promise((r) => setTimeout(r, 5));
+    // ...then disconnect as a browser stop button would.
+    await res.body!.cancel();
+    expect(captured?.aborted).toBe(true);
+  });
+
   it("returns 400 for a body with no text", async () => {
     const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
       handleTurn: async () => {},
