@@ -42,6 +42,30 @@ describe("handleTurnRequest", () => {
     expect(seen?.wikiUserId).toBe("conv-1");
   });
 
+  it("streams multiple text/reasoning deltas incrementally, all before the final event (never one block)", async () => {
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("th", "r1");
+      sink.onReasoningChunk?.("inking", "r1");
+      sink.onTextChunk?.("Hel");
+      sink.onTextChunk?.("lo ");
+      sink.onTextChunk?.("world");
+      await sink.finalize("Hello world");
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    const body = await res.text();
+    // At least two incremental text deltas arrived...
+    const textEvents = body.match(/event: text/g) ?? [];
+    expect(textEvents.length).toBeGreaterThanOrEqual(2);
+    expect((body.match(/event: reasoning/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // ...and every delta was emitted before the final event, not batched after it.
+    expect(body.lastIndexOf("event: text")).toBeLessThan(body.indexOf("event: final"));
+    expect(body.lastIndexOf("event: reasoning")).toBeLessThan(body.indexOf("event: final"));
+  });
+
   it("resolves a confirmation token via tryConfirm without ever calling the model", async () => {
     let modelCalled = false;
     const handleTurn: HandleTurn = async () => {
