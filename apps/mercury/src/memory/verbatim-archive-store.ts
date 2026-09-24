@@ -36,7 +36,13 @@ export async function ensureVerbatimCollection(
     await client.createCollection(collectionName, { vectors: { size: vectorSize, distance: "Cosine" } });
   }
   if (client.createPayloadIndex) {
+    // `userId` for searchVerbatim's per-person filter; `sessionKey` for
+    // listVerbatimBySession's per-conversation filter; `timestamp` (datetime)
+    // for its chronological `order_by`. Qdrant rejects a filter/order_by on an
+    // unindexed field with a 400, so all three must exist.
     await client.createPayloadIndex(collectionName, { field_name: "userId", field_schema: "keyword" });
+    await client.createPayloadIndex(collectionName, { field_name: "sessionKey", field_schema: "keyword" });
+    await client.createPayloadIndex(collectionName, { field_name: "timestamp", field_schema: "datetime" });
   }
 }
 
@@ -103,4 +109,39 @@ export async function searchVerbatim(
     with_payload: true,
   });
   return results.points.map((r) => r.payload ?? null).filter(isVerbatimMessage);
+}
+
+/** A page of a conversation's verbatim messages, plus the opaque cursor for the next page (null when exhausted). */
+export type VerbatimPage = {
+  messages: VerbatimMessage[];
+  nextOffset: string | number | Record<string, unknown> | null;
+};
+
+/**
+ * The verbatim messages of one conversation (`sessionKey`) in chronological
+ * order — the durable transcript a UI renders when it (re)loads a conversation.
+ * Unlike `searchVerbatim` this is a plain scroll (no similarity), filtered by
+ * `sessionKey` (the true per-conversation key; in the HTTP surface it equals
+ * the client's `conversationId`) and ordered by `timestamp` ascending, paged
+ * via the opaque `offset` cursor. Returns empty if the client can't scroll.
+ */
+export async function listVerbatimBySession(
+  client: QdrantClientLike,
+  collectionName: string,
+  query: { sessionKey: string; limit: number; offset?: string | number | Record<string, unknown> | null },
+): Promise<VerbatimPage> {
+  if (!client.scroll) {
+    return { messages: [], nextOffset: null };
+  }
+  const result = await client.scroll(collectionName, {
+    filter: { must: [{ key: "sessionKey", match: { value: query.sessionKey } }] },
+    order_by: { key: "timestamp", direction: "asc" },
+    limit: query.limit,
+    offset: query.offset,
+    with_payload: true,
+  });
+  return {
+    messages: result.points.map((p) => p.payload ?? null).filter(isVerbatimMessage),
+    nextOffset: result.next_page_offset ?? null,
+  };
 }

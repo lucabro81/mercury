@@ -192,6 +192,8 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 export type HttpReads = {
   manifest: () => unknown;
   pendingConfirmations: () => unknown;
+  /** A conversation's durable verbatim transcript, chronological, paginated. */
+  conversation: (sessionKey: string, limit: number, offset?: string) => Promise<unknown>;
   wikiList: () => Promise<unknown>;
   wikiRead: (path: string) => Promise<unknown>;
   wikiGrep: (pattern: string) => Promise<unknown>;
@@ -223,6 +225,14 @@ export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, R
   return {
     "/manifest": route(() => json({ ok: true, manifest: reads.manifest() })),
     "/confirmations": route(() => json({ ok: true, pending: reads.pendingConfirmations() })),
+    "/conversation": route(async (req) => {
+      const url = new URL(req.url);
+      const id = url.searchParams.get("id");
+      if (!id) return badRequest("missing ?id");
+      const limit = Number(url.searchParams.get("limit") ?? "200");
+      const offset = url.searchParams.get("offset") ?? undefined;
+      return json({ ok: true, ...(await reads.conversation(id, limit, offset) as object) });
+    }),
     "/tool-log": route(() => json({ ok: true, entries: reads.toolLog() })),
     "/health": route(async () => json({ ok: true, ...(await reads.health() as object) })),
     "/wiki/list": route(async () => json({ ok: true, files: await reads.wikiList() })),

@@ -171,6 +171,7 @@ describe("CORS", () => {
   const reads: HttpReads = {
     manifest: () => ({ plugins: [] }),
     pendingConfirmations: () => [],
+    conversation: async () => ({ messages: [], nextOffset: null }),
     wikiList: async () => [],
     wikiRead: async () => "",
     wikiGrep: async () => [],
@@ -217,5 +218,47 @@ describe("CORS", () => {
     });
     expect(res.status).toBe(400);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
+// A UI reloading a conversation reads its durable transcript back here.
+describe("GET /conversation", () => {
+  const baseReads: HttpReads = {
+    manifest: () => ({}),
+    pendingConfirmations: () => [],
+    conversation: async () => ({ messages: [], nextOffset: null }),
+    wikiList: async () => [],
+    wikiRead: async () => "",
+    wikiGrep: async () => [],
+    memoryScroll: async () => ({ points: [] }),
+    toolLog: () => [],
+    health: async () => ({}),
+  };
+
+  it("returns 400 when ?id is missing", async () => {
+    const res = await readRoutes(baseReads)["/conversation"]!.GET(new Request("http://x/conversation"));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns the conversation's messages and forwards id/limit/offset to the getter", async () => {
+    let seen: { id: string; limit: number; offset?: string } | undefined;
+    const reads: HttpReads = {
+      ...baseReads,
+      conversation: async (id, limit, offset) => {
+        seen = { id, limit, offset };
+        return {
+          messages: [{ role: "user", content: "hi", timestamp: "2026-09-24T10:00:00.000Z" }],
+          nextOffset: null,
+        };
+      },
+    };
+    const res = await readRoutes(reads)["/conversation"]!.GET(
+      new Request("http://x/conversation?id=conv-1&limit=10&offset=cur"),
+    );
+    const payload = (await res.json()) as { ok: boolean; messages: unknown[]; nextOffset: unknown };
+    expect(seen).toEqual({ id: "conv-1", limit: 10, offset: "cur" });
+    expect(payload.ok).toBe(true);
+    expect(payload.messages).toHaveLength(1);
+    expect(payload.nextOffset).toBeNull();
   });
 });

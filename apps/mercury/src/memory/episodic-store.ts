@@ -35,8 +35,19 @@ export type QdrantClientLike = {
    */
   scroll?(
     name: string,
-    params: { filter: Record<string, unknown>; order_by: { key: string; direction: "asc" | "desc" }; limit: number },
-  ): Promise<{ points: Array<{ id: string | number; payload?: Record<string, unknown> | null }> }>;
+    params: {
+      filter: Record<string, unknown>;
+      order_by: { key: string; direction: "asc" | "desc" };
+      limit: number;
+      /** Opaque pagination cursor (from a prior page's `next_page_offset`). */
+      offset?: string | number | Record<string, unknown> | null;
+      /** Whether to return point payloads (`listVerbatimBySession` needs them). */
+      with_payload?: boolean;
+    },
+  ): Promise<{
+    points: Array<{ id: string | number; payload?: Record<string, unknown> | null }>;
+    next_page_offset?: string | number | Record<string, unknown> | null;
+  }>;
   /** Optional — same reasoning as `scroll` above: only `ensureEpisodicCollection` needs it. */
   createPayloadIndex?(name: string, params: { field_name: string; field_schema: "datetime" | "keyword" }): Promise<unknown>;
 };
