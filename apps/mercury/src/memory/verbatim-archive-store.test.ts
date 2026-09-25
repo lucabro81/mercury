@@ -3,6 +3,8 @@ import {
   ensureVerbatimCollection,
   appendVerbatimMessage,
   searchVerbatim,
+  listVerbatimBySession,
+  listVerbatimSessions,
 } from "./verbatim-archive-store.ts";
 import type { QdrantClientLike } from "./episodic-store.ts";
 
@@ -44,12 +46,13 @@ describe("ensureVerbatimCollection", () => {
     expect(createCalls).toBe(0);
   });
 
-  // searchVerbatim filters by userId server-side; a keyword index on the
-  // field keeps that filter usable as the archive grows. Ensured
-  // unconditionally (not only on fresh creation) so a collection made
-  // before this existed self-heals — same self-healing reasoning as
+  // searchVerbatim filters by userId; listVerbatimBySession filters by
+  // sessionKey and orders by timestamp. Each needs its own payload index
+  // (keyword for the equality filters, datetime for the order_by), or the
+  // query fails with an HTTP 400. Ensured unconditionally (not only on fresh
+  // creation) so a collection made before this self-heals — same reasoning as
   // episodic-store's index guard.
-  it("creates the userId payload index when creating a new collection", async () => {
+  it("creates the userId, sessionKey and timestamp payload indexes when creating a new collection", async () => {
     const indexCalls: Array<{ name: string; params: unknown }> = [];
     const client: QdrantClientLike = {
       getCollections: async () => ({ collections: [] }),
@@ -66,10 +69,12 @@ describe("ensureVerbatimCollection", () => {
 
     expect(indexCalls).toEqual([
       { name: "verbatim_archive", params: { field_name: "userId", field_schema: "keyword" } },
+      { name: "verbatim_archive", params: { field_name: "sessionKey", field_schema: "keyword" } },
+      { name: "verbatim_archive", params: { field_name: "timestamp", field_schema: "datetime" } },
     ]);
   });
 
-  it("creates the userId payload index even when the collection already exists", async () => {
+  it("creates the payload indexes even when the collection already exists", async () => {
     const indexCalls: Array<{ name: string; params: unknown }> = [];
     const client: QdrantClientLike = {
       getCollections: async () => ({ collections: [{ name: "verbatim_archive" }] }),
@@ -84,7 +89,7 @@ describe("ensureVerbatimCollection", () => {
 
     await ensureVerbatimCollection(client, "verbatim_archive", 768);
 
-    expect(indexCalls).toHaveLength(1);
+    expect(indexCalls).toHaveLength(3);
   });
 
   it("does not throw when the client doesn't support createPayloadIndex", async () => {
@@ -282,5 +287,182 @@ describe("searchVerbatim", () => {
     const embed = async () => [0, 0, 0];
 
     expect(await searchVerbatim(client, "verbatim_archive", embed, { userId: "users/42", queryText: "x" })).toEqual([]);
+  });
+});
+
+describe("listVerbatimBySession", () => {
+  const msg = (sessionKey: string, role: "user" | "assistant", content: string, timestamp: string) => ({
+    userId: "u",
+    sessionKey,
+    role,
+    content,
+    timestamp,
+  });
+
+  it("scrolls the session's messages filtered by sessionKey, ordered by timestamp ascending", async () => {
+    let received: { collection: string; params: Record<string, unknown> } | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async (collection, params) => {
+        received = { collection, params };
+        return {
+          points: [
+            { id: "p1", payload: msg("conv-1", "user", "ciao", "2026-09-22T12:00:00.000Z") },
+            { id: "p2", payload: msg("conv-1", "assistant", "ciao a te", "2026-09-22T12:00:01.000Z") },
+          ],
+          next_page_offset: "cursor-2",
+        };
+      },
+    };
+
+    const result = await listVerbatimBySession(client, "verbatim_archive", { sessionKey: "conv-1", limit: 50 });
+
+    expect(received?.collection).toBe("verbatim_archive");
+    expect(received?.params).toEqual({
+      filter: { must: [{ key: "sessionKey", match: { value: "conv-1" } }] },
+      order_by: { key: "timestamp", direction: "asc" },
+      limit: 50,
+      offset: undefined,
+      with_payload: true,
+    });
+    expect(result).toEqual({
+      messages: [
+        msg("conv-1", "user", "ciao", "2026-09-22T12:00:00.000Z"),
+        msg("conv-1", "assistant", "ciao a te", "2026-09-22T12:00:01.000Z"),
+      ],
+      nextOffset: "cursor-2",
+    });
+  });
+
+  it("forwards the pagination offset and reports null when there is no next page", async () => {
+    let receivedOffset: unknown;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async (_collection, params) => {
+        receivedOffset = params.offset;
+        return { points: [] };
+      },
+    };
+
+    const result = await listVerbatimBySession(client, "verbatim_archive", {
+      sessionKey: "conv-1",
+      limit: 10,
+      offset: "cursor-1",
+    });
+
+    expect(receivedOffset).toBe("cursor-1");
+    expect(result).toEqual({ messages: [], nextOffset: null });
+  });
+
+  it("skips malformed points instead of returning them", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async () => ({
+        points: [
+          { id: "p1", payload: null },
+          { id: "p2", payload: { content: 42 } },
+          { id: "p3", payload: msg("conv-1", "assistant", "valid", "2026-09-22T12:00:02.000Z") },
+        ],
+      }),
+    };
+
+    const result = await listVerbatimBySession(client, "verbatim_archive", { sessionKey: "conv-1", limit: 50 });
+
+    expect(result.messages).toEqual([msg("conv-1", "assistant", "valid", "2026-09-22T12:00:02.000Z")]);
+  });
+
+  it("returns empty when the client has no scroll support", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+    };
+
+    expect(await listVerbatimBySession(client, "verbatim_archive", { sessionKey: "conv-1", limit: 50 })).toEqual({
+      messages: [],
+      nextOffset: null,
+    });
+  });
+});
+
+describe("listVerbatimSessions", () => {
+  const msg = (sessionKey: string, content: string, timestamp: string) => ({
+    userId: "u",
+    sessionKey,
+    role: "user" as const,
+    content,
+    timestamp,
+  });
+
+  it("scrolls newest-first and dedups by sessionKey, keeping each conversation's most recent message", async () => {
+    let received: { params: Record<string, unknown> } | undefined;
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async (_collection, params) => {
+        received = { params };
+        return {
+          points: [
+            { id: "p1", payload: msg("conv-b", "latest in b", "2026-09-24T12:00:03.000Z") },
+            { id: "p2", payload: msg("conv-a", "latest in a", "2026-09-24T12:00:02.000Z") },
+            { id: "p3", payload: msg("conv-b", "older in b", "2026-09-24T12:00:01.000Z") },
+            { id: "p4", payload: msg("conv-a", "older in a", "2026-09-24T12:00:00.000Z") },
+          ],
+        };
+      },
+    };
+
+    const result = await listVerbatimSessions(client, "verbatim_archive", { limit: 10 });
+
+    expect((received?.params as { order_by: unknown }).order_by).toEqual({ key: "timestamp", direction: "desc" });
+    expect(result).toEqual({
+      conversations: [
+        { sessionKey: "conv-b", lastTimestamp: "2026-09-24T12:00:03.000Z", preview: "latest in b" },
+        { sessionKey: "conv-a", lastTimestamp: "2026-09-24T12:00:02.000Z", preview: "latest in a" },
+      ],
+    });
+  });
+
+  it("caps the number of returned conversations at limit", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+      scroll: async () => ({
+        points: [
+          { id: "p1", payload: msg("conv-a", "a", "2026-09-24T12:00:03.000Z") },
+          { id: "p2", payload: msg("conv-b", "b", "2026-09-24T12:00:02.000Z") },
+          { id: "p3", payload: msg("conv-c", "c", "2026-09-24T12:00:01.000Z") },
+        ],
+      }),
+    };
+
+    const result = await listVerbatimSessions(client, "verbatim_archive", { limit: 2 });
+
+    expect(result.conversations.map((c) => c.sessionKey)).toEqual(["conv-a", "conv-b"]);
+  });
+
+  it("returns empty when the client has no scroll support", async () => {
+    const client: QdrantClientLike = {
+      getCollections: async () => ({ collections: [] }),
+      createCollection: async () => ({}),
+      upsert: async () => ({}),
+      query: async () => ({ points: [] }),
+    };
+
+    expect(await listVerbatimSessions(client, "verbatim_archive", { limit: 10 })).toEqual({ conversations: [] });
   });
 });

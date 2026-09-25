@@ -1,7 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { handleTurnRequest, type HttpConfirmDeps } from "./server.ts";
+import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
+import { createConfirmationStore } from "../tools/confirmation-store.ts";
 
 /**
  * The conversational endpoint's streaming behaviour, exercised without a socket:
@@ -40,6 +41,30 @@ describe("handleTurnRequest", () => {
     expect(seen?.channel).toBe("http");
     expect(seen?.multiUser).toBe(false);
     expect(seen?.wikiUserId).toBe("conv-1");
+  });
+
+  it("streams multiple text/reasoning deltas incrementally, all before the final event (never one block)", async () => {
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("th", "r1");
+      sink.onReasoningChunk?.("inking", "r1");
+      sink.onTextChunk?.("Hel");
+      sink.onTextChunk?.("lo ");
+      sink.onTextChunk?.("world");
+      await sink.finalize("Hello world");
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    const body = await res.text();
+    // At least two incremental text deltas arrived...
+    const textEvents = body.match(/event: text/g) ?? [];
+    expect(textEvents.length).toBeGreaterThanOrEqual(2);
+    expect((body.match(/event: reasoning/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // ...and every delta was emitted before the final event, not batched after it.
+    expect(body.lastIndexOf("event: text")).toBeLessThan(body.indexOf("event: final"));
+    expect(body.lastIndexOf("event: reasoning")).toBeLessThan(body.indexOf("event: final"));
   });
 
   it("resolves a confirmation token via tryConfirm without ever calling the model", async () => {
@@ -110,6 +135,49 @@ describe("handleTurnRequest", () => {
     expect(body).toContain("model exploded");
   });
 
+  it("aborts the in-flight turn's signal when the client cancels the stream (stop button)", async () => {
+    let captured: AbortSignal | undefined;
+    const handleTurn: HandleTurn = async (turn) => {
+      captured = turn.abortSignal;
+      // A long turn that only unblocks when the client cancels.
+      await new Promise<void>((resolve) => {
+        turn.abortSignal?.addEventListener("abort", () => resolve());
+      });
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    // Let start() reach handleTurn (signal captured, listener registered)...
+    await new Promise((r) => setTimeout(r, 5));
+    // ...then disconnect as a browser stop button would.
+    await res.body!.cancel();
+    expect(captured?.aborted).toBe(true);
+  });
+
+  it("delivers no error event to a client that canceled mid-turn, even when the turn then throws", async () => {
+    const handleTurn: HandleTurn = async (turn, sink) => {
+      sink.onTextChunk?.("partial");
+      // On cancel the turn's generation throws (an aborted model call) — this
+      // must not surface as an `error` event: cancellation is a clean stop.
+      await new Promise<void>((_resolve, reject) => {
+        turn.abortSignal?.addEventListener("abort", () => reject(new Error("aborted mid-flight")));
+      });
+    };
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn,
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    const reader = res.body!.getReader();
+    const first = await reader.read();
+    const seen = first.value ? new TextDecoder().decode(first.value) : "";
+    await reader.cancel();
+    expect(seen).toContain("event: text");
+    expect(seen).not.toContain("event: error");
+  });
+
   it("returns 400 for a body with no text", async () => {
     const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
       handleTurn: async () => {},
@@ -117,5 +185,193 @@ describe("handleTurnRequest", () => {
       tryConfirmFn: async () => null,
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// An explicit confirmation endpoint: a nicer contract than re-POSTing the bare
+// token as `text` to /turn. Resolves through the same resolveConfirmation the
+// other channels use — exercised here against a REAL ConfirmationStore, so the
+// `resolved` flag's meaning is actually verified end-to-end.
+describe("handleConfirmRequest", () => {
+  const confirmReq = (body: unknown): Request =>
+    new Request("http://x/confirm", { method: "POST", body: JSON.stringify(body) });
+  const realDeps = (store: ReturnType<typeof createConfirmationStore>) => ({
+    confirmDeps: { store, vaultPath: "v", writeConfirmationNoteFn: async () => {} } as unknown as HttpConfirmDeps,
+  });
+
+  it("resolves a pending token (real store) and reports resolved:true with CORS", async () => {
+    const store = createConfirmationStore();
+    const token = store.stage("c", { run: async () => ({ ok: true, data: { deleted: "KAN-1" } }), describe: "delete KAN-1" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("Confermato ed eseguito") });
+  });
+
+  // Regression for the #35 cold review: a well-shaped token that isn't pending
+  // for this conversation must report resolved:false. tryConfirm returns a
+  // canned *string* (not null) for the not-found case, so the original
+  // `reply !== null -> resolved:true` mapping wrongly reported success — a UI
+  // branching on `resolved` would treat an expired/unknown token as confirmed.
+  it("reports resolved:false for a well-shaped token that isn't pending for this conversation", async () => {
+    const store = createConfirmationStore();
+    // A real, correctly-shaped token, but staged for a different session.
+    const token = store.stage("other-session", { run: async () => ({ ok: true, data: {} }), describe: "x" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+    expect(await res.json()).toEqual({ ok: true, resolved: false });
+  });
+
+  it("reports resolved:true even when the staged action's execution fails", async () => {
+    const store = createConfirmationStore();
+    const token = store.stage("c", { run: async () => ({ ok: false, error: "boom" }), describe: "x" });
+    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+    expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("l'esecuzione è fallita") });
+  });
+
+  it("passes the conversationId as the session key", async () => {
+    let seenKey: string | undefined;
+    await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "conv-9" }), {
+      confirmDeps,
+      resolveConfirmationFn: async (_token, sessionKey) => {
+        seenKey = sessionKey;
+        return { status: "not-found" };
+      },
+    });
+    expect(seenKey).toBe("conv-9");
+  });
+
+  it("returns 400 when token or conversationId is missing", async () => {
+    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), { confirmDeps });
+    expect(noToken.status).toBe(400);
+    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), { confirmDeps });
+    expect(noConv.status).toBe(400);
+  });
+});
+
+describe("openApiResponse", () => {
+  it("serves the OpenAPI document as text/yaml with CORS", async () => {
+    const res = openApiResponse();
+    expect(res.headers.get("content-type")).toContain("text/yaml");
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    const body = await res.text();
+    expect(body).toContain("openapi:");
+    expect(body).toContain("Mercury HTTP surface");
+  });
+});
+
+// A browser UI on another origin (the separate custom-UI project) can only call
+// this surface if it answers CORS preflight and echoes an allow-origin header.
+describe("CORS", () => {
+  const reads: HttpReads = {
+    manifest: () => ({ plugins: [] }),
+    pendingConfirmations: () => [],
+    conversation: async () => ({ messages: [], nextOffset: null }),
+    conversations: async () => ({ conversations: [] }),
+    wikiList: async () => [],
+    wikiRead: async () => "",
+    wikiGrep: async () => [],
+    memoryScroll: async () => ({ points: [] }),
+    toolLog: () => [],
+    health: async () => ({}),
+  };
+
+  it("adds Access-Control-Allow-Origin to a read route response (default *)", async () => {
+    const res = await readRoutes(reads)["/manifest"]!.GET(new Request("http://x/manifest"));
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("answers an OPTIONS preflight with 204 and the allow headers", async () => {
+    const res = readRoutes(reads)["/manifest"]!.OPTIONS();
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-methods")).toContain("GET");
+    expect(res.headers.get("access-control-allow-headers")).toContain("content-type");
+  });
+
+  it("honors a custom corsOrigin on read routes", async () => {
+    const res = await readRoutes(reads, "https://ui.example")["/manifest"]!.GET(
+      new Request("http://x/manifest"),
+    );
+    expect(res.headers.get("access-control-allow-origin")).toBe("https://ui.example");
+  });
+
+  it("adds Access-Control-Allow-Origin to the /turn SSE response", async () => {
+    const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
+      handleTurn: async (_t, sink) => {
+        await sink.finalize("x");
+      },
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("adds Access-Control-Allow-Origin to a 400 response", async () => {
+    const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
+      handleTurn: async () => {},
+      confirmDeps,
+      tryConfirmFn: async () => null,
+    });
+    expect(res.status).toBe(400);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
+// A UI reloading a conversation reads its durable transcript back here.
+describe("GET /conversation", () => {
+  const baseReads: HttpReads = {
+    manifest: () => ({}),
+    pendingConfirmations: () => [],
+    conversation: async () => ({ messages: [], nextOffset: null }),
+    conversations: async () => ({ conversations: [] }),
+    wikiList: async () => [],
+    wikiRead: async () => "",
+    wikiGrep: async () => [],
+    memoryScroll: async () => ({ points: [] }),
+    toolLog: () => [],
+    health: async () => ({}),
+  };
+
+  it("returns 400 when ?id is missing", async () => {
+    const res = await readRoutes(baseReads)["/conversation"]!.GET(new Request("http://x/conversation"));
+    expect(res.status).toBe(400);
+  });
+
+  it("returns the conversation's messages and forwards id/limit/offset to the getter", async () => {
+    let seen: { id: string; limit: number; offset?: string } | undefined;
+    const reads: HttpReads = {
+      ...baseReads,
+      conversation: async (id, limit, offset) => {
+        seen = { id, limit, offset };
+        return {
+          messages: [{ role: "user", content: "hi", timestamp: "2026-09-24T10:00:00.000Z" }],
+          nextOffset: null,
+        };
+      },
+    };
+    const res = await readRoutes(reads)["/conversation"]!.GET(
+      new Request("http://x/conversation?id=conv-1&limit=10&offset=cur"),
+    );
+    const payload = (await res.json()) as { ok: boolean; messages: unknown[]; nextOffset: unknown };
+    expect(seen).toEqual({ id: "conv-1", limit: 10, offset: "cur" });
+    expect(payload.ok).toBe(true);
+    expect(payload.messages).toHaveLength(1);
+    expect(payload.nextOffset).toBeNull();
+  });
+
+  it("GET /conversations lists conversations and forwards the limit", async () => {
+    let seenLimit: number | undefined;
+    const reads: HttpReads = {
+      ...baseReads,
+      conversations: async (limit) => {
+        seenLimit = limit;
+        return { conversations: [{ sessionKey: "conv-1", lastTimestamp: "t", preview: "hi" }] };
+      },
+    };
+    const res = await readRoutes(reads)["/conversations"]!.GET(
+      new Request("http://x/conversations?limit=5"),
+    );
+    const payload = (await res.json()) as { ok: boolean; conversations: unknown[] };
+    expect(seenLimit).toBe(5);
+    expect(payload.ok).toBe(true);
+    expect(payload.conversations).toHaveLength(1);
   });
 });

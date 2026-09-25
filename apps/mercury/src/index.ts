@@ -57,7 +57,7 @@ import {
   storeEpisodicSummary,
   getLastSessionEpisodicSummaries,
 } from "./memory/episodic-store.ts";
-import { ensureVerbatimCollection } from "./memory/verbatim-archive-store.ts";
+import { ensureVerbatimCollection, listVerbatimBySession, listVerbatimSessions } from "./memory/verbatim-archive-store.ts";
 import { createVerbatimArchiveProvider } from "./memory/memory-provider.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
 import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
@@ -656,6 +656,7 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
   const httpPort = Number(process.env.HTTP_SURFACE_PORT ?? "4100");
   httpProvider = createHttpProvider({
     port: httpPort,
+    corsOrigin: process.env.HTTP_SURFACE_CORS_ORIGIN ?? "*",
     confirmDeps: {
       store: confirmationStore,
       vaultPath: wikiVaultPath,
@@ -667,6 +668,11 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
     reads: {
       manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, Object.keys(fileCliConfigs), loadedPlugins.skills),
       pendingConfirmations: () => confirmationStore.pending(),
+      // Durable per-conversation transcript from the verbatim archive (#4):
+      // in the HTTP surface the client's conversationId is the sessionKey.
+      conversation: (sessionKey, limit, offset) =>
+        listVerbatimBySession(qdrant, verbatimCollection, { sessionKey, limit, offset }),
+      conversations: (limit) => listVerbatimSessions(qdrant, verbatimCollection, { limit }),
       wikiList: () => listWikiVault(wikiVaultPath),
       wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
       wikiGrep: (pattern) => grepWikiVault(wikiVaultPath, pattern),

@@ -119,6 +119,8 @@ type GenerateTextFn = (params: {
   tools: Record<string, Tool>;
   instructions: string;
   onStepEnd?: (step: StepInfo) => void;
+  /** Aborts the in-flight generation when the caller cancels the turn. */
+  abortSignal?: AbortSignal;
 }) => Promise<{ text: string; usage?: { inputTokens: number | undefined } }>;
 
 /**
@@ -148,6 +150,8 @@ type StreamTextFn = (params: {
   tools: Record<string, Tool>;
   instructions: string;
   onStepEnd?: (step: StepInfo) => void;
+  /** Aborts the in-flight generation when the caller cancels the turn. */
+  abortSignal?: AbortSignal;
 }) => Promise<{
   stream: AsyncIterable<StreamPart>;
   usage?: PromiseLike<{ inputTokens: number | undefined }>;
@@ -195,6 +199,7 @@ export function buildGenerateTextParams(params: {
   tools: Record<string, Tool>;
   instructions: string;
   onStepEnd?: (step: StepInfo) => void;
+  abortSignal?: AbortSignal;
 }) {
   return { ...params, stopWhen: [isStepCount(100), pendingConfirmationStop()] };
 }
@@ -218,6 +223,7 @@ export function buildStreamTextParams(params: {
   tools: Record<string, Tool>;
   instructions: string;
   onStepEnd?: (step: StepInfo) => void;
+  abortSignal?: AbortSignal;
 }) {
   return { ...params, stopWhen: [isStepCount(100), pendingConfirmationStop()] };
 }
@@ -303,6 +309,10 @@ export async function runTurn(
     onUsage?: (inputTokens: number | undefined) => void;
     generateTextFn?: GenerateTextFn;
     streamTextFn?: StreamTextFn;
+    /** When set, aborting it stops the in-flight generation — the turn ends
+     * promptly instead of running to completion (see the HTTP surface's
+     * client-disconnect cancellation). Optional; existing callers pass none. */
+    abortSignal?: AbortSignal;
   },
 ): Promise<string> {
   await history.addUserMessage(userInput);
@@ -315,6 +325,7 @@ export async function runTurn(
       messages: history.getMessages(),
       tools: deps.tools,
       instructions: deps.system,
+      abortSignal: deps.abortSignal,
       onStepEnd: (step) => {
         lastStep = step;
         deps.onStepFinish?.(step);
@@ -378,6 +389,7 @@ export async function runTurn(
     messages: history.getMessages(),
     tools: deps.tools,
     instructions: deps.system,
+    abortSignal: deps.abortSignal,
     onStepEnd: (step) => {
       lastStep = step;
       deps.onStepFinish?.(step);

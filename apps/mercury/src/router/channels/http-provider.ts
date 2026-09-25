@@ -18,13 +18,21 @@ export type HttpProviderDeps = {
   port: number;
   confirmDeps: HttpConfirmDeps;
   reads?: HttpReads;
+  /** Allowed CORS origin echoed to a browser UI; defaults to `*` in the server. */
+  corsOrigin?: string;
 };
 
 export function createHttpProvider(deps: HttpProviderDeps): Provider & { stop(): void } {
   let server: ReturnType<typeof startHttpServer> | undefined;
   return {
     async start(handleTurn: HandleTurn): Promise<void> {
-      server = startHttpServer({ port: deps.port, handleTurn, confirmDeps: deps.confirmDeps, reads: deps.reads });
+      server = startHttpServer({
+        port: deps.port,
+        handleTurn,
+        confirmDeps: deps.confirmDeps,
+        reads: deps.reads,
+        corsOrigin: deps.corsOrigin,
+      });
     },
     async notify(): Promise<{ sessionKey: string }> {
       // No proactive push channel over HTTP (4a is request/response only).

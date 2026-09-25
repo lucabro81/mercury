@@ -33,6 +33,12 @@ export type InboundTurn = {
   wikiUserId: string;
   /** stderr log prefix, e.g. `[chat:spaces/x:users/y] ` — empty for the terminal. */
   logPrefix: string;
+  /**
+   * When set, aborting it cancels the in-flight turn (stops generation
+   * promptly). Only the HTTP surface supplies one today — on client
+   * disconnect — so other channels leave it undefined and are unaffected.
+   */
+  abortSignal?: AbortSignal;
 };
 
 /**

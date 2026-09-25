@@ -134,6 +134,7 @@ export function createTurnRunner(deps: TurnRunnerDeps): HandleTurn {
           sink.onStep?.(step);
         },
         onUsage: sink.onUsage,
+        abortSignal: turn.abortSignal,
       });
 
       let correctedText = text;

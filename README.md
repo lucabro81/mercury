@@ -279,7 +279,11 @@ A CLI being installed and authenticated isn't enough on its own for the model to
 
 ## HTTP API
 
-Opt-in surface, off by default. Enable with `HTTP_SURFACE_ENABLED=true`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+Opt-in surface, off by default — the intended primary channel for a custom web UI. Enable with `HTTP_SURFACE_ENABLED=true`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+
+**CORS** is enabled on every response and every route answers an `OPTIONS` preflight, so a browser UI on another origin can call it. The allowed origin is `HTTP_SURFACE_CORS_ORIGIN` (default `*`; no credentials are used).
+
+The full contract is described by an **OpenAPI document**, served raw at `GET /openapi.yaml` and published as a rendered docs page on GitHub Pages (see `apps/mercury/openapi.yaml`, the single source of truth).
 
 All responses are JSON except `POST /turn`, which streams `text/event-stream`. Every JSON response is either `{ "ok": true, ... }` or, on error, `{ "ok": false, "error": "<message>" }` with HTTP `400`/`500`.
 
@@ -296,6 +300,8 @@ Runs one conversational turn; the reply streams back as Server-Sent Events.
 
 **Responses**: `200 text/event-stream` (the events below); `400` if `text` is missing or the body isn't JSON.
 
+Reasoning and answer text arrive as **incremental deltas** — never one finished block — so a UI renders them live; treat the `final` event as the authoritative text. **To cancel** a turn (e.g. a generation that's diverging), close the connection: Mercury aborts the in-flight generation.
+
 **SSE events** — each is `event: <name>` followed by `data: <json>`:
 
 | event | data | when |
@@ -305,7 +311,7 @@ Runs one conversational turn; the reply streams back as Server-Sent Events.
 | `tool` | `{ label, detail, toolCallId }` | a tool call starts |
 | `tool_finish` | `{ toolCallId, outcome }` | a tool call settles (`outcome`: `success` \| `failed` \| `pending`) |
 | `text` | `{ chunk }` | an answer-text delta |
-| `pending` | `{ command, token }` | a confirm-required action was staged; send `token` back as a later `/turn` `text` to confirm it |
+| `pending` | `{ command, token }` | a confirm-required action was staged; send `token` back to confirm it — as a later `/turn` `text`, or via `POST /confirm` |
 | `final` | `{ text }` | the complete answer (also emitted for a token confirmation, with no model turn) |
 | `error` | `{ message }` | the turn failed mid-stream |
 
@@ -315,12 +321,18 @@ curl -N -X POST http://localhost:4100/turn \
   -d '{"text":"Quante issue nel progetto KAN?","conversationId":"c1"}'
 ```
 
+### `POST /confirm`
+
+Explicit alternative to re-sending a token as `/turn` `text`. Body `{ token, conversationId }`; returns `{ ok: true, resolved: true, text }` when the token was a pending confirmation, `{ ok: true, resolved: false }` otherwise. `400` if `token` or `conversationId` is missing. Never invokes the model.
+
 ### Read-only introspection
 
 All `GET`, all JSON, all reporting state already held in-process.
 
 | endpoint | `data` on success |
 |---|---|
+| `GET /conversation?id=<conversationId>&limit=<n>&offset=<cursor>` | `{ messages: [{ role, content, timestamp }], nextOffset }` — a conversation's durable transcript in order; `400` if `id` is missing |
+| `GET /conversations?limit=<n>` | `{ conversations: [{ sessionKey, lastTimestamp, preview }] }` — known conversations, most-recently-active first |
 | `GET /manifest` | `{ manifest: { coreApiVersion, plugins: [{ name, apiVersion, active, skills, hasBuild, customStatus }], activeClis, skills } }` |
 | `GET /confirmations` | `{ pending: [{ sessionKey, binary, args, expiresAt }] }` — tokens are deliberately never included |
 | `GET /tool-log` | `{ entries: [...] }` |
@@ -329,3 +341,6 @@ All `GET`, all JSON, all reporting state already held in-process.
 | `GET /wiki/read?path=<vault-path>` | `{ content }` — `400` if `path` is missing |
 | `GET /wiki/grep?pattern=<regex>` | `{ matches: [...] }` — `400` if `pattern` is missing |
 | `GET /memory/scroll?collection=<name>&limit=<n>&offset=<cursor>` | one page of the named episodic/semantic collection |
+| `GET /openapi.yaml` | the OpenAPI document for this surface (`text/yaml`) |
+
+Conversation history and the conversation list are backed by the durable verbatim archive; they degrade to empty when the vector store is unreachable.

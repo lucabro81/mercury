@@ -17,7 +17,7 @@
  * outside the container network (see `src/index.ts`'s enable gate), the same
  * posture as the admin panel.
  */
-import { tryConfirm } from "../router/confirm-flow.ts";
+import { tryConfirm, resolveConfirmation } from "../router/confirm-flow.ts";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { HandleTurn, TurnSink } from "../router/provider.ts";
@@ -34,6 +34,8 @@ export type HttpConfirmDeps = {
 export type TurnRequestDeps = {
   handleTurn: HandleTurn;
   confirmDeps: HttpConfirmDeps;
+  /** Allowed CORS origin echoed back to a browser UI; defaults to `*`. */
+  corsOrigin?: string;
   /** Test seam; defaults to the real `tryConfirm`. */
   tryConfirmFn?: typeof tryConfirm;
   /** Test seam for the ephemeral session key when the client sends no conversationId. */
@@ -47,6 +49,38 @@ const SSE_HEADERS = {
 };
 
 /**
+ * The CORS headers echoed on every response so a browser UI served from a
+ * different origin (the separate custom-UI project) can call this surface.
+ * No credentials are ever used here, so a wildcard origin is safe; a specific
+ * origin can still be pinned via `HTTP_SURFACE_CORS_ORIGIN`.
+ */
+function corsHeaders(origin: string): Record<string, string> {
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
+
+/** 204 preflight response for an `OPTIONS` request, carrying only CORS headers. */
+function preflight(origin: string): Response {
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
+}
+
+/**
+ * Serves the OpenAPI document that describes this surface — the single source
+ * of truth in `apps/mercury/openapi.yaml`, also rendered as the GitHub Pages
+ * API docs. Served raw as `text/yaml` (no YAML parser needed at runtime); most
+ * tooling (Redoc, Swagger UI, Postman) reads YAML directly.
+ */
+export function openApiResponse(corsOrigin = "*"): Response {
+  const file = Bun.file(new URL("../../openapi.yaml", import.meta.url));
+  return new Response(file, {
+    headers: { "content-type": "text/yaml; charset=utf-8", ...corsHeaders(corsOrigin) },
+  });
+}
+
+/**
  * Runs one `POST /turn` request and returns an SSE stream Response. The body is
  * `{ text, conversationId? }`; `conversationId` (opaque, client-owned) becomes
  * the session key so a client can continue a conversation — Mercury already
@@ -56,14 +90,16 @@ const SSE_HEADERS = {
  * event on the stream.
  */
 export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Promise<Response> {
+  const origin = deps.corsOrigin ?? "*";
+  const cors = corsHeaders(origin);
   let body: { text?: unknown; conversationId?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400 });
+    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400, headers: cors });
   }
   if (typeof body.text !== "string" || body.text.trim().length === 0) {
-    return Response.json({ ok: false, error: "missing text" }, { status: 400 });
+    return Response.json({ ok: false, error: "missing text" }, { status: 400, headers: cors });
   }
   const text = body.text;
   const sessionKey =
@@ -73,11 +109,29 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 
   const tryConfirmFn = deps.tryConfirmFn ?? tryConfirm;
 
+  // Aborted when the client disconnects (see the stream's `cancel` below) so
+  // the in-flight turn stops instead of running to completion — the "stop"
+  // affordance for a diverging generation.
+  const abort = new AbortController();
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
+      // Once the client is gone the controller is closed; enqueuing then throws.
+      // Swallow it — there's no consumer left to receive the event anyway.
       const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          /* stream already closed/canceled */
+        }
+      };
+      const close = () => {
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       };
 
       // Same deterministic interception as every other channel — a
@@ -88,7 +142,7 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
       });
       if (confirmReply !== null) {
         send("final", { text: confirmReply });
-        controller.close();
+        close();
         return;
       }
 
@@ -118,17 +172,71 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
             sessionKey,
             wikiUserId: sessionKey,
             logPrefix: `[http:${sessionKey}] `,
+            abortSignal: abort.signal,
           },
           sink,
         );
       } catch (err) {
-        send("error", { message: err instanceof Error ? err.message : String(err) });
+        // A client-initiated cancellation is a clean stop, not a failure —
+        // don't surface it as an `error` event (and there's no client left).
+        if (!abort.signal.aborted) {
+          send("error", { message: err instanceof Error ? err.message : String(err) });
+        }
       }
-      controller.close();
+      close();
+    },
+    // Fires when the client disconnects (closes the EventSource / aborts the
+    // fetch): abort the in-flight turn so generation stops promptly.
+    cancel() {
+      abort.abort();
     },
   });
 
-  return new Response(stream, { headers: SSE_HEADERS });
+  return new Response(stream, { headers: { ...SSE_HEADERS, ...cors } });
+}
+
+export type ConfirmRequestDeps = {
+  confirmDeps: HttpConfirmDeps;
+  corsOrigin?: string;
+  /** Test seam; defaults to the real `resolveConfirmation`. */
+  resolveConfirmationFn?: typeof resolveConfirmation;
+};
+
+/**
+ * `POST /confirm { token, conversationId }` — the explicit confirmation
+ * endpoint. A nicer contract for a UI than re-POSTing the bare token as `text`
+ * to `/turn`, but the exact same mechanism underneath: it resolves the token
+ * through the same `resolveConfirmation` `tryConfirm` uses, keyed on
+ * `conversationId` as the session. `resolved: true` means the token matched a
+ * pending confirmation and its staged action was consumed and run; the `text`
+ * then reports whether that execution succeeded. `resolved: false` means the
+ * token was not a pending confirmation (unknown, expired, already used, or not
+ * even token-shaped). Never touches the model.
+ */
+export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDeps): Promise<Response> {
+  const cors = corsHeaders(deps.corsOrigin ?? "*");
+  let body: { token?: unknown; conversationId?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json({ ok: false, error: "body must be JSON" }, { status: 400, headers: cors });
+  }
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  const sessionKey = typeof body.conversationId === "string" ? body.conversationId.trim() : "";
+  if (token.length === 0 || sessionKey.length === 0) {
+    return Response.json({ ok: false, error: "missing token or conversationId" }, { status: 400, headers: cors });
+  }
+  const resolveFn = deps.resolveConfirmationFn ?? resolveConfirmation;
+  const outcome = await resolveFn(token, sessionKey, { ...deps.confirmDeps, userId: sessionKey });
+  switch (outcome.status) {
+    case "not-a-token":
+    case "not-found":
+      return Response.json({ ok: true, resolved: false }, { headers: cors });
+    case "ok":
+      return Response.json({ ok: true, resolved: true, text: `Confermato ed eseguito: ${JSON.stringify(outcome.data)}` }, { headers: cors });
+    case "failed":
+      return Response.json({ ok: true, resolved: true, text: `Confermato, ma l'esecuzione è fallita: ${outcome.error}` }, { headers: cors });
+  }
 }
 
 /**
@@ -141,6 +249,10 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 export type HttpReads = {
   manifest: () => unknown;
   pendingConfirmations: () => unknown;
+  /** A conversation's durable verbatim transcript, chronological, paginated. */
+  conversation: (sessionKey: string, limit: number, offset?: string) => Promise<unknown>;
+  /** The known conversations, most-recently-active first (sidebar view). */
+  conversations: (limit: number) => Promise<unknown>;
   wikiList: () => Promise<unknown>;
   wikiRead: (path: string) => Promise<unknown>;
   wikiGrep: (pattern: string) => Promise<unknown>;
@@ -149,42 +261,62 @@ export type HttpReads = {
   health: () => Promise<unknown>;
 };
 
-function badRequest(message: string): Response {
-  return Response.json({ ok: false, error: message }, { status: 400 });
-}
+/** A single read route: its `GET` handler plus the shared `OPTIONS` preflight. */
+type ReadRoute = {
+  GET: (req: Request) => Response | Promise<Response>;
+  OPTIONS: () => Response;
+};
 
-function readRoutes(reads: HttpReads): Record<string, { GET: (req: Request) => Response | Promise<Response> }> {
+/**
+ * Builds the read-only routes, each carrying CORS headers on its `GET` and a
+ * shared `OPTIONS` preflight so a browser UI on `corsOrigin` (default `*`) can
+ * reach them. `jsonRoute` wraps a getter into a `GET` that always JSON-encodes
+ * with the CORS headers merged in; `badRequest` does the same for a 400.
+ */
+export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, ReadRoute> {
+  const cors = corsHeaders(corsOrigin);
+  const json = (payload: object, status = 200): Response =>
+    Response.json(payload, { status, headers: cors });
+  const badRequest = (message: string): Response => json({ ok: false, error: message }, 400);
   const requireParam = (req: Request, name: string): string | null => new URL(req.url).searchParams.get(name);
+  const options = () => preflight(corsOrigin);
+  const route = (GET: ReadRoute["GET"]): ReadRoute => ({ GET, OPTIONS: options });
   return {
-    "/manifest": { GET: () => Response.json({ ok: true, manifest: reads.manifest() }) },
-    "/confirmations": { GET: () => Response.json({ ok: true, pending: reads.pendingConfirmations() }) },
-    "/tool-log": { GET: () => Response.json({ ok: true, entries: reads.toolLog() }) },
-    "/health": { GET: async () => Response.json({ ok: true, ...(await reads.health() as object) }) },
-    "/wiki/list": { GET: async () => Response.json({ ok: true, files: await reads.wikiList() }) },
-    "/wiki/read": {
-      GET: async (req) => {
-        const path = requireParam(req, "path");
-        if (!path) return badRequest("missing ?path");
-        return Response.json({ ok: true, content: await reads.wikiRead(path) });
-      },
-    },
-    "/wiki/grep": {
-      GET: async (req) => {
-        const pattern = requireParam(req, "pattern");
-        if (!pattern) return badRequest("missing ?pattern");
-        return Response.json({ ok: true, matches: await reads.wikiGrep(pattern) });
-      },
-    },
-    "/memory/scroll": {
-      GET: async (req) => {
-        const url = new URL(req.url);
-        const collection = url.searchParams.get("collection");
-        if (!collection) return badRequest("missing ?collection");
-        const limit = Number(url.searchParams.get("limit") ?? "50");
-        const offset = url.searchParams.get("offset") ?? undefined;
-        return Response.json({ ok: true, ...(await reads.memoryScroll(collection, limit, offset) as object) });
-      },
-    },
+    "/manifest": route(() => json({ ok: true, manifest: reads.manifest() })),
+    "/confirmations": route(() => json({ ok: true, pending: reads.pendingConfirmations() })),
+    "/conversation": route(async (req) => {
+      const url = new URL(req.url);
+      const id = url.searchParams.get("id");
+      if (!id) return badRequest("missing ?id");
+      const limit = Number(url.searchParams.get("limit") ?? "200");
+      const offset = url.searchParams.get("offset") ?? undefined;
+      return json({ ok: true, ...(await reads.conversation(id, limit, offset) as object) });
+    }),
+    "/conversations": route(async (req) => {
+      const limit = Number(new URL(req.url).searchParams.get("limit") ?? "50");
+      return json({ ok: true, ...(await reads.conversations(limit) as object) });
+    }),
+    "/tool-log": route(() => json({ ok: true, entries: reads.toolLog() })),
+    "/health": route(async () => json({ ok: true, ...(await reads.health() as object) })),
+    "/wiki/list": route(async () => json({ ok: true, files: await reads.wikiList() })),
+    "/wiki/read": route(async (req) => {
+      const path = requireParam(req, "path");
+      if (!path) return badRequest("missing ?path");
+      return json({ ok: true, content: await reads.wikiRead(path) });
+    }),
+    "/wiki/grep": route(async (req) => {
+      const pattern = requireParam(req, "pattern");
+      if (!pattern) return badRequest("missing ?pattern");
+      return json({ ok: true, matches: await reads.wikiGrep(pattern) });
+    }),
+    "/memory/scroll": route(async (req) => {
+      const url = new URL(req.url);
+      const collection = url.searchParams.get("collection");
+      if (!collection) return badRequest("missing ?collection");
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const offset = url.searchParams.get("offset") ?? undefined;
+      return json({ ok: true, ...(await reads.memoryScroll(collection, limit, offset) as object) });
+    }),
   };
 }
 
@@ -193,6 +325,7 @@ export type HttpServerDeps = TurnRequestDeps & { port: number; reads?: HttpReads
 /** Starts the HTTP surface: `POST /turn` (4a) plus the read-only routes (4b)
  * when `reads` is supplied. */
 export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.serve> {
+  const origin = deps.corsOrigin ?? "*";
   return Bun.serve({
     port: deps.port,
     // Bind all interfaces inside the container so a published port can reach it
@@ -205,9 +338,18 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     // subprocess — and a timeout there would reset the stream mid-turn.
     idleTimeout: 0,
     routes: {
-      "/turn": { POST: (req) => handleTurnRequest(req, deps) },
-      ...(deps.reads ? readRoutes(deps.reads) : {}),
+      "/turn": { POST: (req) => handleTurnRequest(req, deps), OPTIONS: () => preflight(origin) },
+      "/confirm": {
+        POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin }),
+        OPTIONS: () => preflight(origin),
+      },
+      "/openapi.yaml": { GET: () => openApiResponse(origin), OPTIONS: () => preflight(origin) },
+      ...(deps.reads ? readRoutes(deps.reads, origin) : {}),
     },
-    error: (err) => Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 }),
+    error: (err) =>
+      Response.json(
+        { ok: false, error: err instanceof Error ? err.message : String(err) },
+        { status: 500, headers: corsHeaders(origin) },
+      ),
   });
 }

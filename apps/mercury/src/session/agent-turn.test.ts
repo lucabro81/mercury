@@ -64,6 +64,43 @@ describe("runTurn", () => {
     expect(result).toBe("fixed response");
   });
 
+  it("forwards deps.abortSignal to the non-streaming generator (turn cancellation)", async () => {
+    const history = createSessionHistory(neverSummarize);
+    const ac = new AbortController();
+    let seen: AbortSignal | undefined;
+    const generateTextFn = async (params: { abortSignal?: AbortSignal }) => {
+      seen = params.abortSignal;
+      return { text: "ok" };
+    };
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      generateTextFn,
+      abortSignal: ac.signal,
+    });
+    expect(seen).toBe(ac.signal);
+  });
+
+  it("forwards deps.abortSignal to the streaming generator (turn cancellation)", async () => {
+    const history = createSessionHistory(neverSummarize);
+    const ac = new AbortController();
+    let seen: AbortSignal | undefined;
+    const streamTextFn = async (params: { abortSignal?: AbortSignal }) => {
+      seen = params.abortSignal;
+      return { stream: textDeltaStream(["hi"]), usage: Promise.resolve({ inputTokens: 1 }) };
+    };
+    await runTurn(history, "hi", {
+      model: "fake-model" as never,
+      tools: {},
+      system: SYSTEM,
+      streamTextFn,
+      onTextChunk: () => {},
+      abortSignal: ac.signal,
+    });
+    expect(seen).toBe(ac.signal);
+  });
+
   it("adds the assistant's response to history after generating", async () => {
     const history = createSessionHistory(neverSummarize);
     const generateTextFn = async () => ({ text: "fixed response" });
