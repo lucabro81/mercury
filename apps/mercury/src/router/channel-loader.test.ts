@@ -24,23 +24,12 @@ function channel(name: string, build: ChannelPlugin["build"], apiVersion = CHANN
 }
 
 describe("loadChannels", () => {
-  it("builds and returns an enabled channel, keyed by name", () => {
+  it("builds and returns a declared channel, keyed by name", () => {
     const provider = fakeProvider();
     const loaded = loadChannels([channel("google-chat", () => provider)], {
-      enabled: ["google-chat"],
       runtime: runtimeWith([]),
     });
     expect(loaded).toEqual([{ name: "google-chat", provider }]);
-  });
-
-  it("skips a channel not in enabled, without building it", () => {
-    const build = mock(() => fakeProvider());
-    const loaded = loadChannels([channel("google-chat", build)], {
-      enabled: ["terminal"],
-      runtime: runtimeWith([]),
-    });
-    expect(loaded).toEqual([]);
-    expect(build).not.toHaveBeenCalled();
   });
 
   it("passes the runtime context to build", () => {
@@ -49,14 +38,13 @@ describe("loadChannels", () => {
       expect(ctx).toBe(runtime);
       return fakeProvider();
     });
-    loadChannels([channel("google-chat", build)], { enabled: ["google-chat"], runtime });
+    loadChannels([channel("google-chat", build)], { runtime });
     expect(build).toHaveBeenCalledTimes(1);
   });
 
   it("treats a build that returns undefined as present-but-inert (not started, no error)", () => {
     const logs: string[] = [];
     const loaded = loadChannels([channel("google-chat", () => undefined)], {
-      enabled: ["google-chat"],
       runtime: runtimeWith(logs),
     });
     expect(loaded).toEqual([]);
@@ -66,7 +54,6 @@ describe("loadChannels", () => {
     const logs: string[] = [];
     const build = mock(() => fakeProvider());
     const loaded = loadChannels([channel("google-chat", build, CHANNEL_API_VERSION + 1)], {
-      enabled: ["google-chat"],
       runtime: runtimeWith(logs),
     });
     expect(loaded).toEqual([]);
@@ -84,7 +71,7 @@ describe("loadChannels", () => {
         }),
         channel("google-chat", () => good),
       ],
-      { enabled: ["boom", "google-chat"], runtime: runtimeWith(logs) },
+      { runtime: runtimeWith(logs) },
     );
     expect(loaded).toEqual([{ name: "google-chat", provider: good }]);
     expect(logs.some((l) => l.includes("boom") && l.includes("kaboom"))).toBe(true);

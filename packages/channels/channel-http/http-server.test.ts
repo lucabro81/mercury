@@ -1,18 +1,16 @@
 import { describe, it, expect } from "bun:test";
-import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
-import type { HandleTurn, InboundTurn } from "../router/provider.ts";
-import type { StepInfo } from "../session/step-info.ts";
-import { createConfirmationStore } from "@mercury/confirm-engine";
+import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes } from "./http-server.ts";
+import type { HandleTurn, InboundTurn, ChannelHostReads } from "@mercury/channel-types";
+import type { StepInfo } from "@mercury/plugin-types";
 
 /**
  * The conversational endpoint's streaming behaviour, exercised without a socket:
  * a normal turn streams reasoning/text/final SSE events and hands the model an
- * http InboundTurn; a bare token is resolved via tryConfirm without ever calling
- * the model; a staged confirm-required action surfaces as a `pending` event with
- * its token. The confirm deps are never touched here — `tryConfirmFn` is stubbed.
+ * http InboundTurn; a bare token is resolved via the injected `confirm` without
+ * ever calling the model; a staged confirm-required action surfaces as a
+ * `pending` event with its token. Confirm is injected — the fakes stand in for
+ * the core's `confirm`/`resolveConfirmation` closures.
  */
-const confirmDeps = {} as unknown as HttpConfirmDeps;
-
 const turnReq = (body: unknown): Request =>
   new Request("http://x/turn", { method: "POST", body: JSON.stringify(body) });
 
@@ -28,8 +26,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "conv-1" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     const body = await res.text();
@@ -54,8 +51,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     const body = await res.text();
     // At least two incremental text deltas arrived...
@@ -67,15 +63,14 @@ describe("handleTurnRequest", () => {
     expect(body.lastIndexOf("event: reasoning")).toBeLessThan(body.indexOf("event: final"));
   });
 
-  it("resolves a confirmation token via tryConfirm without ever calling the model", async () => {
+  it("resolves a confirmation token via the injected confirm without ever calling the model", async () => {
     let modelCalled = false;
     const handleTurn: HandleTurn = async () => {
       modelCalled = true;
     };
     const res = await handleTurnRequest(turnReq({ text: "SOME-TOKEN", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => "Confermato ed eseguito: {}",
+      confirm: async () => "Confermato ed eseguito: {}",
     });
     const body = await res.text();
     expect(modelCalled).toBe(false);
@@ -97,8 +92,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "delete KAN-1", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     const body = await res.text();
     expect(body).toContain("event: pending");
@@ -114,8 +108,7 @@ describe("handleTurnRequest", () => {
     };
     await handleTurnRequest(turnReq({ text: "hi" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
       newSessionKey: () => "ephemeral-123",
     });
     expect(seenKey).toBe("ephemeral-123");
@@ -127,8 +120,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     const body = await res.text();
     expect(body).toContain("event: error");
@@ -146,8 +138,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     // Let start() reach handleTurn (signal captured, listener registered)...
     await new Promise((r) => setTimeout(r, 5));
@@ -167,8 +158,7 @@ describe("handleTurnRequest", () => {
     };
     const res = await handleTurnRequest(turnReq({ text: "hi", conversationId: "c" }), {
       handleTurn,
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     const reader = res.body!.getReader();
     const first = await reader.read();
@@ -181,57 +171,49 @@ describe("handleTurnRequest", () => {
   it("returns 400 for a body with no text", async () => {
     const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
       handleTurn: async () => {},
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     expect(res.status).toBe(400);
   });
 });
 
 // An explicit confirmation endpoint: a nicer contract than re-POSTing the bare
-// token as `text` to /turn. Resolves through the same resolveConfirmation the
-// other channels use — exercised here against a REAL ConfirmationStore, so the
-// `resolved` flag's meaning is actually verified end-to-end.
+// token as `text` to /turn. It maps the injected resolveConfirmation's structured
+// ConfirmOutcome onto the response — the store-backed end-to-end behaviour lives
+// in @mercury/confirm-engine's own tests.
 describe("handleConfirmRequest", () => {
   const confirmReq = (body: unknown): Request =>
     new Request("http://x/confirm", { method: "POST", body: JSON.stringify(body) });
-  const realDeps = (store: ReturnType<typeof createConfirmationStore>) => ({
-    confirmDeps: { store, vaultPath: "v", writeConfirmationNoteFn: async () => {} } as unknown as HttpConfirmDeps,
-  });
 
-  it("resolves a pending token (real store) and reports resolved:true with CORS", async () => {
-    const store = createConfirmationStore();
-    const token = store.stage("c", { run: async () => ({ ok: true, data: { deleted: "KAN-1" } }), describe: "delete KAN-1" });
-    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+  it("maps an ok outcome to resolved:true with CORS", async () => {
+    const res = await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "c" }), {
+      resolveConfirmation: async () => ({ status: "ok", data: { deleted: "KAN-1" } }),
+    });
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("Confermato ed eseguito") });
   });
 
   // Regression for the #35 cold review: a well-shaped token that isn't pending
-  // for this conversation must report resolved:false. tryConfirm returns a
-  // canned *string* (not null) for the not-found case, so the original
-  // `reply !== null -> resolved:true` mapping wrongly reported success — a UI
-  // branching on `resolved` would treat an expired/unknown token as confirmed.
-  it("reports resolved:false for a well-shaped token that isn't pending for this conversation", async () => {
-    const store = createConfirmationStore();
-    // A real, correctly-shaped token, but staged for a different session.
-    const token = store.stage("other-session", { run: async () => ({ ok: true, data: {} }), describe: "x" });
-    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+  // must report resolved:false, so a UI branching on `resolved` never treats an
+  // expired/unknown token as confirmed.
+  it("maps a not-found outcome to resolved:false", async () => {
+    const res = await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "c" }), {
+      resolveConfirmation: async () => ({ status: "not-found" }),
+    });
     expect(await res.json()).toEqual({ ok: true, resolved: false });
   });
 
-  it("reports resolved:true even when the staged action's execution fails", async () => {
-    const store = createConfirmationStore();
-    const token = store.stage("c", { run: async () => ({ ok: false, error: "boom" }), describe: "x" });
-    const res = await handleConfirmRequest(confirmReq({ token, conversationId: "c" }), realDeps(store));
+  it("maps a failed outcome to resolved:true reporting the failure", async () => {
+    const res = await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "c" }), {
+      resolveConfirmation: async () => ({ status: "failed", error: "boom" }),
+    });
     expect(await res.json()).toMatchObject({ ok: true, resolved: true, text: expect.stringContaining("l'esecuzione è fallita") });
   });
 
   it("passes the conversationId as the session key", async () => {
     let seenKey: string | undefined;
     await handleConfirmRequest(confirmReq({ token: "k9m2-x7q4", conversationId: "conv-9" }), {
-      confirmDeps,
-      resolveConfirmationFn: async (_token, sessionKey) => {
+      resolveConfirmation: async (_token, sessionKey) => {
         seenKey = sessionKey;
         return { status: "not-found" };
       },
@@ -240,9 +222,10 @@ describe("handleConfirmRequest", () => {
   });
 
   it("returns 400 when token or conversationId is missing", async () => {
-    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), { confirmDeps });
+    const stub = { resolveConfirmation: async () => ({ status: "not-found" as const }) };
+    const noToken = await handleConfirmRequest(confirmReq({ conversationId: "c" }), stub);
     expect(noToken.status).toBe(400);
-    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), { confirmDeps });
+    const noConv = await handleConfirmRequest(confirmReq({ token: "TOK" }), stub);
     expect(noConv.status).toBe(400);
   });
 });
@@ -261,7 +244,7 @@ describe("openApiResponse", () => {
 // A browser UI on another origin (the separate custom-UI project) can only call
 // this surface if it answers CORS preflight and echoes an allow-origin header.
 describe("CORS", () => {
-  const reads: HttpReads = {
+  const reads: ChannelHostReads = {
     manifest: () => ({ plugins: [] }),
     pendingConfirmations: () => [],
     conversation: async () => ({ messages: [], nextOffset: null }),
@@ -298,8 +281,7 @@ describe("CORS", () => {
       handleTurn: async (_t, sink) => {
         await sink.finalize("x");
       },
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
   });
@@ -307,8 +289,7 @@ describe("CORS", () => {
   it("adds Access-Control-Allow-Origin to a 400 response", async () => {
     const res = await handleTurnRequest(turnReq({ conversationId: "c" }), {
       handleTurn: async () => {},
-      confirmDeps,
-      tryConfirmFn: async () => null,
+      confirm: async () => null,
     });
     expect(res.status).toBe(400);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
@@ -317,7 +298,7 @@ describe("CORS", () => {
 
 // A UI reloading a conversation reads its durable transcript back here.
 describe("GET /conversation", () => {
-  const baseReads: HttpReads = {
+  const baseReads: ChannelHostReads = {
     manifest: () => ({}),
     pendingConfirmations: () => [],
     conversation: async () => ({ messages: [], nextOffset: null }),
@@ -337,7 +318,7 @@ describe("GET /conversation", () => {
 
   it("returns the conversation's messages and forwards id/limit/offset to the getter", async () => {
     let seen: { id: string; limit: number; offset?: string } | undefined;
-    const reads: HttpReads = {
+    const reads: ChannelHostReads = {
       ...baseReads,
       conversation: async (id, limit, offset) => {
         seen = { id, limit, offset };
@@ -359,7 +340,7 @@ describe("GET /conversation", () => {
 
   it("GET /conversations lists conversations and forwards the limit", async () => {
     let seenLimit: number | undefined;
-    const reads: HttpReads = {
+    const reads: ChannelHostReads = {
       ...baseReads,
       conversations: async (limit) => {
         seenLimit = limit;

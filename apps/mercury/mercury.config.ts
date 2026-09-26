@@ -15,6 +15,7 @@ import { jiraPlugin } from "@mercury/plugin-jira";
 import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
 import { atlassianAdminPlugin } from "@mercury/plugin-atlassian-admin";
 import { googleChatChannel } from "@mercury/channel-google-chat";
+import { httpChannel } from "@mercury/channel-http";
 
 export default defineMercuryConfig({
   plugins: [
@@ -27,8 +28,8 @@ export default defineMercuryConfig({
     bitbucketPlugin,
     atlassianAdminPlugin,
   ],
-  // Channels are plugins too, gated by MERCURY_CHANNELS and loaded by the
-  // channel loader. Google Chat is one; terminal and HTTP are still wired
-  // directly in the composition root for now.
-  channels: [googleChatChannel],
+  // Channels are plugins too, loaded by the channel loader — declared here =
+  // active (no env gate). Google Chat and HTTP are pluginized; the terminal is
+  // still wired directly in the composition root for now.
+  channels: [googleChatChannel, httpChannel],
 });
