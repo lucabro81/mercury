@@ -184,7 +184,7 @@ export type ChannelRuntimeContext = {
  * import the app.
  *
  * - `apiVersion`: contract version (see `CHANNEL_API_VERSION`); the loader refuses a mismatch.
- * - `name`: the `MERCURY_CHANNELS` entry that enables it, and the key the loader registers the provider under (the cron layer looks up `"google-chat"` for its `Notifier`).
+ * - `name`: the channel's id, and the key the loader registers the provider under (the cron layer looks up `"google-chat"` for its `Notifier`).
  * - `build`: builds the `Provider` from the context, or `undefined` when the instance isn't configured for this channel (e.g. no `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION`) → the loader treats it as "present but inert" and never starts it.
  */
 export type ChannelPlugin = {

@@ -277,11 +277,11 @@ Authenticating a CLI stays per-crate and out of this repo: run the crate's own `
 
 ## HTTP API
 
-Opt-in surface — the intended primary channel for a custom web UI, shipped as the `@mercury/channel-http` plugin. Enable it by declaring `httpChannel` in `mercury.config.ts`'s `channels`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+The intended primary channel for a custom web UI, shipped as the `@mercury/channel-http` plugin and active whenever it's declared in `mercury.config.ts`'s `channels` (as it is in the default config); remove it there to turn the surface off. It listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
 
 **CORS** is enabled on every response and every route answers an `OPTIONS` preflight, so a browser UI on another origin can call it. The allowed origin is `HTTP_SURFACE_CORS_ORIGIN` (default `*`; no credentials are used).
 
-The full contract is described by an **OpenAPI document**, served raw at `GET /openapi.yaml` and published as a rendered docs page on GitHub Pages (see `apps/mercury/openapi.yaml`, the single source of truth).
+The full contract is described by an **OpenAPI document**, served raw at `GET /openapi.yaml` and published as a rendered docs page on GitHub Pages (see `packages/channels/channel-http/openapi.yaml`, the single source of truth).
 
 All responses are JSON except `POST /turn`, which streams `text/event-stream`. Every JSON response is either `{ "ok": true, ... }` or, on error, `{ "ok": false, "error": "<message>" }` with HTTP `400`/`500`.
 

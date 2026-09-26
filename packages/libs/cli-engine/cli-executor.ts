@@ -9,12 +9,11 @@
  * Nothing imports `runCli` to call it directly except the composition root:
  * every consumer declares it as a `typeof runCli` dependency and receives
  * it injected, so a test can supply a fake without spawning a subprocess.
- * `src/tools/cli-tool.ts` (`runCommand`'s `execute`) and
- * `src/router/confirm-flow.ts` (the second half of the confirm flow) are
- * the two that actually run model-requested commands; the rest use it for
+ * `cli-tool.ts` (`runCommand`'s `execute`) and
+ * `@mercury/confirm-engine`'s `confirm-flow.ts` (the second half of the confirm
+ * flow) are the two that actually run model-requested commands; the rest use it for
  * version checks and diagnostics. The registered
- * Google Chat provider (`src/router/channels/
- * google-chat-provider.ts`) does not use this module at all — it talks to
+ * Google Chat provider (`@mercury/channel-google-chat`) does not use this module at all — it talks to
  * the Chat REST API and Pub/Sub directly over HTTPS, never through a CLI
  * subprocess (see `google-chat-app-client.ts`).
  */

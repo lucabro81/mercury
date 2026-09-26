@@ -14,9 +14,9 @@
 import type { Plugin } from "@mercury/plugin-types";
 import type { ChannelPlugin } from "@mercury/channel-types";
 
-/** The shape of a Mercury instance's composition config: the tool plugins and
- * the channel plugins this instance runs (each gated by MERCURY_CLIS /
- * MERCURY_CHANNELS and loaded by its own loader). */
+/** The shape of a Mercury instance's composition config: the tool plugins
+ * (gated by MERCURY_CLIS) and the channel plugins (enabled by being declared
+ * here — declared = active), each loaded by its own loader. */
 export type MercuryConfig = {
   plugins: Plugin[];
   channels?: ChannelPlugin[];
