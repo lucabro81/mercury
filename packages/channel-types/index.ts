@@ -103,6 +103,8 @@ export type Notifier = {
 export type Provider = Notifier & {
   /** Runs the provider's inbound driver, calling `handleTurn` once per message that needs the model. Deterministic pre-interception (a confirm token, `/dump`) is the provider's, before this. Resolves when the provider stops. */
   start(handleTurn: HandleTurn): Promise<void>;
+  /** Optional lifecycle stop for a channel with a background resource (a Pub/Sub subscription, an HTTP server); the composition root calls it on shutdown. A channel with nothing to release omits it. */
+  stop?(): Promise<void>;
 };
 
 /** Channel-plugin contract version: the loader refuses a channel with a different `apiVersion` fail-soft, like the tool-plugin loader with `PLUGIN_API_VERSION`. Bumped only on a breaking change to this file's shapes. */

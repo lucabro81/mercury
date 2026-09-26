@@ -12,12 +12,14 @@
  * eventual retirement of the file-based cli-configs are deliberately not here.
  */
 import type { Plugin } from "@mercury/plugin-types";
+import type { ChannelPlugin } from "@mercury/channel-types";
 
-/** The shape of a Mercury instance's composition config. Today just the plugin
- * set this instance runs, in the order they are declared (the loader then
- * reorders only by declared dependencies — see `loadPlugins`). */
+/** The shape of a Mercury instance's composition config: the tool plugins and
+ * the channel plugins this instance runs (each gated by MERCURY_CLIS /
+ * MERCURY_CHANNELS and loaded by its own loader). */
 export type MercuryConfig = {
   plugins: Plugin[];
+  channels?: ChannelPlugin[];
 };
 
 /**

@@ -4,7 +4,7 @@
  * callback returns.
  *
  * Why this exists: the terminal is a first-class input channel
- * alongside Google Chat (see `src/router/channels/google-chat-provider.ts`),
+ * alongside Google Chat (see `@mercury/channel-google-chat`),
  * useful both as a bootstrap path before a channel is fully wired and
  * for direct debugging. This file is the *only* place that touches
  * stdin/stdout — `handleInput` itself doesn't know it's talking to a

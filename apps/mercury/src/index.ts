@@ -38,7 +38,9 @@ import {
   describeToolOutcome,
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/step-info.ts";
-import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
+import { googleChatChannel } from "@mercury/channel-google-chat";
+import { loadChannels, type LoadedChannel } from "./router/channel-loader.ts";
+import { tryConfirm } from "./router/confirm-flow.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import { createCliStatusDescriber } from "@mercury/cli-engine";
@@ -168,12 +170,6 @@ if (hasFileClis) {
     return typeof command === "string" ? describeFileCli(command) : "esecuzione di un comando";
   };
 }
-
-// A single subscription for the whole app (Cloud Pub/Sub deployment) —
-// unlike the retired impersonation channel, there's no per-space Workspace
-// Events subscription to manage: whatever space the app is a member of
-// delivers its events here.
-const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 
 // Two separate system prompts, not one shared string: the multiUserChannel
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
@@ -601,23 +597,34 @@ const handleTurn = createTurnRunner({
   takeSurfacedDisplays: (sessionKey) => displayStore.takeSurfaced(sessionKey),
 });
 
-let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
-if (googleChatSubscription) {
-  chatProvider = createGoogleChatProvider({
-    credentials: {
-      clientEmail: requireEnv("GOOGLE_CHAT_APP_CLIENT_EMAIL"),
-      // A PEM key is multi-line; stored in a single-line env var with
-      // literal "\n" escape sequences (the standard convention for this),
-      // not real newlines — unescape before handing it to Node's crypto,
-      // which needs the real thing.
-      privateKey: requireEnv("GOOGLE_CHAT_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
-    },
-    subscription: googleChatSubscription,
-    store: confirmationStore,
-    vaultPath: wikiVaultPath,
-    writeConfirmationNoteFn: writeConfirmationNote,
-  });
-  await chatProvider.start(handleTurn);
+// Channels are plugins (declared in mercury.config.ts, enabled via
+// MERCURY_CHANNELS), loaded the same way tools are. Each reads its own config
+// from env in its build() and gets the confirm capability injected — bound here
+// to this instance's shared store/vault/note-writer, so a channel resolves a
+// token through the identical tryConfirm path without ever touching the store.
+// Google Chat is the one pluginized channel today; terminal and HTTP are still
+// wired directly below.
+const enabledChannels = (process.env.MERCURY_CHANNELS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const loadedChannels: LoadedChannel[] = loadChannels(mercuryConfig.channels ?? [], {
+  enabled: enabledChannels,
+  runtime: {
+    env: process.env,
+    log: (msg) => console.error(msg),
+    confirm: (token, sessionKey, userId) =>
+      tryConfirm(token, sessionKey, {
+        store: confirmationStore,
+        userId,
+        vaultPath: wikiVaultPath,
+        writeConfirmationNoteFn: writeConfirmationNote,
+      }),
+  },
+});
+for (const { name, provider } of loadedChannels) {
+  await provider.start(handleTurn);
+  console.error(`[channel] ${name} started`);
 }
 
 // POC admin panel (see docs/plans, throwaway scaffolding) — opt-in only,
@@ -730,7 +737,9 @@ if (stdinIsSession()) {
   console.error("[shutdown] admin server stopped");
   httpProvider?.stop();
   console.error("[shutdown] http surface stopped");
-  await chatProvider?.stop();
-  console.error("[shutdown] google chat stopped");
+  for (const { name, provider } of loadedChannels) {
+    await provider.stop?.();
+    console.error(`[shutdown] channel ${name} stopped`);
+  }
   process.exit(0);
 }

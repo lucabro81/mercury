@@ -22,7 +22,7 @@ export type HttpProviderDeps = {
   corsOrigin?: string;
 };
 
-export function createHttpProvider(deps: HttpProviderDeps): Provider & { stop(): void } {
+export function createHttpProvider(deps: HttpProviderDeps): Provider & { stop(): Promise<void> } {
   let server: ReturnType<typeof startHttpServer> | undefined;
   return {
     async start(handleTurn: HandleTurn): Promise<void> {
@@ -38,7 +38,7 @@ export function createHttpProvider(deps: HttpProviderDeps): Provider & { stop():
       // No proactive push channel over HTTP (4a is request/response only).
       return { sessionKey: "" };
     },
-    stop(): void {
+    async stop(): Promise<void> {
       server?.stop();
     },
   };

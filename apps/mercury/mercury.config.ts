@@ -13,6 +13,7 @@ import { formatterPlugin } from "./src/plugins/formatter.ts";
 import { createJiraIssueListHandler } from "./src/plugins/jira-issue-list-handler.ts";
 import { jiraPlugin } from "@mercury/plugin-jira";
 import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
+import { googleChatChannel } from "@mercury/channel-google-chat";
 
 export default defineMercuryConfig({
   plugins: [
@@ -24,4 +25,8 @@ export default defineMercuryConfig({
     formatterPlugin(jiraPlugin, createJiraIssueListHandler({ itemTemplate: process.env.JIRA_ISSUE_LIST_TEMPLATE })),
     bitbucketPlugin,
   ],
+  // Channels are plugins too, gated by MERCURY_CHANNELS and loaded by the
+  // channel loader. Google Chat is one; terminal and HTTP are still wired
+  // directly in the composition root for now.
+  channels: [googleChatChannel],
 });
