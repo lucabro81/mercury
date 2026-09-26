@@ -30,7 +30,7 @@ FROM oven/bun:1
 # ca-certificates: the CLI binaries are Rust/reqwest, which verifies TLS
 #   against the OS trust store (unlike Bun's fetch, which bundles its own
 #   roots and works fine without this) — without it every HTTPS call from
-#   jira/google-chat-cli fails with a generic "error sending request",
+#   jira-cli fails with a generic "error sending request",
 #   confirmed live: DNS resolved fine, Bun's fetch succeeded, jira-cli didn't
 # git: the wiki vault (Layer 2, `src/wiki/vault-init.ts`) is its own git repo,
 #   git-init'd by Mercury itself at startup — without this binary present,

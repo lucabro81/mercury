@@ -10,16 +10,16 @@ set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
   echo "usage: $0 <cli-name>" >&2
-  echo "one of: jira-cli, bitbucket-cli, atlassian-admin-cli, google-chat-cli" >&2
+  echo "one of: jira-cli, bitbucket-cli, atlassian-admin-cli" >&2
   exit 1
 fi
 
 cli="$1"
 case "$cli" in
-  jira-cli|bitbucket-cli|atlassian-admin-cli|google-chat-cli) ;;
+  jira-cli|bitbucket-cli|atlassian-admin-cli) ;;
   *)
     echo "unknown CLI: ${cli}" >&2
-    echo "one of: jira-cli, bitbucket-cli, atlassian-admin-cli, google-chat-cli" >&2
+    echo "one of: jira-cli, bitbucket-cli, atlassian-admin-cli" >&2
     exit 1
     ;;
 esac
