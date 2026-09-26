@@ -111,11 +111,53 @@ export type Provider = Notifier & {
 export const CHANNEL_API_VERSION = 1;
 
 /**
+ * Structured outcome of resolving a confirmation token, distinguishing cases the
+ * string-returning `confirm` collapses together. `not-a-token` = the input isn't
+ * token-shaped (run the normal flow); `not-found` = token-shaped but no matching
+ * pending confirmation; `ok`/`failed` = the staged action was consumed and run.
+ * Returned by `ctx.resolveConfirmation` — the value the core's `resolveConfirmation`
+ * produces. A channel that needs to branch on acceptance (the HTTP `/confirm`
+ * endpoint's `resolved` flag) uses it; one that only needs a reply string uses `confirm`.
+ */
+export type ConfirmOutcome =
+  | { status: "not-a-token" }
+  | { status: "not-found" }
+  | { status: "ok"; data: unknown }
+  | { status: "failed"; error: string };
+
+/**
+ * Read-only introspection getters the core injects for a channel that exposes an
+ * API/UI (the HTTP surface today). Every getter reads state that already exists
+ * in-process — nothing computes anything new — so these can't come from `env`.
+ * Returns are `unknown`/primitive by design, to keep this contract free of any
+ * domain types. Tokens are never exposed.
+ */
+export type ChannelHostReads = {
+  manifest: () => unknown;
+  pendingConfirmations: () => unknown;
+  /** A conversation's durable verbatim transcript, chronological, paginated. */
+  conversation: (sessionKey: string, limit: number, offset?: string) => Promise<unknown>;
+  /** The known conversations, most-recently-active first. */
+  conversations: (limit: number) => Promise<unknown>;
+  wikiList: () => Promise<unknown>;
+  wikiRead: (path: string) => Promise<unknown>;
+  wikiGrep: (pattern: string) => Promise<unknown>;
+  memoryScroll: (collection: string, limit: number, offset?: string) => Promise<unknown>;
+  toolLog: () => unknown;
+  health: () => Promise<unknown>;
+};
+
+/**
  * The minimal capabilities every channel gets from the core — the intersection
  * across terminal, HTTP and Google Chat, nothing channel-specific. Anything
  * specific (Google Chat's credentials, HTTP's port) the channel reads from `env`
  * in its own `build()`. This is the dependency-inversion seam: the core injects
  * these, the channel imports none of them.
+ *
+ * `env`, `log` and `confirm` are the floor every channel relies on.
+ * `resolveConfirmation` and `reads` are optional in-process capabilities that
+ * can't come from `env`: the core populates them, only a channel that needs them
+ * (HTTP) reads them, the others ignore them.
  */
 export type ChannelRuntimeContext = {
   /** The process env, so a channel reads its own config (subscription, credentials, port) without the core knowing which keys it needs. */
@@ -130,6 +172,10 @@ export type ChannelRuntimeContext = {
    * `resolveConfirmation`).
    */
   confirm: (token: string, sessionKey: string, userId: string) => Promise<string | null>;
+  /** The structured sibling of `confirm` (see `ConfirmOutcome`), for a channel that branches on whether the token was accepted. */
+  resolveConfirmation?: (token: string, sessionKey: string, userId: string) => Promise<ConfirmOutcome>;
+  /** In-process introspection getters for a channel that exposes an API/UI. */
+  reads?: ChannelHostReads;
 };
 
 /**
