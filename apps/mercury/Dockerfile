@@ -61,6 +61,13 @@ COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
 COPY --chown=mercury:mercury packages/typescript-config/package.json ./packages/typescript-config/
 COPY --chown=mercury:mercury packages/plugin-types/package.json ./packages/plugin-types/
+# `bun install --frozen-lockfile` verifies every workspace in bun.lock exists on
+# disk, so each one needs at least its package.json here before install. These
+# have no postinstall and are pure runtime source, so only the manifest goes in
+# now (cache-friendly); the full source is copied after install, below.
+COPY --chown=mercury:mercury packages/cli-engine/package.json ./packages/cli-engine/
+COPY --chown=mercury:mercury packages/channel-types/package.json ./packages/channel-types/
+COPY --chown=mercury:mercury packages/channel-google-chat/package.json ./packages/channel-google-chat/
 # @mercury/utils is copied in full BEFORE install too: a plugin's postinstall
 # imports its downloadPinnedBinary at install time, so its source has to be
 # present when `bun install` runs the postinstall.
@@ -73,7 +80,8 @@ COPY --chown=mercury:mercury packages/utils ./packages/utils
 # install (deps are cached; the one binary re-download is seconds).
 COPY --chown=mercury:mercury packages/plugin-jira ./packages/plugin-jira
 COPY --chown=mercury:mercury packages/plugin-bitbucket ./packages/plugin-bitbucket
-RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules packages/plugin-jira/bin packages/plugin-bitbucket/bin
+COPY --chown=mercury:mercury packages/plugin-atlassian-admin ./packages/plugin-atlassian-admin
+RUN bun install --frozen-lockfile && chown -R mercury:mercury node_modules packages/plugin-jira/bin packages/plugin-bitbucket/bin packages/plugin-atlassian-admin/bin
 
 # Plugin-provided binaries (downloaded by the postinstall above) onto PATH,
 # generically — each plugin's bin/ contents symlinked into /usr/local/bin,
@@ -89,10 +97,14 @@ COPY --chown=mercury:mercury apps/mercury/src ./apps/mercury/src
 # The instance composition config lives at the app root (imported by src/index.ts
 # as ../mercury.config.ts), not under src/, so it needs its own COPY.
 COPY --chown=mercury:mercury apps/mercury/mercury.config.ts ./apps/mercury/mercury.config.ts
-# The shared plugin contract types — runtime source imported by the app and the
-# plugins. No postinstall, so copied after install (cache-friendly), unlike the
-# Jira plugin above.
+# Runtime source imported by the app and the plugins/channels, no postinstall,
+# so copied after install (cache-friendly), unlike the Jira plugin above: the
+# shared plugin/channel contracts, the CLI engine every CLI plugin builds its
+# tool with, and the Google Chat channel package.
 COPY --chown=mercury:mercury packages/plugin-types ./packages/plugin-types
+COPY --chown=mercury:mercury packages/cli-engine ./packages/cli-engine
+COPY --chown=mercury:mercury packages/channel-types ./packages/channel-types
+COPY --chown=mercury:mercury packages/channel-google-chat ./packages/channel-google-chat
 
 COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
 RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh
