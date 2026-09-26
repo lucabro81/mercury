@@ -1,13 +1,15 @@
 /**
  * Service entrypoint: builds the instance via `composeMercury()` (see
  * `compose.ts`) and starts what a long-running service runs — the declared
- * channels, the POC admin panel, and the Layer-3 crons. The terminal REPL is a
- * separate dev entrypoint (`repl.ts`), not part of the service.
+ * channels, the POC admin panel, and the Layer-3 crons. Headless: the terminal
+ * REPL is a separate dev entrypoint (`repl.ts`), not part of the service.
+ *
+ * The process stays alive on the channels' background resources (Google Chat's
+ * StreamingPull, the HTTP server) and the cron intervals, and shuts down on a
+ * signal (SIGINT/SIGTERM — what `docker compose stop` sends), not on stdin EOF.
  */
 import { composeMercury } from "./compose.ts";
 import { loadChannels, type LoadedChannel } from "./router/channel-loader.ts";
-import { createTerminalProvider } from "./router/terminal-provider.ts";
-import { stdinIsSession } from "./router/terminal.ts";
 
 const app = await composeMercury();
 
@@ -22,30 +24,22 @@ for (const { name, provider } of loadedChannels) {
 
 const adminServer = app.startAdmin();
 const crons = app.startCrons();
+console.error("[service] up — channels and crons started; waiting for SIGINT/SIGTERM");
 
-await createTerminalProvider({
-  confirmDeps: app.confirmDeps,
-  ollamaHost: app.ollamaHost,
-  ollamaModel: app.ollamaModel,
-}).start(app.handleTurn);
-
-// The REPL above always resolves — on a detached container stdin is already
-// closed, so it ends immediately having read nothing, and Mercury must keep
-// serving Google Chat. When stdin was a real session (a TTY, or a pipe from
-// `docker compose run -T`), its EOF instead means this process is done, and
-// everything holding the event loop open has to be released or the process
-// hangs forever: the cron intervals, the admin server's listening socket, and
-// Google Chat's StreamingPull.
-//
-// The explicit exit is deliberate and not a substitute for the shutdown above
-// it: releasing every subsystem Mercury owns is not enough to end the process,
-// because the Qdrant client and the Ollama provider keep pooled keep-alive
-// sockets open and neither exposes a way to dispose of them. So the order
+// Signal-driven shutdown. Everything holding the event loop open has to be
+// released or the process hangs: the cron intervals, the admin socket, and each
+// channel's background resource. The explicit exit at the end is deliberate and
+// not a substitute for the stops above it: the Qdrant client and the Ollama
+// provider keep pooled keep-alive sockets open with no dispose, so the order
 // matters — stop everything that could be mid-flight first, then exit to drop
 // the third-party sockets nothing here can reach. Each step is traced so a
-// shutdown that stalls names the last subsystem that reported done.
-if (stdinIsSession()) {
-  console.error("[shutdown] terminal session ended, releasing subsystems");
+// shutdown that stalls names the last subsystem that reported done. Guarded so a
+// second signal during teardown doesn't run it twice.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[shutdown] ${signal} received, releasing subsystems`);
   crons.stop();
   console.error("[shutdown] crons stopped");
   adminServer?.stop();
@@ -56,3 +50,5 @@ if (stdinIsSession()) {
   }
   process.exit(0);
 }
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
