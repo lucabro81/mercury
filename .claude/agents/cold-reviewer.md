@@ -45,3 +45,12 @@ a test is inadequate). If you scrutinized something hard and found it correct,
 say so explicitly. **Do not fabricate issues to seem thorough** — but do not go
 easy. Cross-check any severe finding against the actual code before asserting
 it; you can still be wrong, so distinguish confirmed from suspected.
+
+## For the caller (mandatory)
+
+This review is a gate for the **user** to see, not a to-do list to auto-apply.
+Whoever ran this reviewer MUST surface the verdict and every finding to the user
+— verbatim or faithfully summarized, nothing dropped — **before touching a
+single finding**. No fix, no commit, no merge on the strength of this report
+until the user has read it and said how to proceed. The user decides which
+findings to act on; the caller waits for that decision.
