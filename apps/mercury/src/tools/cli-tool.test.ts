@@ -7,8 +7,7 @@ import {
   omitDisplayForModel,
   type CliConfig,
 } from "@mercury/cli-engine";
-import { createConfirmationStore } from "./confirmation-store.ts";
-import { createStageConfirmation } from "./confirmation-staging.ts";
+import { createConfirmationStore, createStageConfirmation } from "@mercury/confirm-engine";
 import { createDisplayStore } from "./display-store.ts";
 import type { CliResult } from "@mercury/cli-engine";
 

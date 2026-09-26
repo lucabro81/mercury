@@ -14,8 +14,7 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "@mercury/cli-engine";
-import { createConfirmationStore } from "./tools/confirmation-store.ts";
-import { createStageConfirmation } from "./tools/confirmation-staging.ts";
+import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveConfirmation } from "@mercury/confirm-engine";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
@@ -37,8 +36,6 @@ import {
 import type { StepInfo } from "./session/step-info.ts";
 import { googleChatChannel } from "@mercury/channel-google-chat";
 import { loadChannels, type LoadedChannel } from "./router/channel-loader.ts";
-import { tryConfirm } from "./router/confirm-flow.ts";
-import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {
   writeInferredNote,
@@ -449,6 +446,7 @@ function buildTools(
       sessionKey,
       userId: wikiUserId,
       vaultPath: wikiVaultPath,
+      writeConfirmationNoteFn: writeConfirmationNote,
     }),
     stashDisplay: (artifact: string) => displayStore.stash(sessionKey, artifact),
   };
@@ -552,29 +550,39 @@ const handleTurn = createTurnRunner({
   takeSurfacedDisplays: (sessionKey) => displayStore.takeSurfaced(sessionKey),
 });
 
-// Channels are plugins (declared in mercury.config.ts, enabled via
-// MERCURY_CHANNELS), loaded the same way tools are. Each reads its own config
-// from env in its build() and gets the confirm capability injected — bound here
-// to this instance's shared store/vault/note-writer, so a channel resolves a
-// token through the identical tryConfirm path without ever touching the store.
-// Google Chat is the one pluginized channel today; terminal and HTTP are still
-// wired directly below.
-const enabledChannels = (process.env.MERCURY_CHANNELS ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+// Channels are plugins (declared in mercury.config.ts's `channels`), loaded the
+// same way tools are — declared = active, no env gate. Each reads its own config
+// from env in its build() and gets the confirm capability injected here, bound to
+// this instance's shared store/vault/note-writer, so a channel resolves a token
+// through the identical path without ever touching the store. HTTP additionally
+// gets the structured `resolveConfirmation` and the in-process `reads`, which
+// can't come from env; other channels ignore them. Google Chat and HTTP are
+// pluginized; the terminal is still wired directly below.
+const confirmDeps = { store: confirmationStore, vaultPath: wikiVaultPath, writeConfirmationNoteFn: writeConfirmationNote };
 const loadedChannels: LoadedChannel[] = loadChannels(mercuryConfig.channels ?? [], {
-  enabled: enabledChannels,
   runtime: {
     env: process.env,
     log: (msg) => console.error(msg),
-    confirm: (token, sessionKey, userId) =>
-      tryConfirm(token, sessionKey, {
-        store: confirmationStore,
-        userId,
-        vaultPath: wikiVaultPath,
-        writeConfirmationNoteFn: writeConfirmationNote,
-      }),
+    confirm: (token, sessionKey, userId) => tryConfirm(token, sessionKey, { ...confirmDeps, userId }),
+    resolveConfirmation: (token, sessionKey, userId) => resolveConfirmation(token, sessionKey, { ...confirmDeps, userId }),
+    // Read-only introspection (4b) for a channel that exposes an API/UI (HTTP):
+    // everything already in-process — the loaded plugins/manifest, redacted
+    // pending confirmations, and the wiki/memory/tool-log reads.
+    reads: {
+      manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, [], loadedPlugins.skills),
+      pendingConfirmations: () => confirmationStore.pending(),
+      // Durable per-conversation transcript from the verbatim archive (#4):
+      // in the HTTP surface the client's conversationId is the sessionKey.
+      conversation: (sessionKey, limit, offset) =>
+        listVerbatimBySession(qdrant, verbatimCollection, { sessionKey, limit, offset }),
+      conversations: (limit) => listVerbatimSessions(qdrant, verbatimCollection, { limit }),
+      wikiList: () => listWikiVault(wikiVaultPath),
+      wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
+      wikiGrep: (pattern) => grepWikiVault(wikiVaultPath, pattern),
+      memoryScroll: (collection, limit, offset) => scrollCollection(qdrant, collection, { limit, offset }),
+      toolLog: () => getToolLog(),
+      health: () => getSelfHealth({ qdrant, ollamaHost }),
+    },
   },
 });
 for (const { name, provider } of loadedChannels) {
@@ -605,46 +613,6 @@ if (process.env.ADMIN_PANEL_ENABLED === "true") {
     envFilePath: ".env",
   });
   console.error(`[admin] panel listening on http://localhost:${adminPort}`);
-}
-
-// HTTP surface (Fase 4a): opt-in conversational endpoint, same posture as the
-// admin panel — never started unless HTTP_SURFACE_ENABLED, and must not be
-// reachable from outside the container network. Started in the background (like
-// Google Chat) so the blocking terminal REPL below is still reached. Reuses the
-// terminal's confirmDeps so a staged jira delete confirms through the identical
-// tryConfirm path.
-let httpProvider: ReturnType<typeof createHttpProvider> | undefined;
-if (process.env.HTTP_SURFACE_ENABLED === "true") {
-  const httpPort = Number(process.env.HTTP_SURFACE_PORT ?? "4100");
-  httpProvider = createHttpProvider({
-    port: httpPort,
-    corsOrigin: process.env.HTTP_SURFACE_CORS_ORIGIN ?? "*",
-    confirmDeps: {
-      store: confirmationStore,
-      vaultPath: wikiVaultPath,
-      writeConfirmationNoteFn: writeConfirmationNote,
-    },
-    // Read-only introspection (4b): everything already in-process — the loaded
-    // plugins/manifest, redacted pending confirmations, and the wiki/memory/
-    // tool-log reads reused from the admin panel's own functions.
-    reads: {
-      manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, [], loadedPlugins.skills),
-      pendingConfirmations: () => confirmationStore.pending(),
-      // Durable per-conversation transcript from the verbatim archive (#4):
-      // in the HTTP surface the client's conversationId is the sessionKey.
-      conversation: (sessionKey, limit, offset) =>
-        listVerbatimBySession(qdrant, verbatimCollection, { sessionKey, limit, offset }),
-      conversations: (limit) => listVerbatimSessions(qdrant, verbatimCollection, { limit }),
-      wikiList: () => listWikiVault(wikiVaultPath),
-      wikiRead: (path) => readWikiVaultFile(wikiVaultPath, path),
-      wikiGrep: (pattern) => grepWikiVault(wikiVaultPath, pattern),
-      memoryScroll: (collection, limit, offset) => scrollCollection(qdrant, collection, { limit, offset }),
-      toolLog: () => getToolLog(),
-      health: () => getSelfHealth({ qdrant, ollamaHost }),
-    },
-  });
-  await httpProvider.start(handleTurn);
-  console.error(`[http] surface listening on http://localhost:${httpPort}`);
 }
 
 await createTerminalProvider({
@@ -690,8 +658,6 @@ if (stdinIsSession()) {
   console.error("[shutdown] self-review cron stopped");
   adminServer?.stop();
   console.error("[shutdown] admin server stopped");
-  httpProvider?.stop();
-  console.error("[shutdown] http surface stopped");
   for (const { name, provider } of loadedChannels) {
     await provider.stop?.();
     console.error(`[shutdown] channel ${name} stopped`);

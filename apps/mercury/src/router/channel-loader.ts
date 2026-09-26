@@ -4,9 +4,12 @@
  * nothing about any specific channel: the composition root names them, this
  * loop builds them identically.
  *
+ * A channel is active when it's declared in `mercury.config.ts`'s `channels`
+ * (there is no separate env gate): declared = active. Each channel self-gates on
+ * its real config via `build()` returning `undefined` (Google Chat with no
+ * subscription; HTTP always builds).
+ *
  * Fail-soft, same guarantees as the tool-plugin loader:
- *  - a channel contributes only when enabled on this instance (its name is in
- *    `MERCURY_CHANNELS`);
  *  - an `apiVersion` mismatch is refused before `build()` runs;
  *  - a `build()` that throws degrades as a single unit (logged, skipped) while
  *    every other channel and the process carry on;
@@ -15,23 +18,19 @@
  */
 import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext, type Provider } from "@mercury/channel-types";
 
-/** Everything the loader needs from the composition root: which channels are enabled, and the runtime context every `build()` gets. */
+/** Everything the loader needs from the composition root: the runtime context every `build()` gets. */
 export type LoadChannelsContext = {
-  enabled: string[];
   runtime: ChannelRuntimeContext;
 };
 
 /** One built channel, kept with its plugin name so the composition root can start it and look it up (e.g. the cron `Notifier`). */
 export type LoadedChannel = { name: string; provider: Provider };
 
-/** Builds every enabled channel in `channels`, returning the providers that actually constructed (skipping disabled, incompatible, inert, or failed ones). */
+/** Builds every declared channel in `channels`, returning the providers that actually constructed (skipping incompatible, inert, or failed ones). */
 export function loadChannels(channels: ChannelPlugin[], ctx: LoadChannelsContext): LoadedChannel[] {
   const loaded: LoadedChannel[] = [];
 
   for (const channel of channels) {
-    if (!ctx.enabled.includes(channel.name)) {
-      continue;
-    }
     if (channel.apiVersion !== CHANNEL_API_VERSION) {
       ctx.runtime.log(
         `channel "${channel.name}" not activated: apiVersion ${channel.apiVersion} ` +

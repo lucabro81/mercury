@@ -10,8 +10,20 @@
  * thunk (see `StagedAction`) and reports the outcome. A CLI delete, a future
  * memory purge — same path, because the doing was closed over at stage time.
  */
-import { isTokenShaped, type ConfirmationStore } from "../tools/confirmation-store.ts";
-import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
+import type { ConfirmOutcome } from "@mercury/channel-types";
+import { isTokenShaped, type ConfirmationStore } from "./confirmation-store.ts";
+
+/**
+ * Signature of the persistent confirmation-note writer the core injects (the
+ * app's `writeConfirmationNote`, kept in `wiki/`). Declared here so this library
+ * stays free of any app import; the real writer is structurally assignable.
+ */
+export type WriteConfirmationNote = (
+  vaultPath: string,
+  userId: string,
+  token: string,
+  fields: { status: "pending" | "confirmed" | "failed"; requestedAt: string; resolvedAt: string | null; command: string },
+) => Promise<void>;
 
 /**
  * Returns `null` if `input` doesn't look like a bare confirmation token —
@@ -29,31 +41,11 @@ export type ConfirmDeps = {
   store: ConfirmationStore;
   userId: string;
   vaultPath: string;
-  writeConfirmationNoteFn: typeof writeConfirmationNote;
+  writeConfirmationNoteFn: WriteConfirmationNote;
   now?: () => Date;
 };
 
-/**
- * The structured outcome of resolving a token, distinguishing cases
- * `tryConfirm`'s string return collapses together:
- * - `not-a-token`: the input isn't shaped like a token — not a confirmation
- *   attempt at all (the channel should run its normal flow).
- * - `not-found`: token-shaped but no matching pending confirmation (unknown,
- *   expired, already used, or wrong session).
- * - `ok` / `failed`: the token matched a pending confirmation and its staged
- *   action was consumed and run (then succeeded / failed).
- *
- * Callers that only need a user-facing string use `tryConfirm`; callers that
- * must branch on whether the token was actually accepted (e.g. the HTTP
- * `/confirm` endpoint's `resolved` flag) use this.
- */
-export type ConfirmOutcome =
-  | { status: "not-a-token" }
-  | { status: "not-found" }
-  | { status: "ok"; data: unknown }
-  | { status: "failed"; error: string };
-
-/** Resolves a token to a structured {@link ConfirmOutcome}, running the staged action for a match. See `tryConfirm` for the string-returning wrapper. */
+/** Resolves a token to a structured {@link ConfirmOutcome} (from `@mercury/channel-types`), running the staged action for a match. See `tryConfirm` for the string-returning wrapper. */
 export async function resolveConfirmation(
   input: string,
   sessionKey: string,

@@ -1,9 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { createStageConfirmation } from "./confirmation-staging.ts";
 import { createConfirmationStore } from "./confirmation-store.ts";
-import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
+import type { WriteConfirmationNote } from "./confirm-flow.ts";
 
-const noopWrite: typeof writeConfirmationNote = async () => {};
+const noopWrite: WriteConfirmationNote = async () => {};
 
 describe("createStageConfirmation", () => {
   it("mints a token via the store, staging the given run thunk and describe", async () => {
@@ -29,7 +29,7 @@ describe("createStageConfirmation", () => {
   it("writes a pending confirmation note keyed by the minted token, with describe as the command", async () => {
     const store = createConfirmationStore({ tokenFn: () => "TOK1" });
     const writes: Array<{ vaultPath: string; userId: string; token: string; fields: unknown }> = [];
-    const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, token, fields) => {
+    const writeConfirmationNoteFn: WriteConfirmationNote = async (vaultPath, userId, token, fields) => {
       writes.push({ vaultPath, userId, token, fields });
     };
     const stage = createStageConfirmation({

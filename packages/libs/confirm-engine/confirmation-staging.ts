@@ -16,7 +16,7 @@
  */
 import type { ConfirmationStore } from "./confirmation-store.ts";
 import type { StageConfirmation } from "@mercury/plugin-types";
-import { writeConfirmationNote } from "../wiki/wiki-note.ts";
+import type { WriteConfirmationNote } from "./confirm-flow.ts";
 
 export type { StageConfirmation };
 
@@ -26,12 +26,12 @@ export function createStageConfirmation(deps: {
   /** Where/who the pending confirmation note is written for. */
   userId: string;
   vaultPath: string;
-  /** Test seam; defaults to the real `writeConfirmationNote`. */
-  writeConfirmationNoteFn?: typeof writeConfirmationNote;
+  /** The note writer, injected by the core (the app's `writeConfirmationNote`). */
+  writeConfirmationNoteFn: WriteConfirmationNote;
   /** Test seam; defaults to `() => new Date()`. */
   nowFn?: () => Date;
 }): StageConfirmation {
-  const write = deps.writeConfirmationNoteFn ?? writeConfirmationNote;
+  const write = deps.writeConfirmationNoteFn;
   const nowFn = deps.nowFn ?? (() => new Date());
 
   return async (action) => {

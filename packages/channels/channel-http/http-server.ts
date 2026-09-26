@@ -4,40 +4,39 @@
  * Server-Sent Events, mirroring what `terminal-provider.ts` does with console
  * chunks: reasoning/text deltas as they arrive, a `pending` event carrying the
  * token when a turn stages a confirm-required action, a `final` event with the
- * complete answer. A bare confirmation token in `text` is resolved by the same
- * `tryConfirm` every channel uses, before the model is ever consulted.
+ * complete answer. A bare confirmation token in `text` is resolved by the
+ * injected `confirm` capability, before the model is ever consulted.
  *
- * `handleTurnRequest` is exported (and takes its collaborators as deps, with
- * test seams for `tryConfirm` and the ephemeral session key) so the streaming
- * behaviour is unit-tested without standing up a socket. The read-only routes
- * (4b) mount alongside `/turn` here, reusing the admin panel's per-domain
- * functions.
+ * `handleTurnRequest` is exported (and takes its collaborators as deps — the
+ * injected `confirm` and the ephemeral session key) so the streaming behaviour
+ * is unit-tested without standing up a socket. The read-only routes (4b) mount
+ * alongside `/turn` here, driven by the injected `reads` getters.
  *
- * No auth by design — this surface is opt-in and must not be reachable from
- * outside the container network (see `src/index.ts`'s enable gate), the same
- * posture as the admin panel.
+ * No auth by design — this surface is opt-in (enabled by listing this channel in
+ * `mercury.config.ts`) and must not be reachable from outside the container
+ * network, the same posture as the admin panel. Confirm resolution is injected
+ * (`confirm`/`resolveConfirmation`), so this package never imports the app.
  */
-import { tryConfirm, resolveConfirmation } from "../router/confirm-flow.ts";
-import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
-import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
-import type { HandleTurn, TurnSink } from "../router/provider.ts";
-import type { ConfirmationStore } from "../tools/confirmation-store.ts";
-import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
+import {
+  detectPendingConfirmation,
+  PENDING_CONFIRMATION_NOTE,
+  type HandleTurn,
+  type TurnSink,
+  type ChannelHostReads,
+  type ConfirmOutcome,
+} from "@mercury/channel-types";
 
-export type HttpConfirmDeps = {
-  store: ConfirmationStore;
-  vaultPath: string;
-  writeConfirmationNoteFn: typeof writeConfirmationNote;
-  now?: () => Date;
-};
+/** Resolves a bare confirmation token to a reply string, or `null` if the input isn't a token. Injected by the core (`ctx.confirm`). */
+export type ConfirmFn = (token: string, sessionKey: string, userId: string) => Promise<string | null>;
+/** The structured sibling of {@link ConfirmFn}, for the `/confirm` `resolved` flag. Injected by the core (`ctx.resolveConfirmation`). */
+export type ResolveConfirmationFn = (token: string, sessionKey: string, userId: string) => Promise<ConfirmOutcome>;
 
 export type TurnRequestDeps = {
   handleTurn: HandleTurn;
-  confirmDeps: HttpConfirmDeps;
+  /** Bare-token interception before the model, injected by the core. */
+  confirm: ConfirmFn;
   /** Allowed CORS origin echoed back to a browser UI; defaults to `*`. */
   corsOrigin?: string;
-  /** Test seam; defaults to the real `tryConfirm`. */
-  tryConfirmFn?: typeof tryConfirm;
   /** Test seam for the ephemeral session key when the client sends no conversationId. */
   newSessionKey?: () => string;
 };
@@ -74,7 +73,7 @@ function preflight(origin: string): Response {
  * tooling (Redoc, Swagger UI, Postman) reads YAML directly.
  */
 export function openApiResponse(corsOrigin = "*"): Response {
-  const file = Bun.file(new URL("../../openapi.yaml", import.meta.url));
+  const file = Bun.file(new URL("./openapi.yaml", import.meta.url));
   return new Response(file, {
     headers: { "content-type": "text/yaml; charset=utf-8", ...corsHeaders(corsOrigin) },
   });
@@ -107,8 +106,6 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
       ? body.conversationId.trim()
       : (deps.newSessionKey ?? (() => crypto.randomUUID()))();
 
-  const tryConfirmFn = deps.tryConfirmFn ?? tryConfirm;
-
   // Aborted when the client disconnects (see the stream's `cancel` below) so
   // the in-flight turn stops instead of running to completion — the "stop"
   // affordance for a diverging generation.
@@ -136,10 +133,7 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 
       // Same deterministic interception as every other channel — a
       // previously-approved mutation must never depend on the model.
-      const confirmReply = await tryConfirmFn(text, sessionKey, {
-        ...deps.confirmDeps,
-        userId: sessionKey,
-      });
+      const confirmReply = await deps.confirm(text, sessionKey, sessionKey);
       if (confirmReply !== null) {
         send("final", { text: confirmReply });
         close();
@@ -196,17 +190,15 @@ export async function handleTurnRequest(req: Request, deps: TurnRequestDeps): Pr
 }
 
 export type ConfirmRequestDeps = {
-  confirmDeps: HttpConfirmDeps;
+  resolveConfirmation: ResolveConfirmationFn;
   corsOrigin?: string;
-  /** Test seam; defaults to the real `resolveConfirmation`. */
-  resolveConfirmationFn?: typeof resolveConfirmation;
 };
 
 /**
  * `POST /confirm { token, conversationId }` — the explicit confirmation
  * endpoint. A nicer contract for a UI than re-POSTing the bare token as `text`
  * to `/turn`, but the exact same mechanism underneath: it resolves the token
- * through the same `resolveConfirmation` `tryConfirm` uses, keyed on
+ * through the injected `resolveConfirmation`, keyed on
  * `conversationId` as the session. `resolved: true` means the token matched a
  * pending confirmation and its staged action was consumed and run; the `text`
  * then reports whether that execution succeeded. `resolved: false` means the
@@ -226,8 +218,7 @@ export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDep
   if (token.length === 0 || sessionKey.length === 0) {
     return Response.json({ ok: false, error: "missing token or conversationId" }, { status: 400, headers: cors });
   }
-  const resolveFn = deps.resolveConfirmationFn ?? resolveConfirmation;
-  const outcome = await resolveFn(token, sessionKey, { ...deps.confirmDeps, userId: sessionKey });
+  const outcome = await deps.resolveConfirmation(token, sessionKey, sessionKey);
   switch (outcome.status) {
     case "not-a-token":
     case "not-found":
@@ -238,28 +229,6 @@ export async function handleConfirmRequest(req: Request, deps: ConfirmRequestDep
       return Response.json({ ok: true, resolved: true, text: `Confermato, ma l'esecuzione è fallita: ${outcome.error}` }, { headers: cors });
   }
 }
-
-/**
- * Read-only introspection getters (4b), injected by the composition root so
- * this server stays decoupled from Qdrant, the vault, and the plugin list — it
- * only knows how to turn each getter into a route. Every getter reads state
- * that already exists in-process; nothing here computes anything new. Tokens are
- * never exposed (see `ConfirmationStore.pending`).
- */
-export type HttpReads = {
-  manifest: () => unknown;
-  pendingConfirmations: () => unknown;
-  /** A conversation's durable verbatim transcript, chronological, paginated. */
-  conversation: (sessionKey: string, limit: number, offset?: string) => Promise<unknown>;
-  /** The known conversations, most-recently-active first (sidebar view). */
-  conversations: (limit: number) => Promise<unknown>;
-  wikiList: () => Promise<unknown>;
-  wikiRead: (path: string) => Promise<unknown>;
-  wikiGrep: (pattern: string) => Promise<unknown>;
-  memoryScroll: (collection: string, limit: number, offset?: string) => Promise<unknown>;
-  toolLog: () => unknown;
-  health: () => Promise<unknown>;
-};
 
 /** A single read route: its `GET` handler plus the shared `OPTIONS` preflight. */
 type ReadRoute = {
@@ -273,7 +242,7 @@ type ReadRoute = {
  * reach them. `jsonRoute` wraps a getter into a `GET` that always JSON-encodes
  * with the CORS headers merged in; `badRequest` does the same for a 400.
  */
-export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, ReadRoute> {
+export function readRoutes(reads: ChannelHostReads, corsOrigin = "*"): Record<string, ReadRoute> {
   const cors = corsHeaders(corsOrigin);
   const json = (payload: object, status = 200): Response =>
     Response.json(payload, { status, headers: cors });
@@ -320,7 +289,12 @@ export function readRoutes(reads: HttpReads, corsOrigin = "*"): Record<string, R
   };
 }
 
-export type HttpServerDeps = TurnRequestDeps & { port: number; reads?: HttpReads };
+export type HttpServerDeps = TurnRequestDeps & {
+  port: number;
+  reads?: ChannelHostReads;
+  /** The `/confirm` endpoint's structured resolver, injected by the core. */
+  resolveConfirmation: ResolveConfirmationFn;
+};
 
 /** Starts the HTTP surface: `POST /turn` (4a) plus the read-only routes (4b)
  * when `reads` is supplied. */
@@ -340,7 +314,7 @@ export function startHttpServer(deps: HttpServerDeps): ReturnType<typeof Bun.ser
     routes: {
       "/turn": { POST: (req) => handleTurnRequest(req, deps), OPTIONS: () => preflight(origin) },
       "/confirm": {
-        POST: (req) => handleConfirmRequest(req, { confirmDeps: deps.confirmDeps, corsOrigin: origin }),
+        POST: (req) => handleConfirmRequest(req, { resolveConfirmation: deps.resolveConfirmation, corsOrigin: origin }),
         OPTIONS: () => preflight(origin),
       },
       "/openapi.yaml": { GET: () => openApiResponse(origin), OPTIONS: () => preflight(origin) },

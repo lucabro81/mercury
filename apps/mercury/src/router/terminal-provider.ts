@@ -11,14 +11,13 @@
  * that expects a `Notifier` never silently loses a message.
  */
 import { startTerminalRepl } from "./terminal.ts";
-import { tryConfirm } from "./confirm-flow.ts";
+import { tryConfirm, type ConfirmationStore } from "@mercury/confirm-engine";
 import { parseDumpCommand, defaultDumpPath, writeDump, formatContextUsage } from "./tool-log.ts";
 import { getLoadedContextLength } from "../model/context-size.ts";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { Provider, HandleTurn, TurnSink } from "./provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
-import type { ConfirmationStore } from "../tools/confirmation-store.ts";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 const TERMINAL_SESSION_KEY = "terminal";

@@ -29,6 +29,6 @@ describe("mercury.config.ts", () => {
   });
 
   test("declares this instance's channel plugin set", () => {
-    expect((mercuryConfig.channels ?? []).map((c) => c.name)).toEqual(["google-chat"]);
+    expect((mercuryConfig.channels ?? []).map((c) => c.name)).toEqual(["google-chat", "http"]);
   });
 });
