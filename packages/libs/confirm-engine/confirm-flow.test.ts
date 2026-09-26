@@ -1,9 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { tryConfirm } from "./confirm-flow.ts";
-import { createConfirmationStore, type StagedAction } from "../tools/confirmation-store.ts";
-import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
+import { createConfirmationStore, type StagedAction } from "./confirmation-store.ts";
+import type { WriteConfirmationNote } from "./confirm-flow.ts";
 
-const noopWriteConfirmationNoteFn: typeof writeConfirmationNote = async () => {};
+const noopWriteConfirmationNoteFn: WriteConfirmationNote = async () => {};
 
 function baseDeps(overrides: Partial<Parameters<typeof tryConfirm>[2]> = {}): Parameters<typeof tryConfirm>[2] {
   return {
@@ -95,7 +95,7 @@ describe("tryConfirm", () => {
         ),
       );
       const writes: unknown[] = [];
-      const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, tok, fields) => {
+      const writeConfirmationNoteFn: WriteConfirmationNote = async (vaultPath, userId, tok, fields) => {
         writes.push({ vaultPath, userId, tok, fields });
       };
 
@@ -127,7 +127,7 @@ describe("tryConfirm", () => {
         staged("jira issue delete KAN-1 --confirm", async () => ({ ok: false, error: "boom" }), "2026-07-27T12:20:00.000Z"),
       );
       const writes: unknown[] = [];
-      const writeConfirmationNoteFn: typeof writeConfirmationNote = async (vaultPath, userId, tok, fields) => {
+      const writeConfirmationNoteFn: WriteConfirmationNote = async (vaultPath, userId, tok, fields) => {
         writes.push({ vaultPath, userId, tok, fields });
       };
 
@@ -142,7 +142,7 @@ describe("tryConfirm", () => {
       const store = createConfirmationStore({ tokenFn: () => "k9m2-x7q4" });
       const token = store.stage("terminal", staged("jira issue delete KAN-1 --confirm", async () => ({ ok: true, data: {} })));
       const writes: unknown[] = [];
-      const writeConfirmationNoteFn: typeof writeConfirmationNote = async (_v, _u, _t, fields) => {
+      const writeConfirmationNoteFn: WriteConfirmationNote = async (_v, _u, _t, fields) => {
         writes.push(fields);
       };
 
@@ -157,7 +157,7 @@ describe("tryConfirm", () => {
         "terminal",
         staged("jira issue delete KAN-1 --confirm", async () => ({ ok: true, data: { key: "KAN-1", deleted: true } })),
       );
-      const writeConfirmationNoteFn: typeof writeConfirmationNote = async () => {
+      const writeConfirmationNoteFn: WriteConfirmationNote = async () => {
         throw new Error("disk full");
       };
 

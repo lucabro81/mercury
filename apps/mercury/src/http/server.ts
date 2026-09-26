@@ -17,11 +17,11 @@
  * outside the container network (see `src/index.ts`'s enable gate), the same
  * posture as the admin panel.
  */
-import { tryConfirm, resolveConfirmation } from "../router/confirm-flow.ts";
+import { tryConfirm, resolveConfirmation } from "@mercury/confirm-engine";
 import { detectPendingConfirmation } from "../session/pending-confirmation.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 import type { HandleTurn, TurnSink } from "../router/provider.ts";
-import type { ConfirmationStore } from "../tools/confirmation-store.ts";
+import type { ConfirmationStore } from "@mercury/confirm-engine";
 import type { writeConfirmationNote } from "../wiki/wiki-note.ts";
 
 export type HttpConfirmDeps = {

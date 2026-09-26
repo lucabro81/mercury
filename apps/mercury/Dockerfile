@@ -66,6 +66,7 @@ COPY --chown=mercury:mercury packages/types/plugin-types/package.json ./packages
 # have no postinstall and are pure runtime source, so only the manifest goes in
 # now (cache-friendly); the full source is copied after install, below.
 COPY --chown=mercury:mercury packages/libs/cli-engine/package.json ./packages/libs/cli-engine/
+COPY --chown=mercury:mercury packages/libs/confirm-engine/package.json ./packages/libs/confirm-engine/
 COPY --chown=mercury:mercury packages/types/channel-types/package.json ./packages/types/channel-types/
 COPY --chown=mercury:mercury packages/channels/channel-google-chat/package.json ./packages/channels/channel-google-chat/
 # @mercury/utils is copied in full BEFORE install too: a plugin's postinstall
@@ -103,6 +104,7 @@ COPY --chown=mercury:mercury apps/mercury/mercury.config.ts ./apps/mercury/mercu
 # tool with, and the Google Chat channel package.
 COPY --chown=mercury:mercury packages/types/plugin-types ./packages/types/plugin-types
 COPY --chown=mercury:mercury packages/libs/cli-engine ./packages/libs/cli-engine
+COPY --chown=mercury:mercury packages/libs/confirm-engine ./packages/libs/confirm-engine
 COPY --chown=mercury:mercury packages/types/channel-types ./packages/types/channel-types
 COPY --chown=mercury:mercury packages/channels/channel-google-chat ./packages/channels/channel-google-chat
 

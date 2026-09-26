@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes, type HttpConfirmDeps, type HttpReads } from "./server.ts";
 import type { HandleTurn, InboundTurn } from "../router/provider.ts";
 import type { StepInfo } from "../session/step-info.ts";
-import { createConfirmationStore } from "../tools/confirmation-store.ts";
+import { createConfirmationStore } from "@mercury/confirm-engine";
 
 /**
  * The conversational endpoint's streaming behaviour, exercised without a socket:

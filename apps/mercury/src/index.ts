@@ -14,8 +14,7 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "@mercury/cli-engine";
-import { createConfirmationStore } from "./tools/confirmation-store.ts";
-import { createStageConfirmation } from "./tools/confirmation-staging.ts";
+import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveConfirmation } from "@mercury/confirm-engine";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
@@ -37,7 +36,6 @@ import {
 import type { StepInfo } from "./session/step-info.ts";
 import { googleChatChannel } from "@mercury/channel-google-chat";
 import { loadChannels, type LoadedChannel } from "./router/channel-loader.ts";
-import { tryConfirm } from "./router/confirm-flow.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
 import {
@@ -449,6 +447,7 @@ function buildTools(
       sessionKey,
       userId: wikiUserId,
       vaultPath: wikiVaultPath,
+      writeConfirmationNoteFn: writeConfirmationNote,
     }),
     stashDisplay: (artifact: string) => displayStore.stash(sessionKey, artifact),
   };
