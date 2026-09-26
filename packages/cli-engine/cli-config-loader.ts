@@ -29,15 +29,12 @@ export type CliConfigFromObjectResult =
   | { ok: false; reason: string };
 
 /**
- * The object-based sibling of `loadCliConfig`: a plugin owns its allowlist as
- * data and hands the already-parsed object over, instead of the core scanning
- * a config directory for it. The safety barrier stays here — the same
- * `.strict()` Zod schema and, when `minVersion` is declared, the same version
- * check — so a plugin's config reaches `runCommand`'s allowlist through the
- * identical validation the file path uses; only the file read drops out. No
+ * Validates a plugin's already-parsed allowlist object: the same `.strict()` Zod
+ * schema and, when `minVersion` is declared, a `--version` check, so a plugin's
+ * config reaches `runCommand`'s allowlist through the full validation. No
  * requested-vs-declared binary match: the plugin declares its own binary and
- * there's no separate name to reconcile it against, so the validated
- * `binary` is returned for the caller to key its map by. Never throws.
+ * there's no separate name to reconcile it against, so the validated `binary` is
+ * returned for the caller to key its map by. Never throws.
  */
 export async function loadCliConfigFromObject(
   raw: unknown,
@@ -64,9 +61,7 @@ export async function loadCliConfigFromObject(
  * validation only, skipping the `minVersion` `--version` check. It's what a
  * plugin uses on its own allowlist in `build()` — a plugin ships its pinned CLI
  * binary alongside its allowlist, so the two are co-versioned by construction
- * and the runtime version check earns nothing there (it stays for file-based
- * configs, where a deployer's binary and allowlist can drift — see
- * `loadCliConfig`). Never throws.
+ * and the runtime version check earns nothing there. Never throws.
  */
 export function parseCliConfig(raw: unknown): CliConfigFromObjectResult {
   const validated = CliConfigFileSchema.safeParse(raw);
