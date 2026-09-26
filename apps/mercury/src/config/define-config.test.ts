@@ -24,7 +24,11 @@ describe("defineMercuryConfig", () => {
 });
 
 describe("mercury.config.ts", () => {
-  test("declares Jira then Bitbucket as this instance's plugin set", () => {
-    expect(mercuryConfig.plugins.map((p) => p.name)).toEqual(["jira", "bitbucket"]);
+  test("declares this instance's tool plugin set, in order", () => {
+    expect(mercuryConfig.plugins.map((p) => p.name)).toEqual(["jira", "bitbucket", "atlassian-admin"]);
+  });
+
+  test("declares this instance's channel plugin set", () => {
+    expect((mercuryConfig.channels ?? []).map((c) => c.name)).toEqual(["google-chat"]);
   });
 });

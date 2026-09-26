@@ -57,7 +57,7 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid, version-checked config file (`cli-configs/*.json`, loaded at startup by `src/tools/cli-config-loader.ts`) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
@@ -77,9 +77,12 @@ mercury/                       # repo root
 ├── scripts/
 │   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
 ├── packages/
-│   ├── plugin-types/          # the shared Plugin contract — types + apiVersion + skill/status helpers, imported by core and plugins
+│   ├── plugin-types/          # the shared Plugin contract (tools) — types + apiVersion + skill/status helpers, imported by core and plugins
+│   ├── channel-types/         # the shared ChannelPlugin contract (channels) — Provider/TurnSink + confirm helpers, imported by core and channels
 │   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list formatter + correction guard, pinned CLI binary
 │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
+│   ├── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
+│   ├── channel-google-chat/   # Google Chat channel plugin: the registered-app transport (Pub/Sub + REST), loaded by the channel loader
 │   ├── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
 │   └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
@@ -97,18 +100,18 @@ apps/mercury/
 │   ...
 ├── scripts/
 │   └── install-clis.sh
-├── cli-configs/               # maintainer-authored per-CLI allowlist config, one JSON per file-based binary (plugins carry their own instead)
 ├── src/
 │   ├── index.ts              # composition root — wires model/tools/channels
 │   ├── model/                # Ollama provider, real context-window lookup
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
 │   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
-│   ├── plugins/               # generic fail-soft plugin loader (plugin-loader.ts) — turns a hand-listed plugin set into tools/prompt/guards
+│   ├── plugins/               # generic fail-soft tool-plugin loader (plugin-loader.ts) — turns a hand-listed plugin set into tools/prompt/guards
 │   ├── router/
 │   │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
-│   │   ├── terminal.ts         # REPL channel
+│   │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
+│   │   ├── terminal.ts         # REPL channel (wired directly, not a plugin yet)
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers
-│   │   └── channels/           # Google Chat channel (discovery + per-space listen)
+│   │   └── channels/           # HTTP surface provider (wired directly; Google Chat now lives in packages/channel-google-chat)
 │   ├── memory/                # Layer 3 — episodic store (Qdrant)
 │   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
 │   ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)

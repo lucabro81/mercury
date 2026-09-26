@@ -18,8 +18,8 @@ WORKDIR /app
 ARG MERCURY_CLIS=jira,bitbucket
 # crates a plugin package provides: this stage skips them, since the plugin's
 # own postinstall downloads a pinned binary during `bun install` in the final
-# stage. Keep in sync with the plugins listed in src/index.ts.
-ARG MERCURY_PLUGIN_CLIS=jira,bitbucket
+# stage. Keep in sync with the plugins listed in mercury.config.ts.
+ARG MERCURY_PLUGIN_CLIS=jira,bitbucket,atlassian-admin
 COPY apps/mercury/scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 

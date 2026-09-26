@@ -1,31 +1,30 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfig } from "@mercury/cli-engine";
+import { loadCliConfigFromObject } from "@mercury/cli-engine";
 import { matchCommand, type CliConfig } from "@mercury/cli-engine";
 import type { CliResult } from "@mercury/cli-engine";
+import { atlassianAdminCliConfig } from "@mercury/plugin-atlassian-admin";
 
 /**
- * Integration-shaped safety net for the real, checked-in
- * `cli-configs/atlassian-admin.json` reference config — same pattern as
- * `cli-config-loader.bitbucket.test.ts`. The Bitbucket identity bridge
- * only needs to resolve an `account_id` to a profile/email, so the
- * allowlist is deliberately narrow: no mutating command exists on this
- * CLI at all.
+ * Integration-shaped safety net for the atlassian-admin plugin's real,
+ * checked-in allowlist (`@mercury/plugin-atlassian-admin`'s
+ * `atlassian-admin.json`, travelling with the plugin) — same pattern as
+ * `cli-config-loader.bitbucket.test.ts`. The Bitbucket identity bridge only
+ * needs to resolve an `account_id` to a profile/email, so the allowlist is
+ * deliberately narrow: no mutating command exists on this CLI at all.
  */
-
-const CONFIG_DIR = new URL("../../cli-configs/", import.meta.url).pathname.replace(/\/$/, "");
 
 let atlassianAdminConfig: CliConfig;
 
 beforeAll(async () => {
   const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "atlassian-admin-cli 1.0.0" });
-  const result = await loadCliConfig("atlassian-admin", { configDir: CONFIG_DIR, runCliFn });
+  const result = await loadCliConfigFromObject(atlassianAdminCliConfig, { runCliFn });
   if (!result.ok) {
-    throw new Error(`cli-configs/atlassian-admin.json failed to load: ${result.reason}`);
+    throw new Error(`@mercury/plugin-atlassian-admin config failed to load: ${result.reason}`);
   }
   atlassianAdminConfig = result.config;
 });
 
-describe("cli-configs/atlassian-admin.json", () => {
+describe("@mercury/plugin-atlassian-admin allowlist", () => {
   it("allows the read-only user lookup and health check", () => {
     expect(matchCommand(["user", "get", "--account-id", "abc123"], atlassianAdminConfig)).toEqual({
       kind: "allowed",
