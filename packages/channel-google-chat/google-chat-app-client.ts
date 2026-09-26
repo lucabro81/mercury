@@ -1,19 +1,8 @@
 /**
  * The registered Chat app's own transport — Chat REST API + Pub/Sub pull,
- * called directly over HTTPS from this process, never through the
- * `google-chat` CLI. Channel transport (reading/sending the messages that
- * carry a conversation) is never something the model drives, unlike a tool
- * such as `notify-user.ts`, which it does invoke.
- *
- * That is a statement about *this* module, not about the CLI: `google-chat`
- * is a regular model-invocable CLI on this instance like any other, listed
- * in `MERCURY_CLIS` with its own allowlist in `cli-configs/google-chat.json`
- * (`spaces list`, `spaces members list`, `users get`, `messages list`,
- * `messages delete`) and its own credentials mount. Its transport role is
- * what the impersonation retirement removed, not its tool role — a
- * distinction worth keeping straight, since dropping the CLI on the
- * assumption it had become unused has already been done once and reverted
- * (see `docker-compose.override.yml`, which carries the same warning).
+ * called directly over HTTPS from this process. Channel transport
+ * (reading/sending the messages that carry a conversation) is never something
+ * the model drives, unlike a tool such as `notify-user.ts`, which it does invoke.
  *
  * Auth: a service-account JWT-bearer flow (RFC 7523), signed with Node's
  * built-in `crypto` — no new OAuth/Google API client dependency needed for
