@@ -8,7 +8,7 @@
   - [Starting it](#starting-it)
   - [Rebuilding](#rebuilding)
   - [Viewing logs](#viewing-logs)
-  - [Using the terminal REPL](#using-the-terminal-repl)
+  - [Using the dev REPL](#using-the-dev-repl)
   - [Getting a shell to test CLIs directly](#getting-a-shell-to-test-clis-directly)
   - [Stopping everything](#stopping-everything)
   - [Wiki vault maintenance](#wiki-vault-maintenance)
@@ -39,7 +39,7 @@ cp .env.example .env
 # fill in .env: OLLAMA_HOST, OLLAMA_MODEL, QDRANT_URL, Jira/Google Chat/GitHub credentials
 ```
 
-Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (declared = active, no env gate). Google Chat and HTTP are channel plugins; the terminal is still wired directly. A declared channel left unconfigured stays inert, so leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty runs without Google Chat.
+Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (declared = active, no env gate). Google Chat and HTTP are channel plugins; the interactive terminal is a dev command (`bun run repl`), not a channel of the running service. A declared channel left unconfigured stays inert, so leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty runs without Google Chat.
 
 ## Running it
 
@@ -95,19 +95,19 @@ docker compose logs -f mercury
 docker compose logs -f qdrant
 ```
 
-### Using the terminal REPL
+### Using the dev REPL
 
-The terminal is always on. To attach to it interactively:
+The interactive terminal is a dev command, not part of the running service. Boot a one-off instance and open the REPL against it:
 
 ```bash
-docker compose run --rm mercury
+docker compose run --rm mercury bun run repl
 ```
 
-Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough.
+Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough. The REPL is identity-less by design, so a debug session never writes to per-user memory.
 
 ---
 
-`Ctrl+C` exits the REPL and stops the container. To follow logs without attaching to the REPL:
+`Ctrl+D` (or `Ctrl+C`) ends the REPL; with `--rm` the one-off container is removed on exit, leaving a service started with `docker compose up` untouched. To follow the running service's logs:
 
 ```bash
 docker compose logs -f mercury
