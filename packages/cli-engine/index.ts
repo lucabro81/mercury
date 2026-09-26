@@ -27,14 +27,9 @@ export {
 } from "./cli-tool.ts";
 export { CliConfigFileSchema, type CliConfigFile } from "./cli-config-schema.ts";
 export {
-  loadCliConfigFile,
   toCliConfig,
-  loadCliConfig,
   loadCliConfigFromObject,
   parseCliConfig,
-  loadActiveCliConfigs,
-  type CliConfigFileResult,
-  type CliConfigLoadResult,
   type CliConfigFromObjectResult,
 } from "./cli-config-loader.ts";
 export {

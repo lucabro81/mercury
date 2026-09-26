@@ -39,7 +39,7 @@ cp .env.example .env
 # fill in .env: OLLAMA_HOST, OLLAMA_MODEL, QDRANT_URL, Jira/Google Chat/GitHub credentials
 ```
 
-Leave `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty to run with the terminal channel only.
+Channels are enabled in `MERCURY_CHANNELS` (Google Chat is one). A channel enabled there but left unconfigured stays inert, so dropping `google-chat` from `MERCURY_CHANNELS`, or leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty, runs with the terminal channel only.
 
 ## Running it
 
@@ -115,7 +115,7 @@ docker compose logs -f mercury
 
 ### Getting a shell to test CLIs directly
 
-The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a `cli-configs/*.json` allowlist. For that, open a shell in the running container instead:
+The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a plugin's allowlist. For that, open a shell in the running container instead:
 
 ```bash
 docker compose exec mercury bash
@@ -271,11 +271,9 @@ Each wipes its own named volume and lets Mercury reinitialize it empty on the ne
 
 ## CLIs and service authentication
 
-External integrations (Jira, Bitbucket, Google Chat, ...) are independent CLI binaries, downloaded from [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo) via `scripts/install-clis.sh`, not part of this repo's code.
+Every external integration is a plugin (`packages/plugin-*`) that owns its CLI end to end: it ships its own pinned binary, downloaded at `bun install` by the plugin's postinstall, and its own command allowlist (a `<binary>.json` living in the package, validated when the plugin loads). The core no longer knows about any CLI directly, so there's no central config directory to populate. You enable a plugin by declaring it in `mercury.config.ts` and listing its name in `MERCURY_CLIS`.
 
-For onboarding and authentication of each service: check the README of the specific crate in CLI-monorepo, or run the `init` command of the corresponding CLI (e.g. `jira init`, `google-chat init`) and follow the on-screen instructions.
-
-A CLI being installed and authenticated isn't enough on its own for the model to use it: each active CLI also needs a maintainer-authored allowlist config at `MERCURY_CLI_CONFIG_DIR` (default `/app/cli-config`, bind-mounted from `./cli-configs` in dev — see the example configs under `cli-configs/` for the reference format, and the CLI's own README in CLI-monorepo for what subcommands/flags it actually has; a plugin instead ships its allowlist inside its own package). Editing a config file only needs a container restart, no rebuild.
+Authenticating a CLI stays per-crate and out of this repo: run the crate's own `init` (e.g. `jira init`), or follow its README in [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo), for what subcommands and flags it actually exposes. The binary keeps its credentials under `~/.config/<cli>`, seeded once into the container's `cli-credentials` volume by `scripts/docker-entrypoint.sh` from a base64 tar in `.env` (see `*_CLI_CONFIG_TAR_B64`), or bind-mounted from the host in dev via `docker-compose.override.yml`.
 
 ## HTTP API
 

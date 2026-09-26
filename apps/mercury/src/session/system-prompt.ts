@@ -1,4 +1,4 @@
-import { NO_REPLY } from "../router/channels/google-chat-provider.ts";
+import { NO_REPLY } from "@mercury/channel-types";
 import type { Skill } from "@mercury/plugin-types";
 
 /**

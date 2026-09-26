@@ -25,6 +25,5 @@ mkdir -p /home/mercury/.config
 materialize jira-cli JIRA_CLI_CONFIG_TAR_B64
 materialize bitbucket-cli BITBUCKET_CLI_CONFIG_TAR_B64
 materialize atlassian-admin-cli ATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64
-materialize google-chat-cli GOOGLE_CHAT_CLI_CONFIG_TAR_B64
 
 exec bun run src/index.ts

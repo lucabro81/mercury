@@ -5,9 +5,7 @@ import {
   parseChatEvent,
   type GoogleChatProviderDeps,
 } from "./google-chat-provider.ts";
-import { createConfirmationStore } from "../../tools/confirmation-store.ts";
-import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
-import type { HandleTurn, InboundTurn, TurnSink } from "../provider.ts";
+import { PENDING_CONFIRMATION_NOTE, type HandleTurn, type InboundTurn, type TurnSink } from "@mercury/channel-types";
 
 const creds = { clientEmail: "bot@test.iam.gserviceaccount.com", privateKey: "fake" };
 
@@ -44,9 +42,10 @@ function baseDeps(overrides: Partial<GoogleChatProviderDeps> = {}): GoogleChatPr
   return {
     credentials: creds,
     subscription: "projects/p/subscriptions/s",
-    store: createConfirmationStore(),
-    vaultPath: "/vault",
-    writeConfirmationNoteFn: (async () => {}) as any,
+    // Default: input is never token-shaped, so every message falls through to
+    // handleTurn. Confirmation tests override this with a stub that returns a
+    // reply for a known token (the real tryConfirm is exercised in the core).
+    confirm: async () => null,
     tokenSourceFn: () => ({ getToken: async () => "fake-token" }),
     sendMessageFn: async (_space, _text) => ({ name: "spaces/X/messages/sent" }),
     // Every turn now sends an immediate "Stato" card on start (see
@@ -258,18 +257,18 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     expect(capturedTurn?.text).toBe("hello");
   });
 
-  test("a bare confirmation token message is intercepted before handleTurn, and never reaches it", async () => {
-    const store = createConfirmationStore();
-    const token = store.stage("spaces/X:users/42", {
-      run: async () => ({ ok: true, data: { deleted: true } }),
-      describe: "jira issue delete KAN-1",
-    });
+  test("a bare confirmation token message is intercepted (via deps.confirm) before handleTurn, and never reaches it", async () => {
+    const token = "TOKEN-1234";
     let handleTurnCalled = false;
     const sent: string[] = [];
+    const confirmArgs: unknown[] = [];
     const sub = fakeSubscription();
 
     const deps = baseDeps({
-      store,
+      confirm: async (t, sessionKey, userId) => {
+        confirmArgs.push([t, sessionKey, userId]);
+        return t === token ? 'Confermato ed eseguito: {"deleted":true}' : null;
+      },
       subscriptionFn: () => sub as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
@@ -286,6 +285,7 @@ describe("createGoogleChatProvider — StreamingPull", () => {
 
     expect(handleTurnCalled).toBe(false);
     expect(sent).toEqual(['Confermato ed eseguito: {"deleted":true}']);
+    expect(confirmArgs).toEqual([[token, "spaces/X:users/42", "users/42"]]);
   });
 
   test("an event whose messageName was already sent by this provider is skipped (loop prevention)", async () => {
@@ -343,17 +343,17 @@ describe("createGoogleChatProvider — StreamingPull", () => {
   // same execution path a typed `conferma <token>` message does — no
   // separate logic to keep in sync, no new failure mode. Only exercised
   // when the caller doesn't override `onCardClick` (the default behavior).
-  test("clicking the confirm button with a valid token executes the staged command", async () => {
-    const store = createConfirmationStore();
-    const token = store.stage("spaces/X:users/42", {
-      run: async () => ({ ok: true, data: { deleted: true } }),
-      describe: "jira issue delete KAN-1",
-    });
+  test("clicking the confirm button routes the token through deps.confirm and sends the reply", async () => {
+    const token = "TOK-OK";
     const sent: string[] = [];
+    const confirmArgs: unknown[] = [];
     const sub = fakeSubscription();
 
     const deps = baseDeps({
-      store,
+      confirm: async (t, sessionKey, userId) => {
+        confirmArgs.push([t, sessionKey, userId]);
+        return t === token ? 'Confermato ed eseguito: {"deleted":true}' : null;
+      },
       subscriptionFn: () => sub as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);
@@ -373,16 +373,17 @@ describe("createGoogleChatProvider — StreamingPull", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(sent).toEqual(['Confermato ed eseguito: {"deleted":true}']);
+    expect(confirmArgs).toEqual([[token, "spaces/X:users/42", "users/42"]]);
   });
 
-  test("clicking the confirm button with an unknown/expired token gets a clean error, nothing executes", async () => {
-    // No action is staged for this token, so there is nothing to run — the
-    // store's take() returns null and tryConfirm short-circuits to the canned
-    // message without ever touching a staged thunk.
+  test("clicking the confirm button forwards deps.confirm's canned error for an unknown/expired token", async () => {
+    // deps.confirm (the core's tryConfirm) returns the canned message for a
+    // token-shaped-but-not-found token; the provider just forwards it.
     const sent: string[] = [];
     const sub = fakeSubscription();
 
     const deps = baseDeps({
+      confirm: async () => "Nessuna conferma in sospeso per questo token — potrebbe essere scaduta, già usata, o mai esistita.",
       subscriptionFn: () => sub as any,
       sendMessageFn: async (_space, text) => {
         sent.push(text);

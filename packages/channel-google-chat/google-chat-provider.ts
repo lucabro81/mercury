@@ -31,13 +31,16 @@ import {
 } from "./google-chat-app-client.ts";
 import { openSubscription, type PubSubSubscription, type StreamMessage } from "./google-chat-pubsub-stream.ts";
 import { splitForSendLimit } from "./google-chat-message-buffer.ts";
-import { tryConfirm } from "../confirm-flow.ts";
-import { detectPendingConfirmation, type PendingConfirmation } from "../../session/pending-confirmation.ts";
-import { PENDING_CONFIRMATION_NOTE } from "../../session/agent-turn.ts";
-import type { ToolOutcome } from "../../session/tool-start-hook.ts";
-import type { Provider, HandleTurn, TurnSink } from "../provider.ts";
-import type { ConfirmationStore } from "../../tools/confirmation-store.ts";
-import type { writeConfirmationNote } from "../../wiki/wiki-note.ts";
+import {
+  detectPendingConfirmation,
+  PENDING_CONFIRMATION_NOTE,
+  NO_REPLY,
+  type PendingConfirmation,
+  type ToolOutcome,
+  type Provider,
+  type HandleTurn,
+  type TurnSink,
+} from "@mercury/channel-types";
 
 /**
  * Builds the confirmation card sent when a step stages an irreversible
@@ -157,9 +160,6 @@ function tailTruncate(text: string, max: number): string {
   return text.length <= max ? text : `…${text.slice(text.length - max)}`;
 }
 
-/** Sentinel a model can return to mean "this message isn't addressed to me" in a shared, multi-person space — see `buildSystemPrompt`'s multiUser block in `index.ts`. Unchanged from the retired channel. */
-export const NO_REPLY = "NO_REPLY";
-
 /**
  * Composite session key: space + sender. Deliberately does NOT include
  * `thread` — confirmed live (two consecutive messages in the same DM
@@ -250,17 +250,20 @@ export type CardClickHandler = (params: Record<string, string>, space: string, s
 export type GoogleChatProviderDeps = {
   credentials: ServiceAccountCredentials;
   subscription: string;
-  store: ConfirmationStore;
-  vaultPath: string;
-  writeConfirmationNoteFn: typeof writeConfirmationNote;
   /**
-   * Handles a `CARD_CLICKED` event's action parameters. Defaults to
-   * resolving the confirm-required button's token through the same
-   * `tryConfirm` path a bare token typed on the terminal uses (see
-   * `createGoogleChatProvider`'s default below) — override only to
-   * handle a different card's click shape (e.g. a future `notify-user`
-   * disambiguation token, see `notify-user.ts`), not to change how
-   * confirmation itself resolves.
+   * Resolves a confirmation token against the core's shared store, injected by
+   * the channel loader (`ChannelRuntimeContext.confirm`). Returns the reply to
+   * send, or `null` when the input wasn't token-shaped. This is the whole of
+   * the channel's contact with confirmation — the store, vault and note-writer
+   * stay in the core.
+   */
+  confirm: (token: string, sessionKey: string, userId: string) => Promise<string | null>;
+  /**
+   * Handles a `CARD_CLICKED` event's action parameters. Defaults to resolving
+   * the confirm button's token through `deps.confirm` (the same path a bare
+   * token typed on the terminal uses) — override only to handle a different
+   * card's click shape (e.g. a future `notify-user` disambiguation token), not
+   * to change how confirmation itself resolves.
    */
   onCardClick?: CardClickHandler;
   /** Test seams — default to the real client functions bound with a token source built from `credentials`. */
@@ -299,10 +302,10 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
   const queuedEvents = new Map<string, ParsedMessageEvent[]>();
 
   /**
-   * Default `onCardClick`: the confirm button's token routes through the
-   * exact same `tryConfirm` logic a bare token typed on the terminal
-   * does — one execution path, one set of valid/expired/wrong-session-
-   * token behaviors, regardless of how the token got here.
+   * Default `onCardClick`: the confirm button's token routes through the exact
+   * same `deps.confirm` a bare token typed on the terminal uses — one execution
+   * path, one set of valid/expired/wrong-session-token behaviors, regardless of
+   * how the token got here.
    */
   const onCardClick: CardClickHandler =
     deps.onCardClick ??
@@ -312,12 +315,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
         log(`[chat] card click with no token parameter`);
         return;
       }
-      const reply = await tryConfirm(token, deriveSessionKey(space, sender), {
-        store: deps.store,
-        userId: sender,
-        vaultPath: deps.vaultPath,
-        writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
-      });
+      const reply = await deps.confirm(token, deriveSessionKey(space, sender), sender);
       if (reply !== null) {
         log(`[chat:${space}] [out] ${reply}`);
         const sent = await sendMessageFn(space, reply, clientDeps);
@@ -480,12 +478,7 @@ export function createGoogleChatProvider(deps: GoogleChatProviderDeps): GoogleCh
     const sessionKey = deriveSessionKey(event.space, event.sender);
     const markedInput = event.senderDisplayName ? `[Da: ${event.senderDisplayName}]\n${event.text}` : event.text;
 
-    const confirmReply = await tryConfirm(event.text, sessionKey, {
-      store: deps.store,
-      userId: event.sender,
-      vaultPath: deps.vaultPath,
-      writeConfirmationNoteFn: deps.writeConfirmationNoteFn,
-    });
+    const confirmReply = await deps.confirm(event.text, sessionKey, event.sender);
     if (confirmReply !== null) {
       log(`[chat:${event.space}] [out] ${confirmReply}`);
       const sent = await sendMessageFn(event.space, confirmReply, clientDeps);

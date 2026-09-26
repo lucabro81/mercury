@@ -1,26 +1,23 @@
 /**
- * Composition root: wires the model, the per-CLI tools this instance
- * has enabled, and the channels (terminal always, Google Chat if
- * configured) into running conversations.
+ * Composition root: wires the model, the tools this instance has enabled, and
+ * the channels into running conversations.
  *
- * This is the only file that decides which tools actually exist on this
- * instance. A CLI-based plugin (Jira, Bitbucket) owns its own tool, built via
- * `@mercury/cli-engine` — the core just collects what each plugin contributes.
- * File-based CLIs with no owning plugin ride a residual `runCommand` built here
- * from `loadActiveCliConfigs` (the "not-yet-pluginized" bucket). Every other
- * module (`runTurn`, the channels) takes tools/system as inputs rather than
- * assuming any of them exist, specifically so this file can make that call in
- * one place.
+ * This is the only file that decides which tools and channels actually exist on
+ * this instance. Every CLI-based integration is a plugin that owns its own tool,
+ * built via `@mercury/cli-engine` — the core just collects what each plugin
+ * contributes (there is no file-based CLI bucket anymore). Channels are plugins
+ * too, loaded by the channel loader from `mercury.config.ts` (terminal and HTTP
+ * are still wired directly below). Every other module (`runTurn`, the channels)
+ * takes tools/system as inputs rather than assuming any exist, so this file
+ * makes that call in one place.
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
 import { runCli } from "@mercury/cli-engine";
-import { createCliTool } from "@mercury/cli-engine";
 import { createConfirmationStore } from "./tools/confirmation-store.ts";
 import { createStageConfirmation } from "./tools/confirmation-staging.ts";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
-import { loadActiveCliConfigs } from "@mercury/cli-engine";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
 import mercuryConfig from "../mercury.config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
@@ -38,10 +35,11 @@ import {
   describeToolOutcome,
 } from "./router/tool-log.ts";
 import type { StepInfo } from "./session/step-info.ts";
-import { createGoogleChatProvider, NO_REPLY } from "./router/channels/google-chat-provider.ts";
+import { googleChatChannel } from "@mercury/channel-google-chat";
+import { loadChannels, type LoadedChannel } from "./router/channel-loader.ts";
+import { tryConfirm } from "./router/confirm-flow.ts";
 import { createHttpProvider } from "./router/channels/http-provider.ts";
 import { withToolStartHook } from "./session/tool-start-hook.ts";
-import { createCliStatusDescriber } from "@mercury/cli-engine";
 import {
   writeInferredNote,
   writeToolCorrectionNote,
@@ -125,25 +123,6 @@ const summarize = createSummarizer(model);
 // same schema/version barrier a file-based config passes; one that fails — bad
 // config, throwing build — degrades only itself.
 const plugins = mercuryConfig.plugins;
-const pluginNames = new Set(plugins.map((p) => p.name));
-
-// File-based CLI configs come from maintainer-authored files in cliConfigDir,
-// one per binary, bind-mounted at runtime (bitbucket/google-chat — see
-// docker-compose.override.yml, .env.example). Plugin-provided names are
-// excluded here: they carry their allowlist as data, validated by loadPlugins
-// below, and are never looked for on disk (no spurious "not activated" for a
-// jira.json that no longer exists).
-// File-based CLIs (google-chat, atlassian-admin) have no owning plugin — a
-// deployer drops their allowlist in cliConfigDir. They ride a residual,
-// composition-built `runCommand` tool: the "not-yet-pluginized" bucket, which
-// shrinks to zero as those CLIs become plugins. Plugin-provided names are
-// excluded (they own their own tool via the plugin, see below).
-const cliConfigDir = process.env.MERCURY_CLI_CONFIG_DIR ?? "/app/cli-config";
-const fileCliConfigs = await loadActiveCliConfigs(
-  enabledClis.filter((name) => !pluginNames.has(name)),
-  { configDir: cliConfigDir, runCliFn: runCli },
-);
-const hasFileClis = Object.keys(fileCliConfigs).length > 0;
 
 const loadedPlugins = await loadPlugins(plugins, {
   enabledClis,
@@ -152,28 +131,10 @@ const loadedPlugins = await loadPlugins(plugins, {
   log: (msg) => console.error(msg),
 });
 
-// Status labels for the tool-start hook, keyed by tool name: the plugins'
-// describers for their own tools (jiraCommand, …), plus one for the residual
-// file-based `runCommand` if any file CLIs are configured. The core doesn't
-// classify read/write — a plugin's describer does; the file-based residual
-// reuses the engine's default describer for the same reason.
+// Status labels for the tool-start hook, keyed by tool name: each plugin's
+// describer for its own tool (jiraCommand, …). The core doesn't classify
+// read/write — a plugin's describer does.
 const toolStatusDescribers: Record<string, (input: unknown) => string> = { ...loadedPlugins.toolStatusDescribers };
-if (hasFileClis) {
-  const describeFileCli = createCliStatusDescriber(fileCliConfigs, {});
-  toolStatusDescribers.runCommand = (input) => {
-    const command =
-      typeof input === "object" && input !== null && "command" in input
-        ? (input as { command: unknown }).command
-        : undefined;
-    return typeof command === "string" ? describeFileCli(command) : "esecuzione di un comando";
-  };
-}
-
-// A single subscription for the whole app (Cloud Pub/Sub deployment) —
-// unlike the retired impersonation channel, there's no per-space Workspace
-// Events subscription to manage: whatever space the app is a member of
-// delivers its events here.
-const googleChatSubscription = process.env.GOOGLE_CHAT_PUBSUB_SUBSCRIPTION;
 
 // Two separate system prompts, not one shared string: the multiUserChannel
 // clause (NO_REPLY heuristic) must never reach the terminal, which is
@@ -498,19 +459,9 @@ function buildTools(
     Object.assign(sessionTools, bundle.build(sessionToolContext, bundle.postProcessors));
   }
 
-  // Residual `runCommand` for file-based CLIs with no owning plugin — the same
-  // engine, no post-processors. Shrinks to nothing as those CLIs get pluginized.
-  if (hasFileClis) {
-    const { runCommand } = createCliTool(runCli, fileCliConfigs, {
-      stageConfirmation: sessionToolContext.stageConfirmation,
-      stashDisplay: sessionToolContext.stashDisplay,
-    });
-    sessionTools.runCommand = runCommand;
-  }
-
   // `present` only makes sense alongside CLI tools: they are what produce the
   // display artifacts it surfaces. An instance with no CLI tool never sees it.
-  const hasCliTool = loadedPlugins.sessionToolBundles.length > 0 || hasFileClis;
+  const hasCliTool = loadedPlugins.sessionToolBundles.length > 0;
   if (hasCliTool) {
     Object.assign(sessionTools, createPresentTool({ sessionKey, store: displayStore }));
   }
@@ -601,23 +552,34 @@ const handleTurn = createTurnRunner({
   takeSurfacedDisplays: (sessionKey) => displayStore.takeSurfaced(sessionKey),
 });
 
-let chatProvider: ReturnType<typeof createGoogleChatProvider> | undefined;
-if (googleChatSubscription) {
-  chatProvider = createGoogleChatProvider({
-    credentials: {
-      clientEmail: requireEnv("GOOGLE_CHAT_APP_CLIENT_EMAIL"),
-      // A PEM key is multi-line; stored in a single-line env var with
-      // literal "\n" escape sequences (the standard convention for this),
-      // not real newlines — unescape before handing it to Node's crypto,
-      // which needs the real thing.
-      privateKey: requireEnv("GOOGLE_CHAT_APP_PRIVATE_KEY").replace(/\\n/g, "\n"),
-    },
-    subscription: googleChatSubscription,
-    store: confirmationStore,
-    vaultPath: wikiVaultPath,
-    writeConfirmationNoteFn: writeConfirmationNote,
-  });
-  await chatProvider.start(handleTurn);
+// Channels are plugins (declared in mercury.config.ts, enabled via
+// MERCURY_CHANNELS), loaded the same way tools are. Each reads its own config
+// from env in its build() and gets the confirm capability injected — bound here
+// to this instance's shared store/vault/note-writer, so a channel resolves a
+// token through the identical tryConfirm path without ever touching the store.
+// Google Chat is the one pluginized channel today; terminal and HTTP are still
+// wired directly below.
+const enabledChannels = (process.env.MERCURY_CHANNELS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const loadedChannels: LoadedChannel[] = loadChannels(mercuryConfig.channels ?? [], {
+  enabled: enabledChannels,
+  runtime: {
+    env: process.env,
+    log: (msg) => console.error(msg),
+    confirm: (token, sessionKey, userId) =>
+      tryConfirm(token, sessionKey, {
+        store: confirmationStore,
+        userId,
+        vaultPath: wikiVaultPath,
+        writeConfirmationNoteFn: writeConfirmationNote,
+      }),
+  },
+});
+for (const { name, provider } of loadedChannels) {
+  await provider.start(handleTurn);
+  console.error(`[channel] ${name} started`);
 }
 
 // POC admin panel (see docs/plans, throwaway scaffolding) — opt-in only,
@@ -633,9 +595,9 @@ if (process.env.ADMIN_PANEL_ENABLED === "true") {
     model,
     qdrant,
     qdrantCollections: { episodic: episodicCollection, semanticFacts: semanticFactsCollection },
-    // Only the file-based CLIs have a central config now — plugin CLIs own their
-    // tool. The POC admin's CLI status therefore covers the file-based ones.
-    activeCliConfigs: fileCliConfigs,
+    // Every CLI is a plugin now (no file-based bucket), so there are no
+    // centrally-configured CLIs for the POC admin's CLI status to cover.
+    activeCliConfigs: {},
     runCliFn: runCli,
     ollamaHost,
     ollamaModel,
@@ -666,7 +628,7 @@ if (process.env.HTTP_SURFACE_ENABLED === "true") {
     // plugins/manifest, redacted pending confirmations, and the wiki/memory/
     // tool-log reads reused from the admin panel's own functions.
     reads: {
-      manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, Object.keys(fileCliConfigs), loadedPlugins.skills),
+      manifest: () => buildPluginManifest(plugins, loadedPlugins.activated, [], loadedPlugins.skills),
       pendingConfirmations: () => confirmationStore.pending(),
       // Durable per-conversation transcript from the verbatim archive (#4):
       // in the HTTP surface the client's conversationId is the sessionKey.
@@ -730,7 +692,9 @@ if (stdinIsSession()) {
   console.error("[shutdown] admin server stopped");
   httpProvider?.stop();
   console.error("[shutdown] http surface stopped");
-  await chatProvider?.stop();
-  console.error("[shutdown] google chat stopped");
+  for (const { name, provider } of loadedChannels) {
+    await provider.stop?.();
+    console.error(`[shutdown] channel ${name} stopped`);
+  }
   process.exit(0);
 }
