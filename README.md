@@ -39,7 +39,7 @@ cp .env.example .env
 # fill in .env: OLLAMA_HOST, OLLAMA_MODEL, QDRANT_URL, Jira/Google Chat/GitHub credentials
 ```
 
-Channels are enabled in `MERCURY_CHANNELS` (Google Chat is one). A channel enabled there but left unconfigured stays inert, so dropping `google-chat` from `MERCURY_CHANNELS`, or leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty, runs with the terminal channel only.
+Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (declared = active, no env gate). Google Chat and HTTP are channel plugins; the terminal is still wired directly. A declared channel left unconfigured stays inert, so leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty runs without Google Chat.
 
 ## Running it
 
@@ -277,7 +277,7 @@ Authenticating a CLI stays per-crate and out of this repo: run the crate's own `
 
 ## HTTP API
 
-Opt-in surface, off by default — the intended primary channel for a custom web UI. Enable with `HTTP_SURFACE_ENABLED=true`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+Opt-in surface — the intended primary channel for a custom web UI, shipped as the `@mercury/channel-http` plugin. Enable it by declaring `httpChannel` in `mercury.config.ts`'s `channels`; it listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
 
 **CORS** is enabled on every response and every route answers an `OPTIONS` preflight, so a browser UI on another origin can call it. The allowed origin is `HTTP_SURFACE_CORS_ORIGIN` (default `*`; no credentials are used).
 
