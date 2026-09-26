@@ -271,7 +271,7 @@ Each wipes its own named volume and lets Mercury reinitialize it empty on the ne
 
 ## CLIs and service authentication
 
-Every external integration is a plugin (`packages/plugin-*`) that owns its CLI end to end: it ships its own pinned binary, downloaded at `bun install` by the plugin's postinstall, and its own command allowlist (a `<binary>.json` living in the package, validated when the plugin loads). The core no longer knows about any CLI directly, so there's no central config directory to populate. You enable a plugin by declaring it in `mercury.config.ts` and listing its name in `MERCURY_CLIS`.
+Every external integration is a plugin (`packages/tools/plugin-*`) that owns its CLI end to end: it ships its own pinned binary, downloaded at `bun install` by the plugin's postinstall, and its own command allowlist (a `<binary>.json` living in the package, validated when the plugin loads). The core no longer knows about any CLI directly, so there's no central config directory to populate. You enable a plugin by declaring it in `mercury.config.ts` and listing its name in `MERCURY_CLIS`.
 
 Authenticating a CLI stays per-crate and out of this repo: run the crate's own `init` (e.g. `jira init`), or follow its README in [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo), for what subcommands and flags it actually exposes. The binary keeps its credentials under `~/.config/<cli>`, seeded once into the container's `cli-credentials` volume by `scripts/docker-entrypoint.sh` from a base64 tar in `.env` (see `*_CLI_CONFIG_TAR_B64`), or bind-mounted from the host in dev via `docker-compose.override.yml`.
 

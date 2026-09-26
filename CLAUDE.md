@@ -76,18 +76,29 @@ mercury/                       # repo root
 ├── .changeset/                # repo-level release state
 ├── scripts/
 │   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
-├── packages/
-│   ├── plugin-types/          # the shared Plugin contract (tools) — types + apiVersion + skill/status helpers, imported by core and plugins
-│   ├── channel-types/         # the shared ChannelPlugin contract (channels) — Provider/TurnSink + confirm helpers, imported by core and channels
-│   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list formatter + correction guard, pinned CLI binary
-│   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
-│   ├── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
-│   ├── channel-google-chat/   # Google Chat channel plugin: the registered-app transport (Pub/Sub + REST), loaded by the channel loader
-│   ├── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
-│   └── typescript-config/     # the shared Bun tsconfig every workspace extends
+├── packages/                  # grouped into per-role buckets; every workspace is @mercury/*
+│   ├── types/
+│   │   ├── plugin-types/          # the shared Plugin contract (tools) — types + apiVersion + skill/status helpers, imported by core and plugins
+│   │   └── channel-types/         # the shared ChannelPlugin contract (channels) — Provider/TurnSink + confirm helpers, imported by core and channels
+│   ├── channels/
+│   │   └── channel-google-chat/   # Google Chat channel plugin: the registered-app transport (Pub/Sub + REST), loaded by the channel loader
+│   ├── tools/
+│   │   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list formatter + correction guard, pinned CLI binary
+│   │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
+│   │   └── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
+│   ├── libs/
+│   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
+│   │   └── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
+│   └── config/
+│       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
     └── mercury/               # ← everything below this line is relative to here
 ```
+
+Naming: every workspace is `@mercury/*`. The role is read from the bucket
+folder plus the name prefix (`plugin-*`, `channel-*`, `*-types`), not encoded
+again in the name. Workspace names must be unique repo-wide — the folder doesn't
+namespace them.
 
 **Paths and commands in this file and in README.md are relative to
 `apps/mercury/`** unless they clearly aren't (`.changeset/`, `turbo.json`,
@@ -111,7 +122,7 @@ apps/mercury/
 │   │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
 │   │   ├── terminal.ts         # REPL channel (wired directly, not a plugin yet)
 │   │   ├── tool-log.ts         # terminal-only debug visibility helpers
-│   │   └── channels/           # HTTP surface provider (wired directly; Google Chat now lives in packages/channel-google-chat)
+│   │   └── channels/           # HTTP surface provider (wired directly; Google Chat now lives in packages/channels/channel-google-chat)
 │   ├── memory/                # Layer 3 — episodic store (Qdrant)
 │   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
 │   ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)
