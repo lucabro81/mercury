@@ -35,7 +35,7 @@ regression test that fails before the fix and passes after.
 
 ## What it is
 
-Mercury is an internal AI agent for Comperio: answers natural-language Jira queries, performs actions (create/transition/comment/delete) behind explicit confirmation when irreversible, keeps memory across three layers, proactively watches stalled PRs and tickets. Google Chat bot, with a terminal interface for bootstrap and debugging.
+Mercury is an internal AI agent for Comperio: answers natural-language Jira queries, performs actions (create/transition/comment/delete) behind explicit confirmation when irreversible, keeps memory across three layers, proactively watches stalled PRs and tickets. Google Chat bot, with a dev REPL (`bun run repl`) for bootstrap and debugging.
 
 ## Stack
 
@@ -114,7 +114,9 @@ apps/mercury/
 ├── scripts/
 │   └── install-clis.sh
 ├── src/
-│   ├── index.ts              # composition root — wires model/tools/channels
+│   ├── compose.ts            # builds the instance (model/tools/memory/turn pipeline); returns handleTurn + deferred start closures — reused by both entrypoints
+│   ├── index.ts              # service entrypoint — starts channels/admin/crons, signal-driven shutdown (headless, no terminal)
+│   ├── repl.ts               # dev REPL entrypoint (`bun run repl`) — opens the terminal against the same composition; destined for the future Mercury CLI
 │   ├── model/                # Ollama provider, real context-window lookup
 │   ├── session/               # Layer 1 history + summarizer + agent-turn loop
 │   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
@@ -122,7 +124,7 @@ apps/mercury/
 │   ├── router/
 │   │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
 │   │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
-│   │   ├── terminal.ts         # REPL channel (wired directly, not a plugin yet)
+│   │   ├── terminal.ts         # the REPL loop (stdin/stdout), driven by repl.ts — a dev console, not a channel
 │   │   └── tool-log.ts         # terminal-only debug visibility helpers
 │   ├── memory/                # Layer 3 — episodic store (Qdrant)
 │   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
@@ -147,7 +149,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 
 ## Operational notes
 
-- **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags
+- **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `docker compose run --rm mercury bun run repl`
 - Full install/run/deploy commands live in [README.md](README.md), not duplicated here — this file covers stack and conventions only
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
 - Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime. `bun test` runs the full suite

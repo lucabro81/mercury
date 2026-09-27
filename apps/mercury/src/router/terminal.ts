@@ -1,31 +1,24 @@
 /**
- * Terminal channel: a stdin/stdout REPL that feeds whatever it reads
- * into a generic `handleInput` callback and writes back whatever that
- * callback returns.
+ * The stdin/stdout REPL loop behind the dev console: it feeds whatever it reads
+ * into a generic `handleInput` callback and writes back whatever that callback
+ * returns.
  *
- * Why this exists: the terminal is a first-class input channel
- * alongside Google Chat (see `@mercury/channel-google-chat`),
- * useful both as a bootstrap path before a channel is fully wired and
- * for direct debugging. This file is the *only* place that touches
- * stdin/stdout — `handleInput` itself doesn't know it's talking to a
- * terminal, which is what keeps adding another channel later a matter
- * of writing a new file, not touching this one.
+ * Why this exists: the dev REPL (`bun run repl`) is a debug/bootstrap console,
+ * not a production channel — a single operator, identity-less, no memory
+ * capture. This file is the *only* place that touches stdin/stdout;
+ * `handleInput` itself doesn't know it's talking to a terminal.
  *
  * `io.input`/`io.output` are injectable specifically so this file is
- * unit-testable without spawning a real subprocess or touching real
- * stdin — production code (see `src/index.ts`) calls this with no `io`
- * argument and gets the real terminal.
+ * unit-testable without spawning a real subprocess or touching real stdin —
+ * the real entrypoint calls it with no `io` argument and gets the real terminal.
  *
- * Used by: `src/index.ts` (wiring), which supplies `handleInput` as a
- * closure over `runTurn` and a `SessionHistory` (see
- * `src/session/agent-turn.ts`). `handleInput` also receives an `onChunk`
- * callback (see `startTerminalRepl`'s doc comment) — `src/index.ts`
- * forwards it as `runTurn`'s `onTextChunk`, so a model response prints as
- * it streams in rather than going silent for however long the full
- * answer takes.
+ * Used by: `terminal-provider.ts`, wired from the `repl.ts` entrypoint (never by
+ * the headless service). `handleInput` there is a closure over `handleTurn`;
+ * it also receives an `onChunk` callback (see `startTerminalRepl`'s doc comment)
+ * forwarded as the sink's text streaming, so a model response prints as it
+ * streams in rather than going silent for the whole answer.
  */
 import * as readline from "node:readline";
-import { fstatSync } from "node:fs";
 
 /**
  * Writes to the real process stdout. Appends a newline by default — the
@@ -43,43 +36,6 @@ function realOutputWrite(s: string, opts?: { newline?: boolean }): void {
  * start of a new question were visually indistinguishable.
  */
 export const PROMPT = "> ";
-
-/**
- * Whether this process's stdin is a real interactive session rather than a
- * detached container's empty stdin — i.e. whether reaching EOF on it means
- * "the person driving this is done" or merely "there was never anyone there".
- *
- * The composition root uses this to decide whether the REPL ending should
- * shut the whole process down. It has to, because the REPL loop below always
- * ends: on a detached `docker compose up -d` stdin is already closed, so it
- * ends immediately having read nothing, and the process must nonetheless keep
- * serving Google Chat. What actually distinguishes the two is the *kind* of
- * stdin, not how much came through it — `docker compose run` followed by an
- * immediate Ctrl+D is a real session that delivered zero lines, and counting
- * lines would leave exactly that case hanging.
- *
- * A TTY is an interactive session; a FIFO is `docker compose run -T` with
- * something piped in; `/dev/null` (what Docker attaches when nothing is) is a
- * character device that is neither, and means daemon. An fd that can't be
- * stat'd at all is treated as no session — the conservative answer, since
- * getting this wrong in that direction only leaves a process running, while
- * the opposite would kill a live deployment.
- */
-export function stdinIsSession(opts?: {
-  isTTY?: boolean;
-  fstat?: (fd: number) => { isFIFO(): boolean };
-}): boolean {
-  const isTTY = opts?.isTTY ?? process.stdin.isTTY;
-  if (isTTY) {
-    return true;
-  }
-  const fstat = opts?.fstat ?? ((fd: number) => fstatSync(fd));
-  try {
-    return fstat(0).isFIFO();
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Runs the REPL loop: read a line, pass it to `handleInput`, write the
