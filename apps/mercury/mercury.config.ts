@@ -29,7 +29,7 @@ export default defineMercuryConfig({
     atlassianAdminPlugin,
   ],
   // Channels are plugins too, loaded by the channel loader — declared here =
-  // active (no env gate). Google Chat and HTTP are pluginized; the terminal is
-  // still wired directly in the composition root for now.
+  // active (no env gate). Google Chat and HTTP are the channels; the interactive
+  // terminal is a dev command (`bun run repl`), not a channel of the service.
   channels: [googleChatChannel, httpChannel],
 });

@@ -123,7 +123,7 @@ docker compose exec mercury bash
 
 The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them.
 
-`exit` or `Ctrl+D` leaves the shell and drops you back on the host. The container keeps running, since `exec` just attaches a second process to it, unlike the REPL's `Ctrl+C`, which stops the whole thing.
+`exit` or `Ctrl+D` leaves the shell and drops you back on the host. The container keeps running, since `exec` just attaches a second process to it; the dev REPL, by contrast, is its own one-off `docker compose run --rm` container, so ending it removes only that container and leaves a service started with `docker compose up` running.
 
 If the container isn't up yet, `docker compose run --rm mercury bash` opens one instead, and exiting it removes that one-off container without touching anything else.
 

@@ -1,28 +1,22 @@
 /**
- * Terminal channel: a stdin/stdout REPL that feeds whatever it reads
- * into a generic `handleInput` callback and writes back whatever that
- * callback returns.
+ * The stdin/stdout REPL loop behind the dev console: it feeds whatever it reads
+ * into a generic `handleInput` callback and writes back whatever that callback
+ * returns.
  *
- * Why this exists: the terminal is a first-class input channel
- * alongside Google Chat (see `@mercury/channel-google-chat`),
- * useful both as a bootstrap path before a channel is fully wired and
- * for direct debugging. This file is the *only* place that touches
- * stdin/stdout — `handleInput` itself doesn't know it's talking to a
- * terminal, which is what keeps adding another channel later a matter
- * of writing a new file, not touching this one.
+ * Why this exists: the dev REPL (`bun run repl`) is a debug/bootstrap console,
+ * not a production channel — a single operator, identity-less, no memory
+ * capture. This file is the *only* place that touches stdin/stdout;
+ * `handleInput` itself doesn't know it's talking to a terminal.
  *
  * `io.input`/`io.output` are injectable specifically so this file is
- * unit-testable without spawning a real subprocess or touching real
- * stdin — production code (see `src/index.ts`) calls this with no `io`
- * argument and gets the real terminal.
+ * unit-testable without spawning a real subprocess or touching real stdin —
+ * the real entrypoint calls it with no `io` argument and gets the real terminal.
  *
- * Used by: `src/index.ts` (wiring), which supplies `handleInput` as a
- * closure over `runTurn` and a `SessionHistory` (see
- * `src/session/agent-turn.ts`). `handleInput` also receives an `onChunk`
- * callback (see `startTerminalRepl`'s doc comment) — `src/index.ts`
- * forwards it as `runTurn`'s `onTextChunk`, so a model response prints as
- * it streams in rather than going silent for however long the full
- * answer takes.
+ * Used by: `terminal-provider.ts`, wired from the `repl.ts` entrypoint (never by
+ * the headless service). `handleInput` there is a closure over `handleTurn`;
+ * it also receives an `onChunk` callback (see `startTerminalRepl`'s doc comment)
+ * forwarded as the sink's text streaming, so a model response prints as it
+ * streams in rather than going silent for the whole answer.
  */
 import * as readline from "node:readline";
 
