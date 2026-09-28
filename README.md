@@ -59,7 +59,7 @@ docker compose up
 
 ---
 
-In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts `src/` and reloads on every source change, no rebuild needed for that.
+In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts this app's `src/` and the `@mercury/core` runtime it imports, and reloads on every source change, no rebuild needed for that.
 
 ### Rebuilding
 

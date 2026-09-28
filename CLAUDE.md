@@ -57,16 +57,23 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`packages/libs/core/src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
 
-Monorepo (Bun workspaces + Turborepo). Mercury is one app in it; the plugin
-packages are siblings of it under `packages/`. Everything Mercury-specific — its Dockerfile, its
-compose files, its scripts — lives inside `apps/mercury/` rather than at the
-root, because Mercury happens to be the app with containers and a future app
-may have nothing to do with them.
+Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury/core`
+(`packages/libs/core`); the plugins are siblings under `packages/`. `apps/mercury`
+is a **thin reference instance**: it declares its composition in `mercury.config.ts`
+and ships the two entrypoints (`src/index.ts` service, `src/repl.ts` dev REPL),
+both of which just import `@mercury/core` and hand it that config — the runtime
+itself lives in core. Everything instance-specific (Dockerfile, compose files,
+scripts) lives inside `apps/mercury/`, because that instance happens to be the
+one with containers.
+
+The end state (see #48) is a repo of **core + plugins only**, with Comperio's
+Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
+interim reference/production instance until the scaffolder and publishing exist.
 
 ```
 mercury/                       # repo root
@@ -88,6 +95,8 @@ mercury/                       # repo root
 │   │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
 │   │   └── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
 │   ├── libs/
+│   │   ├── core/                 # @mercury/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
+│   │   ├── kit/                  # @mercury/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
 │   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
 │   │   ├── confirm-engine/       # the core-owned confirm mechanism (store + stage + resolve), consumed by the core, injected into channels
 │   │   └── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
@@ -108,34 +117,46 @@ namespace them.
 there — the compose files never moved to the root.
 
 ```
-apps/mercury/
+apps/mercury/                  # the reference instance — thin: config + entrypoints + containers
 ├── docs/
 │   ...
 ├── scripts/
 │   └── install-clis.sh
+├── mercury.config.ts          # this instance's composition — the plugins + channels it wires (defineMercuryConfig)
 ├── src/
-│   ├── compose.ts            # builds the instance (model/tools/memory/turn pipeline); returns handleTurn + deferred start closures — reused by both entrypoints
-│   ├── index.ts              # service entrypoint — starts channels/admin/crons, signal-driven shutdown (headless, no terminal)
-│   ├── repl.ts               # dev REPL entrypoint (`bun run repl`) — opens the terminal against the same composition; destined for the future Mercury CLI
-│   ├── model/                # Ollama provider, real context-window lookup
-│   ├── session/               # Layer 1 history + summarizer + agent-turn loop
-│   ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
-│   ├── plugins/               # generic fail-soft tool-plugin loader (plugin-loader.ts) — turns a hand-listed plugin set into tools/prompt/guards
-│   ├── router/
-│   │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
-│   │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
-│   │   ├── terminal.ts         # the REPL loop (stdin/stdout), driven by repl.ts — a dev console, not a channel
-│   │   └── tool-log.ts         # terminal-only debug visibility helpers
-│   ├── memory/                # Layer 3 — episodic store (Qdrant)
-│   ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
-│   ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)
-│   └── cron/                  # idle-session scanner
+│   ├── index.ts              # service entrypoint — composeMercury(mercuryConfig) + start channels/admin/crons, signal-driven shutdown (headless)
+│   └── repl.ts               # dev REPL entrypoint (`bun run repl`) — composeMercury(mercuryConfig) + open the terminal; destined for the future Mercury CLI
 ├── Dockerfile
 ├── docker-compose.yml
 ├── docker-compose.override.yml
 ├── CHANGELOG.md
 ├── .env.example
 └── package.json
+```
+
+The framework runtime the entrypoints call into lives in `@mercury/core`
+(`packages/libs/core/src`), config-agnostic — `composeMercury(config)` takes the
+instance's config as a parameter, it never imports a `mercury.config.ts`:
+
+```
+packages/libs/core/
+├── index.ts                 # public barrel — composeMercury, defineMercuryConfig, formatterPlugin, the loaders, createTerminalProvider
+└── src/
+    ├── compose.ts            # builds the instance from the config it's given (model/tools/memory/turn pipeline); returns handleTurn + deferred start closures
+    ├── model/                # Ollama provider, real context-window lookup
+    ├── session/               # Layer 1 history + summarizer + agent-turn loop
+    ├── config/               # defineMercuryConfig + the MercuryConfig contract
+    ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
+    ├── plugins/               # generic fail-soft tool-plugin loader (plugin-loader.ts) + the formatter decorator
+    ├── router/
+    │   ├── turn-runner.ts      # shared per-turn driver every provider funnels through
+    │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
+    │   ├── terminal.ts         # the REPL loop (stdin/stdout), driven by the app's repl.ts — a dev console, not a channel
+    │   └── tool-log.ts         # terminal-only debug visibility helpers
+    ├── memory/                # Layer 3 — episodic store (Qdrant)
+    ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
+    ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)
+    └── cron/                  # idle-session scanner
 ```
 
 ## Versioning & changelog
@@ -159,7 +180,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
-- **Wiki vault maintenance**: `scripts/vault.sh <command>`. The vault is a Docker named volume (`WIKI_VAULT_PATH`), not a host path — there's nothing to `cd` into or open in an editor directly, every command runs through a one-off `docker compose run --rm -T mercury bun run src/wiki/vault-cli.ts` against the same volume the real service uses. Commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]` (body read from stdin, e.g. `cat note.md | scripts/vault.sh write-curated curated/standards/x.md`). Thin routing only, no new write/read logic — reuses `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee
+- **Wiki vault maintenance**: `scripts/vault.sh <command>`. The vault is a Docker named volume (`WIKI_VAULT_PATH`), not a host path — there's nothing to `cd` into or open in an editor directly, every command runs through a one-off `docker compose run --rm -T mercury bun run ../../packages/libs/core/src/wiki/vault-cli.ts` against the same volume the real service uses. Commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]` (body read from stdin, e.g. `cat note.md | scripts/vault.sh write-curated curated/standards/x.md`). Thin routing only, no new write/read logic — reuses `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee
 
 ## Hard-won conventions
 
