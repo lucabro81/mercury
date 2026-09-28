@@ -17,3 +17,12 @@ export {
   type IssueListConfig,
   type JiraIssueListItem,
 } from "./issue-list-extractor.ts";
+
+import type { JiraIssueListItem } from "./issue-list-extractor.ts";
+
+/** Every kind of list this plugin hands to the user on the `display` channel,
+ * mapped to the shape of its items — what an instance's formatter rules are
+ * keyed and typed by, so a wrong kind in the config doesn't compile. */
+export type JiraDisplays = {
+  "issue-list": JiraIssueListItem;
+};

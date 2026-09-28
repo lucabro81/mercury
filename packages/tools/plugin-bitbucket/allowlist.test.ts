@@ -27,20 +27,11 @@ beforeAll(async () => {
 
 describe("@mercury/plugin-bitbucket allowlist", () => {
   it("allows read-only subcommands", () => {
-    expect(matchCommand(["pr", "list", "workspace/repo"], bitbucketConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
-    expect(matchCommand(["pr", "list", "workspace/repo", "--state", "OPEN"], bitbucketConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
-    expect(matchCommand(["pr", "get", "workspace/repo", "42"], bitbucketConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
-    expect(matchCommand(["doctor"], bitbucketConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["auth", "whoami"], bitbucketConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["pr", "list", "workspace/repo"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "list"], mutating: false });
+    expect(matchCommand(["pr", "list", "workspace/repo", "--state", "OPEN"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "list"], mutating: false });
+    expect(matchCommand(["pr", "get", "workspace/repo", "42"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "get"], mutating: false });
+    expect(matchCommand(["doctor"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
+    expect(matchCommand(["auth", "whoami"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["auth", "whoami"], mutating: false });
   });
 
   // This config only reads PRs (list + get) to find stale ones — nothing
@@ -53,17 +44,14 @@ describe("@mercury/plugin-bitbucket allowlist", () => {
   });
 
   it("always allows --help", () => {
-    expect(matchCommand(["pr", "list", "--help"], bitbucketConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["--help"], bitbucketConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["pr", "list", "--help"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
+    expect(matchCommand(["--help"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
   });
 
   // Same global-flag shape as jira.json — --select can appear before the
   // subcommand per bitbucket --help's own usage line.
   it("allows a read-only subcommand even when --select appears before it", () => {
-    expect(matchCommand(["--select", "values.title,values.state", "pr", "list", "workspace/repo"], bitbucketConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
+    expect(matchCommand(["--select", "values.title,values.state", "pr", "list", "workspace/repo"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "list"], mutating: false });
   });
 
   it("has no confirm-gated commands — everything allowlisted is read-only", () => {

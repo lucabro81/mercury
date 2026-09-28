@@ -23,13 +23,14 @@ import type { LanguageModel, Tool } from "ai";
  * plugin's declared `apiVersion` and refuses a mismatch (fail-soft). A single
  * integer, bumped only on a breaking change to the shapes in this file.
  */
-export const PLUGIN_API_VERSION = 2;
+export const PLUGIN_API_VERSION = 3;
 
 /**
  * The user-facing channel of a tool result: structured output destined for the
  * user and — unlike `data` — never placed into the model's context. `type`
- * names the display kind a renderer keys on (e.g. "issue-list"); `items` are
- * its entries. Kept deliberately generic here so it serves any plugin (a CLI
+ * names the kind of data (e.g. "issue-list"): the key an instance's formatter
+ * rules are looked up by, so a plugin should export the kinds it emits as a
+ * type mapping each kind to its item shape. `items` are its entries. Kept deliberately generic here so it serves any plugin (a CLI
  * post-processor today, an endpoint/MCP plugin later), not just CLI results.
  * The core strips it before the result reaches the model (see the core's
  * `toModelOutput`) and renders it separately for the user.
@@ -47,13 +48,17 @@ export type ToolDisplay = { type: string; items: unknown[] };
 export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
 
 /**
- * Deterministically transforms a `runCli` result for one command shape, looked
- * up by the `postProcess` name a CLI's allowlist declares. A plugin builds
- * these in its `build()`; the core registers them by name and applies them
- * without knowing what any does. Can augment `data` or turn a technically-ok
- * result into `{ ok: false }` when the data isn't shaped as it needs.
+ * Deterministically transforms a `runCli` result. A plugin contributes at most
+ * one, and it runs after every allowed command of the plugin's tool; `prefix`
+ * is the allowlist entry that matched (`[]` for `--help`), so the plugin
+ * decides for itself which commands it touches and passes the rest through.
+ * Can augment `data`, attach a `display`, or turn a technically-ok result into
+ * `{ ok: false }` when the data isn't shaped as it needs.
  */
-export type CliPostProcessor = (parsed: { binary: string; args: string[] }, result: CliResult) => CliResult;
+export type CliPostProcessor = (
+  cmd: { binary: string; args: string[]; prefix: string[] },
+  result: CliResult,
+) => CliResult;
 
 /**
  * The outcome of running a deferred, confirm-required action. Deliberately
@@ -134,13 +139,13 @@ export type SessionToolContext = {
  * `build()` (which may be async, e.g. to validate its own config before
  * building its tool). Every field optional: a plugin may contribute nothing.
  *
- * - `postProcessors`: named result transforms for the plugin's own tool, keyed
- *   by the name its allowlist declares. The formatter decorator wraps these to
- *   render a display; the composition then hands the final set to `sessionTools`
- *   (which is why the factory takes them as an argument rather than closing over
- *   them — the wrapping happens after `build()` returns).
+ * - `postProcess`: the result transform for the plugin's own tool (see
+ *   `CliPostProcessor`). A formatter decorator may wrap it to render a display;
+ *   the composition then hands the final one to `sessionTools` (which is why the
+ *   factory takes it as an argument rather than closing over it — the wrapping
+ *   happens after `build()` returns).
  * - `sessionTools`: builds the plugin's model-facing tools for one turn, given
- *   the session context and the plugin's (possibly decorated) post-processors.
+ *   the session context and the plugin's (possibly decorated) post-processor.
  *   This is how a tool reaches the model without the core knowing what it is.
  * - `toolStatusDescribers`: one per tool name the plugin contributes, turning a
  *   tool call's input into the one-line status shown while it runs — so the core
@@ -148,8 +153,8 @@ export type SessionToolContext = {
  * - `postTurnGuards`: run over the model's finished text (see `PostTurnGuard`).
  */
 export type PluginRuntimeContributions = {
-  postProcessors?: Record<string, CliPostProcessor>;
-  sessionTools?: (ctx: SessionToolContext, postProcessors: Record<string, CliPostProcessor>) => Record<string, Tool>;
+  postProcess?: CliPostProcessor;
+  sessionTools?: (ctx: SessionToolContext, postProcess?: CliPostProcessor) => Record<string, Tool>;
   toolStatusDescribers?: Record<string, (input: unknown) => string>;
   postTurnGuards?: PostTurnGuard[];
 };

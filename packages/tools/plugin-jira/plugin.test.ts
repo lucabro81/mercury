@@ -41,31 +41,25 @@ describe("jiraPlugin", () => {
     expect(c.postTurnGuards ?? []).toEqual([]);
   });
 
-  it("registers the issue-list extractor when JIRA_SITE_URL is set", () => {
+  it("contributes the issue-list extractor as its post-processor when JIRA_SITE_URL is set", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "https://webcomperio.atlassian.net" }, log: noLog });
-    expect(c.postProcessors).toHaveProperty("issue-list");
+    expect(typeof c.postProcess).toBe("function");
+    const searched = c.postProcess!(
+      { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] },
+      { ok: true, data: { issues: [] } },
+    );
+    expect(searched).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
   });
 
-  it("does not register the extractor when JIRA_SITE_URL is absent", () => {
+  it("contributes no post-processor when JIRA_SITE_URL is absent", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
-    expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
+    expect(c.postProcess).toBeUndefined();
   });
 
-  it("treats an empty JIRA_SITE_URL as unconfigured — no extractor and no log noise", () => {
+  it("treats an empty JIRA_SITE_URL as unconfigured — no post-processor and no log noise", () => {
     const logs: string[] = [];
     const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "" }, log: (m) => logs.push(m) });
-    expect(c.postProcessors ?? {}).not.toHaveProperty("issue-list");
+    expect(c.postProcess).toBeUndefined();
     expect(logs).toEqual([]);
-  });
-
-  it("ignores JIRA_ISSUE_LIST_TEMPLATE — rendering config is no longer read by the plugin", () => {
-    // The plugin registers the extractor from siteUrl alone; the template is a
-    // render-handler concern read at composition, not here.
-    const c = jiraPlugin.build!({
-      model: MODEL,
-      env: { JIRA_SITE_URL: "https://x.atlassian.net", JIRA_ISSUE_LIST_TEMPLATE: "{key}: {summary}" },
-      log: noLog,
-    });
-    expect(c.postProcessors).toHaveProperty("issue-list");
   });
 });

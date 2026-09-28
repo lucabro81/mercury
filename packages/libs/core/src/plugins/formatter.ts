@@ -49,15 +49,15 @@ export function formatterPlugin(plugin: Plugin, handler: DisplayHandler): Plugin
     ...plugin,
     build: (ctx) => {
       const inner = plugin.build ? plugin.build(ctx) : {};
-      const wrapped: Record<string, CliPostProcessor> = {};
-      for (const [name, proc] of Object.entries(inner.postProcessors ?? {})) {
-        wrapped[name] = (parsedCmd, result) => renderDisplay(proc(parsedCmd, result), handler);
-      }
-      // The wrapped post-processors flow to the plugin's `sessionTools` factory
-      // (the composition hands them in), so the tool renders the display; every
+      const proc = inner.postProcess;
+      const wrapped: CliPostProcessor | undefined = proc
+        ? (cmd, result) => renderDisplay(proc(cmd, result), handler)
+        : undefined;
+      // The wrapped post-processor flows to the plugin's `sessionTools` factory
+      // (the composition hands it in), so the tool renders the display; every
       // other inner contribution — the factory itself, status describers,
       // guards — passes through untouched.
-      return { ...inner, postProcessors: wrapped };
+      return { ...inner, postProcess: wrapped };
     },
   };
 }

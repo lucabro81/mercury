@@ -25,18 +25,11 @@ beforeAll(async () => {
 
 describe("@mercury/plugin-jira allowlist", () => {
   it("allows read-only subcommands", () => {
-    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-      postProcess: "issue-list",
-    });
-    expect(matchCommand(["issue", "get", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["issue", "transitions", "KAN-42"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
-    expect(matchCommand(["doctor"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["auth", "whoami"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "search"], mutating: false });
+    expect(matchCommand(["issue", "get", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "get"], mutating: false });
+    expect(matchCommand(["issue", "transitions", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "transitions"], mutating: false });
+    expect(matchCommand(["doctor"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
+    expect(matchCommand(["auth", "whoami"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["auth", "whoami"], mutating: false });
   });
 
   // create/transition (apply)/comment add/remove execute directly —
@@ -44,22 +37,10 @@ describe("@mercury/plugin-jira allowlist", () => {
   // irreversible action in the set. All four mutate Jira despite not
   // requiring confirmation.
   it("allows write subcommands directly, without confirmation, marked mutating", () => {
-    expect(matchCommand(["issue", "create", "--project", "KAN", "--type", "Task", "--summary", "x"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: true,
-    });
-    expect(matchCommand(["issue", "transition", "KAN-1", "--to", "Done"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: true,
-    });
-    expect(matchCommand(["issue", "comment", "add", "KAN-1", "--body", "x"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: true,
-    });
-    expect(matchCommand(["issue", "comment", "remove", "KAN-1", "10012"], jiraConfig)).toEqual({
-      kind: "allowed",
-      mutating: true,
-    });
+    expect(matchCommand(["issue", "create", "--project", "KAN", "--type", "Task", "--summary", "x"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "create"], mutating: true });
+    expect(matchCommand(["issue", "transition", "KAN-1", "--to", "Done"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "transition"], mutating: true });
+    expect(matchCommand(["issue", "comment", "add", "KAN-1", "--body", "x"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "comment", "add"], mutating: true });
+    expect(matchCommand(["issue", "comment", "remove", "KAN-1", "10012"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "comment", "remove"], mutating: true });
   });
 
   // issue delete IS recognized (unlike an unconfigured shape) but gated on
@@ -76,8 +57,8 @@ describe("@mercury/plugin-jira allowlist", () => {
   });
 
   it("always allows --help, even on a write subcommand", () => {
-    expect(matchCommand(["issue", "create", "--help"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["--help"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["issue", "create", "--help"], jiraConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
+    expect(matchCommand(["--help"], jiraConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
   });
 
   // Regression: jira's --select is a global flag, documented (top-level
@@ -92,8 +73,8 @@ describe("@mercury/plugin-jira allowlist", () => {
         ["--select", "issues.key,issues.fields.summary", "issue", "search", "--jql", "project=KAN"],
         jiraConfig,
       ),
-    ).toEqual({ kind: "allowed", mutating: false, postProcess: "issue-list" });
-    expect(matchCommand(["--select", "id", "doctor"], jiraConfig)).toEqual({ kind: "allowed", mutating: false });
+    ).toEqual({ kind: "allowed", prefix: ["issue", "search"], mutating: false });
+    expect(matchCommand(["--select", "id", "doctor"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
   });
 
   it("still requires confirmation for issue delete when --select appears before it", () => {

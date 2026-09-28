@@ -27,12 +27,12 @@ import type { Plugin, CliPostProcessor, PostTurnGuard, Skill, SessionToolContext
 import type { Tool } from "ai";
 
 /** One plugin's tool contribution, kept paired so the composition root can build
- * its tools from its own post-processors: the plugin authored both, but the
- * formatter decorator wraps the post-processors after `build()` returns, so the
- * factory receives the final set at invocation rather than closing over it. */
+ * its tools from its own post-processor: the plugin authored both, but a
+ * formatter decorator wraps the post-processor after `build()` returns, so the
+ * factory receives the final one at invocation rather than closing over it. */
 export interface SessionToolBundle {
-  build: (ctx: SessionToolContext, postProcessors: Record<string, CliPostProcessor>) => Record<string, Tool>;
-  postProcessors: Record<string, CliPostProcessor>;
+  build: (ctx: SessionToolContext, postProcess?: CliPostProcessor) => Record<string, Tool>;
+  postProcess?: CliPostProcessor;
 }
 
 /** What the loader hands back to the composition root, aggregated across every
@@ -184,7 +184,7 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
       if (contributions.sessionTools) {
         sessionToolBundles.push({
           build: contributions.sessionTools,
-          postProcessors: contributions.postProcessors ?? {},
+          postProcess: contributions.postProcess,
         });
       }
       if (contributions.toolStatusDescribers) {

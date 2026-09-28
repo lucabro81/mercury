@@ -17,18 +17,18 @@ function pluginWith(contributions: PluginRuntimeContributions, extra: Partial<Pl
   return { apiVersion: PLUGIN_API_VERSION, name: "data", build: () => contributions, ...extra };
 }
 
-const parsed = { binary: "data", args: [] };
+const parsed = { binary: "data", args: [], prefix: [] };
 
 describe("formatterPlugin", () => {
   test("renders an ok result's display.items through the handler", async () => {
     let seen: unknown[] | undefined;
-    const inner = { postProcessors: { "issue-list": (): CliResult => ({ ok: true, data: { raw: 1 }, display: { type: "issue-list", items: [{ key: "A" }, { key: "B" }] } }) } };
+    const inner = { postProcess: (): CliResult => ({ ok: true, data: { raw: 1 }, display: { type: "issue-list", items: [{ key: "A" }, { key: "B" }] } }) };
     const decorated = formatterPlugin(pluginWith(inner), (items) => {
       seen = items;
       return "RENDERED";
     });
 
-    const result = (await decorated.build!(ctx)).postProcessors!["issue-list"]!(parsed, { ok: true, data: {} });
+    const result = (await decorated.build!(ctx)).postProcess!(parsed, { ok: true, data: {} });
 
     // Handler saw the original structured items, and the display now carries the
     // single rendered block in its place.
@@ -38,13 +38,13 @@ describe("formatterPlugin", () => {
 
   test("leaves an ok result with no display untouched, handler not called", async () => {
     let called = false;
-    const inner = { postProcessors: { p: (): CliResult => ({ ok: true, data: { raw: 1 } }) } };
+    const inner = { postProcess: (): CliResult => ({ ok: true, data: { raw: 1 } }) };
     const decorated = formatterPlugin(pluginWith(inner), () => {
       called = true;
       return "X";
     });
 
-    const result = (await decorated.build!(ctx)).postProcessors!.p!(parsed, { ok: true, data: {} });
+    const result = (await decorated.build!(ctx)).postProcess!(parsed, { ok: true, data: {} });
 
     expect(result).toEqual({ ok: true, data: { raw: 1 } });
     expect(called).toBe(false);
@@ -52,31 +52,21 @@ describe("formatterPlugin", () => {
 
   test("leaves an error result untouched, handler not called", async () => {
     let called = false;
-    const inner = { postProcessors: { p: (): CliResult => ({ ok: false, error: "boom" }) } };
+    const inner = { postProcess: (): CliResult => ({ ok: false, error: "boom" }) };
     const decorated = formatterPlugin(pluginWith(inner), () => {
       called = true;
       return "X";
     });
 
-    const result = (await decorated.build!(ctx)).postProcessors!.p!(parsed, { ok: true, data: {} });
+    const result = (await decorated.build!(ctx)).postProcess!(parsed, { ok: true, data: {} });
 
     expect(result).toEqual({ ok: false, error: "boom" });
     expect(called).toBe(false);
   });
 
-  test("wraps every post-processor the inner plugin declares", async () => {
-    const mk = (): CliResult => ({ ok: true, data: {}, display: { type: "t", items: [1] } });
-    const inner = { postProcessors: { a: mk, b: mk } };
-    const decorated = formatterPlugin(pluginWith(inner), () => "R");
-
-    const built = await decorated.build!(ctx);
-    expect(built.postProcessors!.a!(parsed, { ok: true, data: {} })).toEqual({ ok: true, data: {}, display: { type: "t", items: ["R"] } });
-    expect(built.postProcessors!.b!(parsed, { ok: true, data: {} })).toEqual({ ok: true, data: {}, display: { type: "t", items: ["R"] } });
-  });
-
   test("passes through non-post-processor contributions and top-level fields", async () => {
     const guard = { statusLabel: "g", statusId: "g", shouldRun: () => false, run: async (t: string) => ({ text: t, outcome: "success" as const }) };
-    const inner = { postProcessors: {}, postTurnGuards: [guard] };
+    const inner = { postTurnGuards: [guard] };
     const base = pluginWith(inner, { name: "jira", dependsOn: ["x"], systemPromptFragment: "frag", skills: [{ name: "s", description: "d", body: "b" }] });
     const decorated = formatterPlugin(base, () => "R");
 
@@ -92,16 +82,16 @@ describe("formatterPlugin", () => {
   // factory (see the loader's SessionToolBundle).
   test("passes a sessionTools factory through untouched", async () => {
     const factory = () => ({ myTool: {} as never });
-    const decorated = formatterPlugin(pluginWith({ postProcessors: {}, sessionTools: factory }), () => "R");
+    const decorated = formatterPlugin(pluginWith({ sessionTools: factory }), () => "R");
     expect((await decorated.build!(ctx)).sessionTools).toBe(factory);
   });
 
-  test("a plugin with no build decorates to an empty-post-processor build without throwing", async () => {
+  test("a plugin with no build decorates to a build with no post-processor, without throwing", async () => {
     const noBuild: Plugin = { apiVersion: PLUGIN_API_VERSION, name: "n" };
     const decorated = formatterPlugin(noBuild, () => "R");
 
     expect(decorated.build).toBeDefined();
-    expect(await decorated.build!(ctx)).toEqual({ postProcessors: {} });
+    expect(await decorated.build!(ctx)).toEqual({ postProcess: undefined });
   });
 
   test("passes the runtime context through to the inner build", async () => {
