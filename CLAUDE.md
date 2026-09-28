@@ -1,15 +1,13 @@
 ## Working protocol
 
-Before working in this repo, read `CLAUDE.local.md` (not committed, gitignored). It contains the current development plan, specs, and the history of architectural decisions. This file covers only stack and conventions — it does not summarize or duplicate project planning.
-
-If `CLAUDE.local.md` is missing or unreadable, stop and ask — don't guess scope, architecture, or what to build.
+The plan for every unit of work lives in its GitHub issue (see Development workflow): the source of truth for scope and decisions, and it outlives the PR. This file covers only stack and conventions, it doesn't duplicate planning. If the scope or a past decision isn't clear from the issues, ask instead of guessing.
 
 ## Development workflow
 
 Every unit of work — a decision, a feature, or a bugfix — starts as a GitHub
 issue and ships through its own branch and PR. Nothing goes straight to `main`.
-This workflow is the single source of truth; a plan in `CLAUDE.local.md` follows
-it and never restates it.
+This workflow is the single source of truth; the plan for a unit of work lives
+in its issue and never restates it.
 
 1. **Issue first.** Open a GitHub issue before writing code. The decided plan
    lives as a comment inside that issue — it's the source of truth and outlives
@@ -118,8 +116,6 @@ there — the compose files never moved to the root.
 
 ```
 apps/mercury/                  # the reference instance — thin: config + entrypoints + containers
-├── docs/
-│   ...
 ├── scripts/
 │   └── install-clis.sh
 ├── mercury.config.ts          # this instance's composition — the plugins + channels it wires (defineMercuryConfig)
