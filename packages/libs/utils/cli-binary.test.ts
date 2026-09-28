@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { resolvePlatform, binaryAssetUrl, readPinnedBinary } from "@mercury/utils";
+import { resolvePlatform, binaryAssetUrl, readPinnedBinary } from "./index.ts";
 
 /**
  * The pure half of the shared CLI-binary provisioning (`@mercury/utils`) every

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createJiraIssueListExtractor } from "@mercury/plugin-jira";
+import { createJiraIssueListExtractor } from "./index.ts";
 import type { CliResult } from "@mercury/cli-engine";
 
 /**

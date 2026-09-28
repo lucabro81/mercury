@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury/plugin-types";
-import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
+import { bitbucketPlugin } from "./index.ts";
 
 /**
  * Bitbucket is the second plugin and the validation that the `Plugin` contract
