@@ -67,6 +67,11 @@ COPY --chown=mercury:mercury packages/types/plugin-types/package.json ./packages
 # now (cache-friendly); the full source is copied after install, below.
 COPY --chown=mercury:mercury packages/libs/cli-engine/package.json ./packages/libs/cli-engine/
 COPY --chown=mercury:mercury packages/libs/confirm-engine/package.json ./packages/libs/confirm-engine/
+COPY --chown=mercury:mercury packages/libs/core/package.json ./packages/libs/core/
+# @mercury/kit is authoring-only (no app imports it), so only its manifest goes
+# in — the frozen-lockfile check needs every workspace present, but its source
+# is never loaded by the running service.
+COPY --chown=mercury:mercury packages/libs/kit/package.json ./packages/libs/kit/
 COPY --chown=mercury:mercury packages/types/channel-types/package.json ./packages/types/channel-types/
 COPY --chown=mercury:mercury packages/channels/channel-google-chat/package.json ./packages/channels/channel-google-chat/
 COPY --chown=mercury:mercury packages/channels/channel-http/package.json ./packages/channels/channel-http/
@@ -106,6 +111,9 @@ COPY --chown=mercury:mercury apps/mercury/mercury.config.ts ./apps/mercury/mercu
 COPY --chown=mercury:mercury packages/types/plugin-types ./packages/types/plugin-types
 COPY --chown=mercury:mercury packages/libs/cli-engine ./packages/libs/cli-engine
 COPY --chown=mercury:mercury packages/libs/confirm-engine ./packages/libs/confirm-engine
+# The framework runtime the app imports (@mercury/core) — the bulk of what used
+# to live under apps/mercury/src. No postinstall, so copied after install.
+COPY --chown=mercury:mercury packages/libs/core ./packages/libs/core
 COPY --chown=mercury:mercury packages/types/channel-types ./packages/types/channel-types
 COPY --chown=mercury:mercury packages/channels/channel-google-chat ./packages/channels/channel-google-chat
 COPY --chown=mercury:mercury packages/channels/channel-http ./packages/channels/channel-http
