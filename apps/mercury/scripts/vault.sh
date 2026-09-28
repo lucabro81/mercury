@@ -7,4 +7,6 @@
 # from stdin). `run --rm`, not `exec`, so this works even if the long-running
 # `mercury` service isn't currently up/healthy (see CLAUDE.md).
 set -euo pipefail
-exec docker compose run --rm -T mercury bun run src/wiki/vault-cli.ts "$@"
+# vault-cli.ts lives in @mercury/core now; the container workdir is
+# /app/apps/mercury, so reach it by its workspace path.
+exec docker compose run --rm -T mercury bun run ../../packages/libs/core/src/wiki/vault-cli.ts "$@"

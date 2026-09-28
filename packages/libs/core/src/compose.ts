@@ -21,7 +21,7 @@ import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveCo
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
-import mercuryConfig from "../mercury.config.ts";
+import type { MercuryConfig } from "./config/define-config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
@@ -115,8 +115,13 @@ function requireEnv(name: string): string {
   return value;
 }
 
-/** Builds a Mercury instance from `mercury.config.ts` + env. See {@link ComposedApp}. */
-export async function composeMercury(): Promise<ComposedApp> {
+/**
+ * Builds a Mercury instance from the composition `config` it is given + env. The
+ * config is a parameter, never imported here: that's what makes the core
+ * app-agnostic — an entrypoint (the service, the dev REPL, a future scaffolded
+ * app) reads its own `mercury.config.ts` and passes it in. See {@link ComposedApp}.
+ */
+export async function composeMercury(config: MercuryConfig): Promise<ComposedApp> {
   const enabledClis = (process.env.MERCURY_CLIS ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -139,13 +144,14 @@ export async function composeMercury(): Promise<ComposedApp> {
   const model = provider(ollamaModel, { think: ollamaThink });
   const summarize = createSummarizer(model);
 
-  // Plugins are declared in `mercury.config.ts` — this file no longer names
-  // them. The loader processes an opaque list (see plugins/plugin-loader.ts):
-  // each supplies its allowlist as data, a system-prompt fragment, and a
-  // `build()` that turns the runtime context into post-processors and post-turn
-  // guards. A plugin contributes only when it's both listed in MERCURY_CLIS and
-  // its allowlist validates; one that fails degrades only itself.
-  const plugins = mercuryConfig.plugins;
+  // Plugins are declared in the instance's config (its `mercury.config.ts`) and
+  // handed in — this file no longer names them. The loader processes an opaque
+  // list (see plugins/plugin-loader.ts): each supplies its allowlist as data, a
+  // system-prompt fragment, and a `build()` that turns the runtime context into
+  // post-processors and post-turn guards. A plugin contributes only when it's
+  // both listed in MERCURY_CLIS and its allowlist validates; one that fails
+  // degrades only itself.
+  const plugins = config.plugins;
 
   const loadedPlugins = await loadPlugins(plugins, {
     enabledClis,
@@ -590,7 +596,7 @@ export async function composeMercury(): Promise<ComposedApp> {
 
   return {
     handleTurn,
-    channels: mercuryConfig.channels ?? [],
+    channels: config.channels ?? [],
     channelRuntime,
     confirmDeps,
     ollamaHost,

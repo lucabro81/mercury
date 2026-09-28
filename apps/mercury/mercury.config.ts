@@ -8,9 +8,7 @@
  * allowlist validates (see `loadPlugins`); listing it here declares intent, not
  * unconditional activation.
  */
-import { defineMercuryConfig } from "./src/config/define-config.ts";
-import { formatterPlugin } from "./src/plugins/formatter.ts";
-import { createJiraIssueListHandler } from "./src/plugins/jira-issue-list-handler.ts";
+import { defineMercuryConfig, formatterPlugin, createJiraIssueListHandler } from "@mercury/core";
 import { jiraPlugin } from "@mercury/plugin-jira";
 import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
 import { atlassianAdminPlugin } from "@mercury/plugin-atlassian-admin";
