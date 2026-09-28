@@ -25,7 +25,7 @@ describe("bitbucketPlugin", () => {
     expect(bitbucketPlugin.systemPromptFragment).toBeUndefined();
     expect(bitbucketPlugin.surfaces).toBeUndefined();
     const c = bitbucketPlugin.build!({ model: {} as never, env: {}, log: () => {} });
-    expect(c.postProcessors ?? {}).toEqual({});
+    expect(c.postProcess).toBeUndefined();
     expect(c.postTurnGuards ?? []).toEqual([]);
   });
 

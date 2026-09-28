@@ -41,13 +41,13 @@ describe("loadPlugins", () => {
     expect(loaded.postTurnGuards).toEqual([]);
   });
 
-  it("bundles a plugin's sessionTools factory with its post-processors, and collects its guards", async () => {
-    const pp = { issueList: (() => {}) as never };
+  it("bundles a plugin's sessionTools factory with its post-processor, and collects its guards", async () => {
+    const pp = (() => {}) as never;
     const factory = () => ({ jiraCommand: {} as never });
     const guard = { statusLabel: "l", statusId: "g", shouldRun: () => true, run: async () => ({ text: "", outcome: "success" as const }) };
-    const plugin = plug({ name: "jira", build: () => ({ postProcessors: pp, sessionTools: factory, postTurnGuards: [guard] }) });
+    const plugin = plug({ name: "jira", build: () => ({ postProcess: pp, sessionTools: factory, postTurnGuards: [guard] }) });
     const loaded = await loadPlugins([plugin], baseCtx({ enabledClis: ["jira"] }));
-    expect(loaded.sessionToolBundles).toEqual([{ build: factory, postProcessors: pp }]);
+    expect(loaded.sessionToolBundles).toEqual([{ build: factory, postProcess: pp }]);
     expect(loaded.postTurnGuards).toEqual([guard]);
   });
 
@@ -118,8 +118,8 @@ describe("loadPlugins", () => {
     expect(loaded.activated).toEqual(["p1", "p2"]);
     expect(loaded.promptFragments).toEqual(["F1", "F2"]);
     expect(loaded.sessionToolBundles).toEqual([
-      { build: fA, postProcessors: {} },
-      { build: fB, postProcessors: {} },
+      { build: fA, postProcess: undefined },
+      { build: fB, postProcess: undefined },
     ]);
     expect(loaded.postTurnGuards).toEqual([gA, gB]);
   });

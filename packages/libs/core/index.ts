@@ -12,13 +12,8 @@
  * - `createTerminalProvider` — the dev REPL entrypoint opens the terminal with it.
  * - `defineMercuryConfig`/`MercuryConfig` — the app's `mercury.config.ts` declares
  *   its composition through these.
- * - `formatterPlugin`/`createJiraIssueListHandler` — the composition-layer
- *   helpers a config wires around its data plugins. (`createJiraIssueListHandler`
- *   is Jira-specific glue due to leave the core, see #51.)
  */
 export { composeMercury, type ComposedApp, type ConfirmDeps } from "./src/compose.ts";
 export { loadChannels, type LoadedChannel } from "./src/router/channel-loader.ts";
 export { createTerminalProvider } from "./src/router/terminal-provider.ts";
 export { defineMercuryConfig, type MercuryConfig } from "./src/config/define-config.ts";
-export { formatterPlugin } from "./src/plugins/formatter.ts";
-export { createJiraIssueListHandler } from "./src/plugins/jira-issue-list-handler.ts";

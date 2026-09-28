@@ -4,12 +4,13 @@
  * search result and emits, on the user-facing `display` channel (see
  * `ToolDisplay`, `type: "issue-list"`), one **structured record** per issue
  * (`{ key, status, summary, url }`) — never a pre-rendered string. Turning those
- * records into text is the render handler's job, supplied at composition (see
- * the app's `jira-issue-list-handler.ts`); the plugin owns only what it can know
- * from the data: the fields, and the browse `url` resolved from `siteUrl`.
+ * records into text is the instance's formatter rule for `issue-list`, written
+ * in its config; the plugin owns only what it can know from the data: the
+ * fields, and the browse `url` resolved from `siteUrl`.
  *
- * It runs because the plugin's allowlist declares `"postProcess": "issue-list"`
- * on the `issue search` entry. `--select` can reshape the JSON into anything, so
+ * It is the plugin's single post-processor, so it runs after every allowed
+ * command and acts only when the matched prefix is `issue search`, passing
+ * every other result through untouched. `--select` can reshape the JSON into anything, so
  * it classifies defensively: a non-object payload passes through untouched; a
  * payload with no `issues` array, or issues pruned of `key`, gets a
  * model-facing `formattedListNote` (no display); a missing `summary` is a hard,
@@ -97,15 +98,14 @@ function extractOneIssue(issue: JiraIssue, siteUrl: string): JiraIssueListItem {
 }
 
 /**
- * Builds the `issue search` extractor from validated config. Returns a function
- * structurally compatible with the core's `CliPostProcessor`; the composition
- * root wraps it with `formatterPlugin` + a render handler and registers the
- * result in the core's named registry.
+ * Builds the `issue search` extractor from validated config: the plugin's
+ * `CliPostProcessor`, which an instance may wrap with a formatter at
+ * composition to render the `issue-list` display.
  */
 export function createJiraIssueListExtractor(config: IssueListConfig): CliPostProcessor {
   const { siteUrl } = config;
-  return (_parsed, result): CliResult => {
-    if (!result.ok) {
+  return (cmd, result): CliResult => {
+    if (cmd.prefix.join(" ") !== "issue search" || !result.ok) {
       return result;
     }
     const shape = classifyResultData(result.data);

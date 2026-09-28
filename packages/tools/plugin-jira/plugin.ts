@@ -9,9 +9,9 @@
  * `build()` contributes:
  *  - `sessionTools`: the `jiraCommand` tool, built per turn from the validated
  *    allowlist, the session's confirm-staging/display-stashing, and the
- *    post-processors handed in (its own `issue-list` extractor, possibly wrapped
- *    by the formatter decorator at composition);
- *  - `postProcessors`: the `issue search` result extractor (only when
+ *    post-processor handed in (its own issue-list extractor, possibly wrapped
+ *    by a formatter decorator at composition);
+ *  - `postProcess`: the `issue search` result extractor (only when
  *    JIRA_SITE_URL is set — see below);
  *  - `toolStatusDescribers`: the status label for `jiraCommand`.
  *
@@ -77,11 +77,10 @@ export function createJiraPlugin(deps: { runCliFn?: typeof runCli } = {}): Plugi
       // absent or empty site url is "not configured" and stays silent. Rendering
       // config (itemTemplate) lives in the render handler wired at composition, so
       // `siteUrl` is the extractor's only input.
-      const postProcessors: Record<string, CliPostProcessor> = {};
       const siteUrl = ctx.env.JIRA_SITE_URL;
-      if (siteUrl) {
-        postProcessors["issue-list"] = createJiraIssueListExtractor({ siteUrl });
-      }
+      const postProcess: CliPostProcessor | undefined = siteUrl
+        ? createJiraIssueListExtractor({ siteUrl })
+        : undefined;
 
       // Status label for jiraCommand, from the same allowlist that gates
       // execution (so the label can't drift from what runs). No per-command
@@ -89,12 +88,12 @@ export function createJiraPlugin(deps: { runCliFn?: typeof runCli } = {}): Plugi
       const describeCli = createCliStatusDescriber(configs, {});
 
       return {
-        postProcessors,
-        sessionTools: (sctx, decoratedPostProcessors) => {
+        postProcess,
+        sessionTools: (sctx, decoratedPostProcess) => {
           const { runCommand } = createCliTool(runCliFn, configs, {
             stageConfirmation: sctx.stageConfirmation,
             stashDisplay: sctx.stashDisplay,
-            postProcessors: decoratedPostProcessors,
+            postProcess: decoratedPostProcess,
           });
           return { jiraCommand: runCommand };
         },

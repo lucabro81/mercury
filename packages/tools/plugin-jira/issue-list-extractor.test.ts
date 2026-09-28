@@ -11,10 +11,20 @@ import type { CliResult } from "@mercury/cli-engine";
  * defensive shape handling, plus the plugin-owned config schema.
  */
 const SITE_URL = "https://webcomperio.atlassian.net";
-const PARSED = { binary: "jira", args: ["issue", "search"] };
+const PARSED = { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] };
 
 describe("createJiraIssueListExtractor", () => {
   const extract = createJiraIssueListExtractor({ siteUrl: SITE_URL });
+
+  // The allowlist no longer names a post-processor per command: the plugin's
+  // single post-processor runs on every allowed command and must leave
+  // anything that isn't an `issue search` alone — even an issues-shaped result.
+  it("passes a result from any command other than issue search through unchanged", () => {
+    const result: CliResult = { ok: true, data: { issues: [{ key: "MER-1", fields: { summary: "s" } }] } };
+    for (const prefix of [["issue", "get"], ["doctor"], []]) {
+      expect(extract({ binary: "jira", args: prefix, prefix }, result)).toEqual(result);
+    }
+  });
 
   it("passes a failed result through unchanged", () => {
     const result: CliResult = { ok: false, error: "jira exited with code 1: boom" };

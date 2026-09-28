@@ -28,11 +28,10 @@ import type { runCli, CliResult } from "./cli-executor.ts";
 import type { StageConfirmation } from "@mercury/plugin-types";
 
 // `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
-// returns these) — it lives in `@mercury/plugin-types` and is re-exported here
-// for the core callers that import it from this module. A post-processor
-// deterministically transforms a `runCliFn` result for one command shape,
-// looked up by the `postProcess` name a CLI's allowlist declares (e.g.
-// "issue-list"), never by cli-tool.ts knowing which binary it's for.
+// returns one) — it lives in `@mercury/plugin-types` and is re-exported here
+// for the core callers that import it from this module. It runs after every
+// allowed command and is told which allowlist prefix matched, so the plugin
+// decides what to touch; cli-tool.ts never knows what it does.
 import type { CliPostProcessor } from "@mercury/plugin-types";
 export type { CliPostProcessor };
 
@@ -40,9 +39,6 @@ export type AllowedCommand = {
   prefix: string[];
   confirm: boolean;
   mutating: boolean;
-  /** Name of a post-processor (see `CliPostProcessor`/`createCliTool`'s
-   * `postProcessors`) applied to this command's result after it runs. */
-  postProcess?: string;
 };
 export type GlobalFlag = { flag: string; takesValue: boolean };
 
@@ -75,7 +71,7 @@ export function stripGlobalFlags(args: string[], globalFlags: GlobalFlag[]): str
 }
 
 export type CommandMatch =
-  | { kind: "allowed"; mutating: boolean; postProcess?: string }
+  | { kind: "allowed"; prefix: string[]; mutating: boolean }
   | { kind: "confirm-required"; prefix: string[]; mutating: boolean }
   | { kind: "not-allowed" };
 
@@ -88,11 +84,13 @@ export type CommandMatch =
  * recognized, but there's no confirmation mechanism to gate it on yet).
  * `mutating` is carried through independently of `confirm` — a command can
  * change external state (Jira, etc.) without requiring confirmation (e.g.
- * create), so the two flags are never derived from one another.
+ * create), so the two flags are never derived from one another. An allowed
+ * match reports the prefix it matched (`[]` for `--help`), which is what a
+ * plugin's post-processor decides on.
  */
 export function matchCommand(args: string[], config: CliConfig): CommandMatch {
   if (args[args.length - 1] === "--help") {
-    return { kind: "allowed", mutating: false };
+    return { kind: "allowed", prefix: [], mutating: false };
   }
   const stripped = config.globalFlags ? stripGlobalFlags(args, config.globalFlags) : args;
   const match = config.allowedPrefixes.find((c) => c.prefix.every((part, i) => stripped[i] === part));
@@ -101,7 +99,7 @@ export function matchCommand(args: string[], config: CliConfig): CommandMatch {
   }
   return match.confirm
     ? { kind: "confirm-required", prefix: match.prefix, mutating: match.mutating }
-    : { kind: "allowed", mutating: match.mutating, postProcess: match.postProcess };
+    : { kind: "allowed", prefix: match.prefix, mutating: match.mutating };
 }
 
 /** Renders a list of prefixes as a comma-separated string for a
@@ -157,11 +155,10 @@ export function createCliTool(
      * session/user by the composition root — `cli-tool.ts` never touches the
      * confirmation store or the wiki itself. */
     stageConfirmation: StageConfirmation;
-    /** Named post-processors (see `CliPostProcessor`), keyed by the name a
-     * command's config declares via `postProcess`. Assembled at the
-     * composition root (`index.ts`) from whichever CLI-specific modules
-     * are wired in — `cli-tool.ts` itself never knows what any of them do. */
-    postProcessors?: Record<string, CliPostProcessor>;
+    /** The plugin's post-processor (see `CliPostProcessor`), run on every
+     * allowed command's result with the matched prefix — `cli-tool.ts` itself
+     * never knows what it does. */
+    postProcess?: CliPostProcessor;
     /** Stashes a post-processor's rendered `display` artifact and returns a ref
      * the model can `present`. Pre-bound to this turn's session by the
      * composition root. Optional: with none wired the inline `display` is left
@@ -231,8 +228,9 @@ export function createCliTool(
       }
 
       const result = await runCliFn(parsed.binary, parsed.args);
-      const postProcess = match.postProcess ? opts.postProcessors?.[match.postProcess] : undefined;
-      const processed = postProcess ? postProcess({ binary: parsed.binary, args: parsed.args }, result) : result;
+      const processed = opts.postProcess
+        ? opts.postProcess({ binary: parsed.binary, args: parsed.args, prefix: match.prefix }, result)
+        : result;
 
       // A rendered display artifact is stashed, not returned to be
       // force-appended: the model gets only a `displayRef` and decides whether

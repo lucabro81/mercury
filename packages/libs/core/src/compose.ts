@@ -404,9 +404,9 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
     };
 
     // Each CLI-based plugin owns its tool (jiraCommand, …), built from its own
-    // allowlist and post-processors. The core just invokes what they contributed.
+    // allowlist and post-processor. The core just invokes what they contributed.
     for (const bundle of loadedPlugins.sessionToolBundles) {
-      Object.assign(sessionTools, bundle.build(sessionToolContext, bundle.postProcessors));
+      Object.assign(sessionTools, bundle.build(sessionToolContext, bundle.postProcess));
     }
 
     // `present` only makes sense alongside CLI tools: they are what produce the

@@ -57,9 +57,10 @@ describe("matchCommand", () => {
   it("returns allowed for args matching a confirm:false prefix", () => {
     expect(matchCommand(["issue", "search", "--jql", "project=KAN"], config)).toEqual({
       kind: "allowed",
+      prefix: ["issue", "search"],
       mutating: false,
     });
-    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
   });
 
   it("returns allowed with mutating:true for a confirm:false, mutating:true prefix (e.g. create)", () => {
@@ -71,6 +72,7 @@ describe("matchCommand", () => {
     };
     expect(matchCommand(["issue", "create", "--project", "KAN"], withCreate)).toEqual({
       kind: "allowed",
+      prefix: ["issue", "create"],
       mutating: true,
     });
   });
@@ -87,9 +89,9 @@ describe("matchCommand", () => {
     expect(matchCommand(["issue", "create", "--project", "KAN"], config)).toEqual({ kind: "not-allowed" });
   });
 
-  it("always allows --help, even for an otherwise-disallowed shape", () => {
-    expect(matchCommand(["issue", "create", "--help"], config)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["--help"], config)).toEqual({ kind: "allowed", mutating: false });
+  it("always allows --help, even for an otherwise-disallowed shape, with no matched prefix", () => {
+    expect(matchCommand(["issue", "create", "--help"], config)).toEqual({ kind: "allowed", prefix: [], mutating: false });
+    expect(matchCommand(["--help"], config)).toEqual({ kind: "allowed", prefix: [], mutating: false });
   });
 
   it("applies a config's globalFlags before matching prefixes", () => {
@@ -99,6 +101,7 @@ describe("matchCommand", () => {
     };
     expect(matchCommand(["--select", "id", "issue", "search"], withFlags)).toEqual({
       kind: "allowed",
+      prefix: ["issue", "search"],
       mutating: false,
     });
     expect(matchCommand(["--select", "id", "issue", "delete"], withFlags)).toEqual({ kind: "not-allowed" });
@@ -106,21 +109,6 @@ describe("matchCommand", () => {
 
   it("uses args as-is when a config has no globalFlags", () => {
     expect(matchCommand(["--select", "id", "issue", "search"], config)).toEqual({ kind: "not-allowed" });
-  });
-
-  it("carries a matched prefix's postProcess name through on an allowed result", () => {
-    const withPostProcess: CliConfig = {
-      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
-    };
-    expect(matchCommand(["issue", "search", "--jql", "project=KAN"], withPostProcess)).toEqual({
-      kind: "allowed",
-      mutating: false,
-      postProcess: "issue-list",
-    });
-  });
-
-  it("leaves postProcess undefined for a prefix that doesn't declare one", () => {
-    expect(matchCommand(["doctor"], config)).toEqual({ kind: "allowed", mutating: false });
   });
 
   // Proves the allowlist logic is genuinely generic across CLIs, not just
@@ -134,10 +122,10 @@ describe("matchCommand", () => {
       allowedPrefixes: [{ prefix: ["spaces", "list"], confirm: false, mutating: false }],
     };
 
-    expect(matchCommand(["issue", "search"], jiraLike)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["issue", "search"], jiraLike)).toEqual({ kind: "allowed", prefix: ["issue", "search"], mutating: false });
     expect(matchCommand(["spaces", "list"], jiraLike)).toEqual({ kind: "not-allowed" });
 
-    expect(matchCommand(["spaces", "list"], chatLike)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["spaces", "list"], chatLike)).toEqual({ kind: "allowed", prefix: ["spaces", "list"], mutating: false });
     expect(matchCommand(["issue", "search"], chatLike)).toEqual({ kind: "not-allowed" });
   });
 });
@@ -292,84 +280,95 @@ describe("createCliTool", () => {
     });
   });
 
-  describe("postProcessors", () => {
-    const withPostProcess: CliConfig = {
-      allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
-    };
+  describe("postProcess", () => {
+    type Cmd = { binary: string; args: string[]; prefix: string[] };
 
-    it("applies the named post-processor to a successful result when the matched prefix declares one", async () => {
+    it("applies the post-processor to a successful result", async () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
-      const postProcessors = {
-        "issue-list": (_parsed: { binary: string; args: string[] }, result: CliResult): CliResult =>
-          result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [] } } : result,
-      };
+      const postProcess = (_cmd: Cmd, result: CliResult): CliResult =>
+        result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [] } } : result;
 
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...defaultOpts(), postProcess });
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
     });
 
-    it("passes the parsed binary/args to the post-processor", async () => {
+    it("passes the binary, the args and the matched allowlist prefix to the post-processor", async () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
-      let received: { binary: string; args: string[] } | undefined;
-      const postProcessors = {
-        "issue-list": (parsed: { binary: string; args: string[] }, result: CliResult): CliResult => {
-          received = parsed;
-          return result;
-        },
+      let received: Cmd | undefined;
+      const postProcess = (cmd: Cmd, result: CliResult): CliResult => {
+        received = cmd;
+        return result;
       };
 
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...defaultOpts(), postProcess });
       await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
-      expect(received).toEqual({ binary: "jira", args: ["issue", "search", "--jql", "project = KAN"] });
+      expect(received).toEqual({
+        binary: "jira",
+        args: ["issue", "search", "--jql", "project = KAN"],
+        prefix: ["issue", "search"],
+      });
     });
 
-    it("leaves the result untouched when no postProcessors map is supplied", async () => {
+    // The plugin decides from the prefix, so it must be the allowlist entry,
+    // not the raw argv head — a global flag in front must not hide it.
+    it("reports the matched prefix even when a global flag precedes the subcommand", async () => {
+      const withFlags: CliConfig = {
+        allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false }],
+        globalFlags: [{ flag: "--select", takesValue: true }],
+      };
+      let received: Cmd | undefined;
+      const postProcess = (cmd: Cmd, result: CliResult): CliResult => {
+        received = cmd;
+        return result;
+      };
+
+      const { runCommand } = createCliTool(async () => ({ ok: true, data: {} }), { jira: withFlags }, {
+        ...defaultOpts(),
+        postProcess,
+      });
+      await runCommand.execute({ command: "jira --select key issue search" }, {} as never);
+
+      expect(received?.prefix).toEqual(["issue", "search"]);
+      expect(received?.args).toEqual(["--select", "key", "issue", "search"]);
+    });
+
+    it("runs for every allowed command, handing --help an empty prefix", async () => {
+      const prefixes: string[][] = [];
+      const postProcess = (cmd: Cmd, result: CliResult): CliResult => {
+        prefixes.push(cmd.prefix);
+        return result;
+      };
+      const { runCommand } = createCliTool(async () => ({ ok: true, data: "ok" }), { jira: jiraConfig }, {
+        ...defaultOpts(),
+        postProcess,
+      });
+
+      await runCommand.execute({ command: "jira doctor" }, {} as never);
+      await runCommand.execute({ command: "jira issue get KAN-1" }, {} as never);
+      await runCommand.execute({ command: "jira issue search --help" }, {} as never);
+
+      expect(prefixes).toEqual([["doctor"], ["issue", "get"], []]);
+    });
+
+    it("leaves the result untouched when no post-processor is supplied", async () => {
       const fakeResult: CliResult = { ok: true, data: { issues: [] } };
       const runCliFn = async (): Promise<CliResult> => fakeResult;
 
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, defaultOpts());
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, defaultOpts());
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
-
-      expect(result).toEqual(fakeResult);
-    });
-
-    it("leaves the result untouched when the matched prefix's postProcess name isn't registered", async () => {
-      const fakeResult: CliResult = { ok: true, data: { issues: [] } };
-      const runCliFn = async (): Promise<CliResult> => fakeResult;
-
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
-        ...defaultOpts(),
-        postProcessors: { "some-other-hook": (_p, r: CliResult) => r },
-      });
-      const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
-
-      expect(result).toEqual(fakeResult);
-    });
-
-    it("leaves the result untouched for a matched prefix that declares no postProcess, even with a postProcessors map present", async () => {
-      const fakeResult: CliResult = { ok: true, data: "ok" };
-      const runCliFn = async (): Promise<CliResult> => fakeResult;
-
-      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, {
-        ...defaultOpts(),
-        postProcessors: { "issue-list": (_p, r: CliResult) => ({ ok: true, data: "mutated" }) },
-      });
-      const result = await runCommand.execute({ command: "jira doctor" }, {} as never);
 
       expect(result).toEqual(fakeResult);
     });
 
     it("wires toModelOutput to drop the display channel from what the model sees, while execute's own return keeps it", async () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
-      const postProcessors = {
-        "issue-list": (_parsed: { binary: string; args: string[] }, result: CliResult): CliResult =>
-          result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["no issues"] } } : result,
-      };
+      const postProcess = (_cmd: Cmd, result: CliResult): CliResult =>
+        result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["no issues"] } } : result;
 
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...defaultOpts(), postProcess });
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
       expect(result).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: ["no issues"] } });
 
@@ -383,11 +382,9 @@ describe("createCliTool", () => {
 
     it("lets a post-processor turn a successful CLI result into an error (e.g. missing required fields)", async () => {
       const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [{ key: "KAN-1" }] } });
-      const postProcessors = {
-        "issue-list": (): CliResult => ({ ok: false, error: "missing required field: summary" }),
-      };
+      const postProcess = (): CliResult => ({ ok: false, error: "missing required field: summary" });
 
-      const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, { ...defaultOpts(), postProcessors });
+      const { runCommand } = createCliTool(runCliFn, { jira: jiraConfig }, { ...defaultOpts(), postProcess });
       const result = await runCommand.execute({ command: 'jira issue search --jql "project = KAN"' }, {} as never);
 
       expect(result).toEqual({ ok: false, error: "missing required field: summary" });
@@ -642,16 +639,14 @@ describe("createCliTool", () => {
 // at finalize: execute stashes it in the display store and hands the model only
 // a `displayRef` (so the model can choose to `present` it) — never the content.
 describe("createCliTool display staging", () => {
-  const withPostProcess: CliConfig = {
-    allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false, postProcess: "issue-list" }],
+  const searchConfig: CliConfig = {
+    allowedPrefixes: [{ prefix: ["issue", "search"], confirm: false, mutating: false }],
   };
   const doctorConfig: CliConfig = {
     allowedPrefixes: [{ prefix: ["doctor"], confirm: false, mutating: false }],
   };
-  const renderingPostProcessors = {
-    "issue-list": (_p: { binary: string; args: string[] }, result: CliResult): CliResult =>
-      result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } : result,
-  };
+  const renderingPostProcess = (_cmd: unknown, result: CliResult): CliResult =>
+    result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: ["MER-1\nhttps://x"] } } : result;
   function noopStage() {
     return createStageConfirmation({
       store: createConfirmationStore(),
@@ -671,9 +666,9 @@ describe("createCliTool display staging", () => {
   it("stashes the rendered artifact and returns its ref on the result", async () => {
     const displayStore = createDisplayStore({ refFn: () => "d1" });
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [{ key: "MER-1" }] } });
-    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+    const { runCommand } = createCliTool(runCliFn, { jira: searchConfig }, {
       ...opts(displayStore),
-      postProcessors: renderingPostProcessors,
+      postProcess: renderingPostProcess,
     });
 
     const result = (await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never)) as {
@@ -688,9 +683,9 @@ describe("createCliTool display staging", () => {
   it("hands the model the displayRef but never the rendered display content", async () => {
     const displayStore = createDisplayStore({ refFn: () => "d1" });
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
-    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+    const { runCommand } = createCliTool(runCliFn, { jira: searchConfig }, {
       ...opts(displayStore),
-      postProcessors: renderingPostProcessors,
+      postProcess: renderingPostProcess,
     });
 
     const result = await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never);
@@ -715,13 +710,11 @@ describe("createCliTool display staging", () => {
   it("does not stash when the display carries no string items (structured, no formatter applied)", async () => {
     const displayStore = createDisplayStore({ refFn: () => "d1" });
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: {} });
-    const structuredPostProcessors = {
-      "issue-list": (_p: { binary: string; args: string[] }, result: CliResult): CliResult =>
-        result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [{ key: "MER-1" }] } } : result,
-    };
-    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+    const structuredPostProcess = (_cmd: unknown, result: CliResult): CliResult =>
+      result.ok ? { ok: true, data: result.data, display: { type: "issue-list", items: [{ key: "MER-1" }] } } : result;
+    const { runCommand } = createCliTool(runCliFn, { jira: searchConfig }, {
       ...opts(displayStore),
-      postProcessors: structuredPostProcessors,
+      postProcess: structuredPostProcess,
     });
 
     const result = (await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never)) as {
@@ -732,9 +725,9 @@ describe("createCliTool display staging", () => {
 
   it("leaves execute's return unchanged (no displayRef) when no stashDisplay is wired", async () => {
     const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: { issues: [] } });
-    const { runCommand } = createCliTool(runCliFn, { jira: withPostProcess }, {
+    const { runCommand } = createCliTool(runCliFn, { jira: searchConfig }, {
       stageConfirmation: noopStage(),
-      postProcessors: renderingPostProcessors,
+      postProcess: renderingPostProcess,
     });
 
     const result = await runCommand.execute({ command: 'jira issue search --jql "x"' }, {} as never);

@@ -26,11 +26,8 @@ beforeAll(async () => {
 
 describe("@mercury/plugin-atlassian-admin allowlist", () => {
   it("allows the read-only user lookup and health check", () => {
-    expect(matchCommand(["user", "get", "--account-id", "abc123"], atlassianAdminConfig)).toEqual({
-      kind: "allowed",
-      mutating: false,
-    });
-    expect(matchCommand(["doctor"], atlassianAdminConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["user", "get", "--account-id", "abc123"], atlassianAdminConfig)).toEqual({ kind: "allowed", prefix: ["user", "get"], mutating: false });
+    expect(matchCommand(["doctor"], atlassianAdminConfig)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
   });
 
   it("has no allowed commands beyond the user lookup and health check", () => {
@@ -38,14 +35,14 @@ describe("@mercury/plugin-atlassian-admin allowlist", () => {
   });
 
   it("always allows --help", () => {
-    expect(matchCommand(["user", "get", "--help"], atlassianAdminConfig)).toEqual({ kind: "allowed", mutating: false });
-    expect(matchCommand(["--help"], atlassianAdminConfig)).toEqual({ kind: "allowed", mutating: false });
+    expect(matchCommand(["user", "get", "--help"], atlassianAdminConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
+    expect(matchCommand(["--help"], atlassianAdminConfig)).toEqual({ kind: "allowed", prefix: [], mutating: false });
   });
 
   it("allows the lookup even when --select appears before the subcommand", () => {
     expect(
       matchCommand(["--select", "account.email", "user", "get", "--account-id", "abc123"], atlassianAdminConfig),
-    ).toEqual({ kind: "allowed", mutating: false });
+    ).toEqual({ kind: "allowed", prefix: ["user", "get"], mutating: false });
   });
 
   it("has no confirm-gated or mutating commands", () => {

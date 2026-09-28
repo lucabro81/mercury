@@ -19,7 +19,7 @@ import type { CliConfig } from "./cli-tool.ts";
  * shape `src/tools/cli-tool.ts` consumes. */
 export function toCliConfig(raw: CliConfigFile): CliConfig {
   return {
-    allowedPrefixes: raw.commands.map((c) => ({ prefix: c.prefix, confirm: c.confirm, mutating: c.mutating, postProcess: c.postProcess })),
+    allowedPrefixes: raw.commands.map((c) => ({ prefix: c.prefix, confirm: c.confirm, mutating: c.mutating })),
     globalFlags: raw.globalFlags,
   };
 }
