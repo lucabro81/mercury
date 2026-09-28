@@ -89,9 +89,11 @@ mercury/                       # repo root
 │   │   ├── channel-google-chat/   # Google Chat channel plugin: the registered-app transport (Pub/Sub + REST), loaded by the channel loader
 │   │   └── channel-http/          # HTTP channel plugin: the opt-in conversational HTTP surface (SSE /turn, /confirm, read routes, OpenAPI) for a custom UI
 │   ├── tools/
-│   │   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list formatter + correction guard, pinned CLI binary
+│   │   ├── plugin-jira/           # Jira plugin: allowlist, SKILL.md, issue-list extractor + the typed kinds of list it emits (JiraDisplays), pinned CLI binary
 │   │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
 │   │   └── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
+│   ├── formatters/
+│   │   └── formatter/             # @mercury/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
 │   ├── libs/
 │   │   ├── core/                 # @mercury/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
 │   │   ├── kit/                  # @mercury/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
@@ -118,7 +120,7 @@ there — the compose files never moved to the root.
 apps/mercury/                  # the reference instance — thin: config + entrypoints + containers
 ├── scripts/
 │   └── install-clis.sh
-├── mercury.config.ts          # this instance's composition — the plugins + channels it wires (defineMercuryConfig)
+├── mercury.config.ts          # this instance's composition — the plugins + channels it wires, and the formatter rules for the plugins' lists (defineMercuryConfig)
 ├── src/
 │   ├── index.ts              # service entrypoint — composeMercury(mercuryConfig) + start channels/admin/crons, signal-driven shutdown (headless)
 │   └── repl.ts               # dev REPL entrypoint (`bun run repl`) — composeMercury(mercuryConfig) + open the terminal; destined for the future Mercury CLI
@@ -136,7 +138,7 @@ instance's config as a parameter, it never imports a `mercury.config.ts`:
 
 ```
 packages/libs/core/
-├── index.ts                 # public barrel — composeMercury, defineMercuryConfig, formatterPlugin, the loaders, createTerminalProvider
+├── index.ts                 # public barrel — composeMercury, defineMercuryConfig, the loaders, createTerminalProvider
 └── src/
     ├── compose.ts            # builds the instance from the config it's given (model/tools/memory/turn pipeline); returns handleTurn + deferred start closures
     ├── model/                # Ollama provider, real context-window lookup
