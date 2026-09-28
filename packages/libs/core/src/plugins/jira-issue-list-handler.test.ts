@@ -4,8 +4,8 @@
  * user-facing text block. It is the new home of the exact rendering that used
  * to live in the plugin (`formatOneIssue`): the conditional `[status]` bracket,
  * the `itemTemplate` override, the blank-line join, and the empty-set sentence.
- * These assertions pin that output byte-for-byte, since `jira-behavior.test.ts`
- * relies on it to keep the delivered list identical to before.
+ * These assertions pin that output byte-for-byte, so the delivered list stays
+ * identical to before.
  */
 import { describe, it, expect } from "bun:test";
 import { createJiraIssueListHandler } from "./jira-issue-list-handler.ts";

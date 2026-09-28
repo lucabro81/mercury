@@ -14,7 +14,7 @@
  *   its composition through these.
  * - `formatterPlugin`/`createJiraIssueListHandler` — the composition-layer
  *   helpers a config wires around its data plugins. (`createJiraIssueListHandler`
- *   is Jira-specific glue that stays here until #26 relocates it into plugin-jira.)
+ *   is Jira-specific glue due to leave the core, see #51.)
  */
 export { composeMercury, type ComposedApp, type ConfirmDeps } from "./src/compose.ts";
 export { loadChannels, type LoadedChannel } from "./src/router/channel-loader.ts";
