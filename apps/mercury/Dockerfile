@@ -75,6 +75,7 @@ COPY --chown=mercury:mercury packages/libs/kit/package.json ./packages/libs/kit/
 COPY --chown=mercury:mercury packages/types/channel-types/package.json ./packages/types/channel-types/
 COPY --chown=mercury:mercury packages/channels/channel-google-chat/package.json ./packages/channels/channel-google-chat/
 COPY --chown=mercury:mercury packages/channels/channel-http/package.json ./packages/channels/channel-http/
+COPY --chown=mercury:mercury packages/formatters/formatter/package.json ./packages/formatters/formatter/
 # @mercury/utils is copied in full BEFORE install too: a plugin's postinstall
 # imports its downloadPinnedBinary at install time, so its source has to be
 # present when `bun install` runs the postinstall.
@@ -117,6 +118,8 @@ COPY --chown=mercury:mercury packages/libs/core ./packages/libs/core
 COPY --chown=mercury:mercury packages/types/channel-types ./packages/types/channel-types
 COPY --chown=mercury:mercury packages/channels/channel-google-chat ./packages/channels/channel-google-chat
 COPY --chown=mercury:mercury packages/channels/channel-http ./packages/channels/channel-http
+# The formatter the instance config wraps its data plugins with.
+COPY --chown=mercury:mercury packages/formatters/formatter ./packages/formatters/formatter
 
 COPY --chown=mercury:mercury apps/mercury/scripts/docker-entrypoint.sh ./apps/mercury/scripts/docker-entrypoint.sh
 RUN chmod +x ./apps/mercury/scripts/docker-entrypoint.sh
