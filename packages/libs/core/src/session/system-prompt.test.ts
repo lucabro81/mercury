@@ -1,22 +1,30 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { buildSystemPrompt } from "./system-prompt.ts";
-import { jiraPlugin } from "@mercury/plugin-jira";
 import type { Skill } from "@mercury/plugin-types";
 
 /**
- * Golden snapshot of the composed system prompt. Jira now contributes a skill,
- * not an always-on fragment, so the "with jira" prompt carries only the skill's
- * one-line descriptor (its body loads on demand via read_skill), not the full
- * DO/DON'T block that used to sit inline here. The "no skills" fixtures are the
- * same jira-disabled prompt as before — an empty skills list adds no section.
+ * Golden snapshot of the composed system prompt. A plugin's skill contributes
+ * only its one-line descriptor (its body loads on demand via read_skill), so
+ * the "with skill" prompt carries the descriptor and never the body. The "no
+ * skills" fixtures show an empty skills list adds no section at all.
  * A stray space, a reordered line, or a lost newline fails here rather than
  * silently shifting the model's instructions.
  */
 const golden = (name: string): string =>
   readFileSync(new URL(`./__fixtures__/system-prompt/${name}`, import.meta.url), "utf-8");
 
-const jiraSkills: Skill[] = jiraPlugin.skills ?? [];
+/** A fixture skill shaped like a real plugin's (the golden files were captured
+ * with the Jira plugin's descriptor, reproduced verbatim here). The body is a
+ * sentinel: if it ever reached the prompt, the golden comparison would fail. */
+const jiraSkills: Skill[] = [
+  {
+    name: "jira",
+    description:
+      "Query and act on Jira issues via the jiraCommand tool — JQL searches, issue create/transition/comment, and the delete-confirmation contract. Load this before running any jira command.",
+    body: "SKILL BODY — must never appear in the system prompt",
+  },
+];
 
 describe("buildSystemPrompt", () => {
   it("lists a loaded plugin's skill descriptor, not its body (single-user)", () => {
