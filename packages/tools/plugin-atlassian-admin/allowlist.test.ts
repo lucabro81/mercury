@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { loadCliConfigFromObject } from "@mercury/cli-engine";
 import { matchCommand, type CliConfig } from "@mercury/cli-engine";
 import type { CliResult } from "@mercury/cli-engine";
-import { atlassianAdminCliConfig } from "@mercury/plugin-atlassian-admin";
+import { atlassianAdminCliConfig } from "./index.ts";
 
 /**
  * Integration-shaped safety net for the atlassian-admin plugin's real,
  * checked-in allowlist (`@mercury/plugin-atlassian-admin`'s
  * `atlassian-admin.json`, travelling with the plugin) — same pattern as
- * `cli-config-loader.bitbucket.test.ts`. The Bitbucket identity bridge only
+ * plugin-bitbucket's `allowlist.test.ts`. The Bitbucket identity bridge only
  * needs to resolve an `account_id` to a profile/email, so the allowlist is
  * deliberately narrow: no mutating command exists on this CLI at all.
  */

@@ -7,8 +7,8 @@ import { loadPlugins, type PluginLoadContext } from "./plugin-loader.ts";
  * uses to turn a hand-listed set of plugin modules into the per-plugin tool
  * bundles, prompt fragments, status describers, and post-turn guards. It knows
  * nothing about any specific plugin — or about CLIs — these tests drive it with
- * synthetic ones. The Jira plugin's own `build()` behaviour is tested against
- * `@mercury/plugin-jira` in jira-plugin.jira.test.ts.
+ * synthetic ones. A real plugin's own `build()` behaviour is tested in that
+ * plugin's package.
  *
  * The invariants that matter: a plugin only contributes when it is enabled (in
  * MERCURY_CLIS) and declares a compatible `apiVersion`; a plugin that fails — a

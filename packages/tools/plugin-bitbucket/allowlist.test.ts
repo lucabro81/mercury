@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { loadCliConfigFromObject } from "@mercury/cli-engine";
 import { matchCommand, type CliConfig } from "@mercury/cli-engine";
 import type { CliResult } from "@mercury/cli-engine";
-import { bitbucketCliConfig } from "@mercury/plugin-bitbucket";
+import { bitbucketCliConfig } from "./index.ts";
 
 /**
  * Integration-shaped safety net for the Bitbucket plugin's real, checked-in
  * allowlist (`@mercury/plugin-bitbucket`'s `bitbucket.json`, now travelling
  * with the plugin rather than living in `cli-configs/`) — same pattern as
- * `cli-config-loader.jira.test.ts`. The stale-PR check only needs read-only PR
+ * plugin-jira's `allowlist.test.ts`. The stale-PR check only needs read-only PR
  * queries (client-side filtering on `participants[].approved`), so the
  * allowlist stays narrower than what bitbucket-cli exposes overall (no pr
  * create/approve/unapprove/decline/merge/comment — not requested).

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "bun:test";
 import { loadCliConfigFromObject } from "@mercury/cli-engine";
 import { matchCommand, type CliConfig } from "@mercury/cli-engine";
 import type { CliResult } from "@mercury/cli-engine";
-import { jiraCliConfig } from "@mercury/plugin-jira";
+import { jiraCliConfig } from "./index.ts";
 
 /**
  * Integration-shaped safety net for the real, shipped `@mercury/plugin-jira`
