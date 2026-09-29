@@ -1,0 +1,28 @@
+services:
+  mercury:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - wiki-vault:/app/wiki-vault
+      # The tool plugins' CLI credentials: kept on a volume so the refresh
+      # tokens a CLI writes back survive a redeploy.
+      - cli-credentials:/home/mercury/.config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    volumes:
+      - qdrant-data:/qdrant/storage
+
+volumes:
+  wiki-vault:
+    name: demo_wiki-vault
+  qdrant-data:
+    name: demo_qdrant-data
+  cli-credentials:
+    name: demo_cli-credentials

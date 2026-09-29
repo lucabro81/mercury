@@ -18,7 +18,15 @@ export type CatalogEntry = {
   package: string;
   exportName: string;
   env: EnvVar[];
+  formatter?: FormatterExample;
 };
+
+/** Starting formatter rules for a plugin that hands the user lists: without a
+ * rule a kind of list isn't shown, so the scaffolded config wraps the plugin
+ * with these. `displaysType` is the type the plugin exports for its kinds,
+ * `helpers` the code the rules use (written above the config), `rules` the
+ * `kind: rule` lines. Once written, they're the app's to change. */
+export type FormatterExample = { displaysType: string; helpers: string; rules: string[] };
 
 export const CATALOG: CatalogEntry[] = [
   {
@@ -51,6 +59,17 @@ export const CATALOG: CatalogEntry[] = [
     package: "@mercury/plugin-jira",
     exportName: "jiraPlugin",
     env: [{ name: "JIRA_SITE_URL", comment: "Jira site the issue links point to (https://<site>.atlassian.net)" }],
+    formatter: {
+      displaysType: "JiraDisplays",
+      helpers: [
+        "/** One Jira issue in a search result: key, status in brackets when there is",
+        " * one, summary, and the browse link on its own line. A starting point: change",
+        " * it to change how Jira lists read. */",
+        'const jiraIssueLine = (issue: JiraDisplays["issue-list"]) =>',
+        '  `${issue.key} ${issue.status ? `[${issue.status}] ` : ""}${issue.summary}\\n${issue.url}`;',
+      ].join("\n"),
+      rules: ['"issue-list": { item: jiraIssueLine, empty: "No matching issues." },'],
+    },
   },
   {
     id: "bitbucket",
