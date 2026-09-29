@@ -199,6 +199,15 @@ describe("renderApp: README.md", () => {
     expect(readme).toContain("not published yet");
   });
 
+  // The template doesn't provision CLI credentials yet: the README must say the
+  // volume starts empty instead of letting the compose file imply otherwise.
+  test("with a tool plugin it says the CLI credentials volume starts empty; without, nothing", () => {
+    const withTools = renderApp(HTTP_JIRA).get("README.md") ?? "";
+    expect(withTools).toContain("## CLI credentials");
+    expect(withTools).toContain("starts empty");
+    expect(renderApp(input({ channels: ["http"] })).get("README.md")).not.toContain("CLI credentials");
+  });
+
   test("an empty selection says so instead of listing nothing", () => {
     const readme = renderApp(EMPTY).get("README.md") ?? "";
     expect(readme).toContain("Channels: none");

@@ -256,8 +256,8 @@ function renderEnv(channels: CatalogEntry[], tools: CatalogEntry[]): string {
 function renderCompose(name: string, hasTools: boolean): string {
   const credentialsMount = hasTools
     ? [
-        "      # The tool plugins' CLI credentials: kept on a volume so the refresh",
-        "      # tokens a CLI writes back survive a redeploy.",
+        "      # The tool plugins' CLI credentials, on a volume so what a CLI writes back",
+        "      # (refreshed tokens) survives a redeploy. It starts empty: see README.md.",
         "      - cli-credentials:/home/mercury/.config",
       ]
     : [];
@@ -319,5 +319,12 @@ docker compose run --rm mercury bun run repl
 \`\`\`
 
 > The \`@mercury/*\` packages this app depends on are not published yet, so \`bun install\` (and the image build) won't find them until they are.
-`;
+${tools.length > 0 ? CREDENTIALS_SECTION : ""}`;
 }
+
+/** The README section on CLI credentials, for an app with tool plugins. */
+const CREDENTIALS_SECTION = `
+## CLI credentials
+
+Each tool plugin runs its own CLI, and each CLI keeps its login under \`/home/mercury/.config\` in the container, on the \`cli-credentials\` volume. The volume starts empty: nothing in this app provisions it yet, so authenticate each CLI once inside the container (\`docker compose run --rm mercury <cli> --help\` lists its auth commands) or copy its config folder into the volume. What the CLIs write back afterwards, like refreshed tokens, stays on the volume across redeploys.
+`;
