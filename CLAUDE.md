@@ -143,7 +143,7 @@ packages/libs/core/
     ├── compose.ts            # builds the instance from the config it's given (model/tools/memory/turn pipeline); returns handleTurn + deferred start closures
     ├── model/                # Ollama provider, real context-window lookup
     ├── session/               # Layer 1 history + summarizer + agent-turn loop
-    ├── config/               # defineMercuryConfig + the MercuryConfig contract
+    ├── config/               # defineMercuryConfig + the MercuryConfig contract (plugins, channels, persona)
     ├── tools/                 # CLI executor + command parser/allowlist (cli-tool.ts) + config schema/loader/version-check
     ├── plugins/               # generic fail-soft tool-plugin loader (plugin-loader.ts) + the formatter decorator
     ├── router/

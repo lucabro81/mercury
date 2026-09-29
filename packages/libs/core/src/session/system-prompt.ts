@@ -1,13 +1,48 @@
 import { NO_REPLY } from "@mercury/channel-types";
 import type { Skill } from "@mercury/plugin-types";
 
+/** The assistant's persona, set by the instance: `identity` opens the system
+ * prompt, `tone` closes it. Either one left out falls back to its default. */
+export type Persona = { identity?: string; tone?: string };
+
+/** The identity an instance gets when its config sets none. */
+export const DEFAULT_PERSONA_IDENTITY = "You are Mercury, an internal assistant.";
+
+/** The tone an instance gets when its config sets none. */
+export const DEFAULT_PERSONA_TONE = [
+  "DO:",
+  "- Answer directly, in plain text only.",
+  "- Be dry but respectful, and complete.",
+  "- If you believe a point of view is useful, add it — but keep it brief and put it strictly at the end.",
+  "",
+  "DON'T:",
+  "- DON'T use Markdown formatting (no **, #, -, etc.), unless the user explicitly asks for it.",
+  "- DON'T introduce yourself as Mercury unless asked; the user already knows who you are.",
+  "- DON'T ask follow-up questions.",
+  "- DON'T add extra explanations or extra actions beyond what was requested.",
+].join("\n");
+
+/** A persona field's text, trimmed at the end (one kept in a Markdown file and
+ * imported as text always ends with a newline); empty or whitespace-only counts
+ * as left out and yields the default. */
+function personaSlot(text: string | undefined, fallback: string): string {
+  const trimmed = text?.trimEnd();
+  return trimmed ? trimmed : fallback;
+}
+
 /**
  * Builds a system prompt that only describes tools actually present in
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
- * an absent tool is a real bug, not a harmless no-op).
+ * an absent tool is a real bug, not a harmless no-op). The persona fills the
+ * first and last slots (see `personaSlot`).
  */
-export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Skill[]; multiUserChannel: boolean }): string {
-  const lines = ["You are Mercury, an internal assistant."];
+export function buildSystemPrompt(opts: {
+  pluginFragments: string[];
+  skills: Skill[];
+  multiUserChannel: boolean;
+  persona?: Persona;
+}): string {
+  const lines = [personaSlot(opts.persona?.identity, DEFAULT_PERSONA_IDENTITY)];
   // Each loaded plugin's own always-on system-prompt fragment, inserted
   // verbatim in the order the composition root supplies them. A plugin that
   // failed to load contributes nothing — the fragment and the tool now come
@@ -84,19 +119,24 @@ export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Ski
     );
   }
 
-  lines.push(
-    [
-      "DO:",
-      "- Answer directly, in plain text only.",
-      "- Be dry but respectful, and complete.",
-      "- If you believe a point of view is useful, add it — but keep it brief and put it strictly at the end.",
-      "",
-      "DON'T:",
-      "- DON'T use Markdown formatting (no **, #, -, etc.), unless the user explicitly asks for it.",
-      "- DON'T introduce yourself as Mercury unless asked; the user already knows who you are.",
-      "- DON'T ask follow-up questions.",
-      "- DON'T add extra explanations or extra actions beyond what was requested.",
-    ].join("\n"),
-  );
+  lines.push(personaSlot(opts.persona?.tone, DEFAULT_PERSONA_TONE));
   return lines.join("\n");
+}
+
+/**
+ * Builds the instance's two system prompts from the same plugins and persona:
+ * `system` for 1:1 channels (the terminal, the HTTP surface) and `chatSystem`
+ * for shared spaces, the only one that carries the multi-user clause — an
+ * operator typing normally must never get a NO_REPLY meant for a shared space.
+ */
+export function buildSystemPrompts(opts: {
+  pluginFragments: string[];
+  skills: Skill[];
+  /** Required even when undefined, so a caller can't silently drop the instance's persona. */
+  persona: Persona | undefined;
+}): { system: string; chatSystem: string } {
+  return {
+    system: buildSystemPrompt({ ...opts, multiUserChannel: false }),
+    chatSystem: buildSystemPrompt({ ...opts, multiUserChannel: true }),
+  };
 }

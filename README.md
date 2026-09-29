@@ -41,6 +41,8 @@ cp .env.example .env
 
 Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (declared = active, no env gate). Google Chat and HTTP are channel plugins; the interactive terminal is a dev command (`bun run repl`), not a channel of the running service. A declared channel left unconfigured stays inert, so leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty runs without Google Chat.
 
+The assistant's persona is also set in `mercury.config.ts`, through `persona: { identity, tone }`: `identity` is the line that opens the system prompt ("You are …"), `tone` the block of rules that closes it. Both are plain strings, so they can live in Markdown files imported as text (`import tone from "./persona/tone.md" with { type: "text" }`). A field left out falls back to the default, Mercury's own; everything in between, the rules tied to the tools and the plugins, stays with the core.
+
 ## Running it
 
 Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). `docker compose` starts, stops, and rebuilds both together.
