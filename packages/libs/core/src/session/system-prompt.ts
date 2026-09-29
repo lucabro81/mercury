@@ -132,7 +132,8 @@ export function buildSystemPrompt(opts: {
 export function buildSystemPrompts(opts: {
   pluginFragments: string[];
   skills: Skill[];
-  persona?: Persona;
+  /** Required even when undefined, so a caller can't silently drop the instance's persona. */
+  persona: Persona | undefined;
 }): { system: string; chatSystem: string } {
   return {
     system: buildSystemPrompt({ ...opts, multiUserChannel: false }),

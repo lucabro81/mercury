@@ -135,8 +135,16 @@ describe("buildSystemPrompts", () => {
   });
 
   it("without a persona both are today's goldens", () => {
-    const { system, chatSystem } = buildSystemPrompts({ pluginFragments: [], skills: jiraSkills });
+    const { system, chatSystem } = buildSystemPrompts({ pluginFragments: [], skills: jiraSkills, persona: undefined });
     expect(system).toBe(golden("jira-on.mu-off.txt"));
     expect(chatSystem).toBe(golden("jira-on.mu-on.txt"));
+  });
+
+  // The persona must be passed explicitly, even as undefined: composeMercury has
+  // no test of its own, so this is what fails (at typecheck) if the call there
+  // stops forwarding the instance's persona.
+  it("does not compile without an explicit persona", () => {
+    // @ts-expect-error persona is required, even when undefined
+    buildSystemPrompts({ pluginFragments: [], skills: [] });
   });
 });
