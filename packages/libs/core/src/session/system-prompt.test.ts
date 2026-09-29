@@ -111,6 +111,14 @@ describe("buildSystemPrompt persona", () => {
     const prompt = buildSystemPrompt({ ...base, persona: { identity: "You are Hermes.\n", tone: "Be terse.\n\n" } });
     expect(prompt).toBe("You are Hermes." + middle + "Be terse.");
   });
+
+  // Regression: `??` only fell back for undefined, so an emptied persona file
+  // opened the prompt with a blank line (identity) or dropped every tone rule.
+  // Empty or whitespace-only counts as left out.
+  it("an empty or whitespace-only field falls back to its default", () => {
+    expect(buildSystemPrompt({ ...base, persona: { identity: "", tone: "" } })).toBe(defaultPrompt);
+    expect(buildSystemPrompt({ ...base, persona: { identity: "  \n", tone: "\n\n" } })).toBe(defaultPrompt);
+  });
 });
 
 /**

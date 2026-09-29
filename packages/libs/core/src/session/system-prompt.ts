@@ -22,12 +22,19 @@ export const DEFAULT_PERSONA_TONE = [
   "- DON'T add extra explanations or extra actions beyond what was requested.",
 ].join("\n");
 
+/** A persona field's text, trimmed at the end (one kept in a Markdown file and
+ * imported as text always ends with a newline); empty or whitespace-only counts
+ * as left out and yields the default. */
+function personaSlot(text: string | undefined, fallback: string): string {
+  const trimmed = text?.trimEnd();
+  return trimmed ? trimmed : fallback;
+}
+
 /**
  * Builds a system prompt that only describes tools actually present in
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
  * an absent tool is a real bug, not a harmless no-op). The persona fills the
- * first and last slots; its text is trimmed at the end, since one kept in a
- * Markdown file and imported as text always ends with a newline.
+ * first and last slots (see `personaSlot`).
  */
 export function buildSystemPrompt(opts: {
   pluginFragments: string[];
@@ -35,7 +42,7 @@ export function buildSystemPrompt(opts: {
   multiUserChannel: boolean;
   persona?: Persona;
 }): string {
-  const lines = [(opts.persona?.identity ?? DEFAULT_PERSONA_IDENTITY).trimEnd()];
+  const lines = [personaSlot(opts.persona?.identity, DEFAULT_PERSONA_IDENTITY)];
   // Each loaded plugin's own always-on system-prompt fragment, inserted
   // verbatim in the order the composition root supplies them. A plugin that
   // failed to load contributes nothing — the fragment and the tool now come
@@ -112,7 +119,7 @@ export function buildSystemPrompt(opts: {
     );
   }
 
-  lines.push((opts.persona?.tone ?? DEFAULT_PERSONA_TONE).trimEnd());
+  lines.push(personaSlot(opts.persona?.tone, DEFAULT_PERSONA_TONE));
   return lines.join("\n");
 }
 
