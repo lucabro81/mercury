@@ -11,9 +11,13 @@
  *   channels with these.
  * - `createTerminalProvider` — the dev REPL entrypoint opens the terminal with it.
  * - `defineMercuryConfig`/`MercuryConfig` — the app's `mercury.config.ts` declares
- *   its composition through these.
+ *   its composition through these; `Persona` types its `persona` field.
+ * - `DEFAULT_PERSONA_IDENTITY`/`DEFAULT_PERSONA_TONE` — the persona an instance
+ *   gets when its config sets none; the scaffolder writes them as a new app's
+ *   starting persona.
  */
 export { composeMercury, type ComposedApp, type ConfirmDeps } from "./src/compose.ts";
 export { loadChannels, type LoadedChannel } from "./src/router/channel-loader.ts";
 export { createTerminalProvider } from "./src/router/terminal-provider.ts";
 export { defineMercuryConfig, type MercuryConfig } from "./src/config/define-config.ts";
+export { DEFAULT_PERSONA_IDENTITY, DEFAULT_PERSONA_TONE, type Persona } from "./src/session/system-prompt.ts";

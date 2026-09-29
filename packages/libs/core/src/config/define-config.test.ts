@@ -20,4 +20,9 @@ describe("defineMercuryConfig", () => {
     const config = defineMercuryConfig({ plugins: [a, b] });
     expect(config.plugins).toEqual([a, b]);
   });
+
+  test("carries the persona through verbatim", () => {
+    const persona = { identity: "You are Hermes.", tone: "Be terse." };
+    expect(defineMercuryConfig({ plugins: [], persona }).persona).toBe(persona);
+  });
 });

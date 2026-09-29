@@ -115,3 +115,20 @@ export function buildSystemPrompt(opts: {
   lines.push((opts.persona?.tone ?? DEFAULT_PERSONA_TONE).trimEnd());
   return lines.join("\n");
 }
+
+/**
+ * Builds the instance's two system prompts from the same plugins and persona:
+ * `system` for 1:1 channels (the terminal, the HTTP surface) and `chatSystem`
+ * for shared spaces, the only one that carries the multi-user clause — an
+ * operator typing normally must never get a NO_REPLY meant for a shared space.
+ */
+export function buildSystemPrompts(opts: {
+  pluginFragments: string[];
+  skills: Skill[];
+  persona?: Persona;
+}): { system: string; chatSystem: string } {
+  return {
+    system: buildSystemPrompt({ ...opts, multiUserChannel: false }),
+    chatSystem: buildSystemPrompt({ ...opts, multiUserChannel: true }),
+  };
+}

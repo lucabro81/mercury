@@ -27,7 +27,7 @@ import { createSummarizer } from "./session/summarizer.ts";
 import { createEpisodicSummarizer } from "./session/episodic-summarizer.ts";
 import { createSemanticFactExtractor } from "./session/semantic-fact-extractor.ts";
 import { buildContextPrimer } from "./session/context-primer.ts";
-import { buildSystemPrompt } from "./session/system-prompt.ts";
+import { buildSystemPrompts } from "./session/system-prompt.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
 import type { HandleTurn, ChannelRuntimeContext, ChannelPlugin } from "@mercury/channel-types";
@@ -164,20 +164,12 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // describer for its own tool (jiraCommand, …).
   const toolStatusDescribers: Record<string, (input: unknown) => string> = { ...loadedPlugins.toolStatusDescribers };
 
-  // Two separate system prompts, not one shared string: the multiUserChannel
-  // clause (NO_REPLY heuristic) must never reach a 1:1 channel (the terminal,
-  // the HTTP surface) — an operator typing normally shouldn't risk an
-  // unexpected NO_REPLY meant for a shared Google Chat space. Both are built
-  // from the fragments of whatever plugins actually loaded.
-  const system = buildSystemPrompt({
+  // Two system prompts (1:1 and shared-space), both built from the fragments of
+  // whatever plugins actually loaded and from the instance's persona.
+  const { system, chatSystem } = buildSystemPrompts({
     pluginFragments: loadedPlugins.promptFragments,
     skills: loadedPlugins.skills,
-    multiUserChannel: false,
-  });
-  const chatSystem = buildSystemPrompt({
-    pluginFragments: loadedPlugins.promptFragments,
-    skills: loadedPlugins.skills,
-    multiUserChannel: true,
+    persona: config.persona,
   });
 
   const histories = new Map<string, SessionHistory>();

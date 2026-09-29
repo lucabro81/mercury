@@ -1,6 +1,11 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { buildSystemPrompt, DEFAULT_PERSONA_IDENTITY, DEFAULT_PERSONA_TONE } from "./system-prompt.ts";
+import {
+  buildSystemPrompt,
+  buildSystemPrompts,
+  DEFAULT_PERSONA_IDENTITY,
+  DEFAULT_PERSONA_TONE,
+} from "./system-prompt.ts";
 import type { Skill } from "@mercury/plugin-types";
 
 /**
@@ -105,5 +110,25 @@ describe("buildSystemPrompt persona", () => {
   it("trims trailing whitespace from a persona imported from a file", () => {
     const prompt = buildSystemPrompt({ ...base, persona: { identity: "You are Hermes.\n", tone: "Be terse.\n\n" } });
     expect(prompt).toBe("You are Hermes." + middle + "Be terse.");
+  });
+});
+
+/**
+ * The instance builds two prompts, one for 1:1 channels and one for shared
+ * spaces. Guards against the persona reaching only one of them.
+ */
+describe("buildSystemPrompts", () => {
+  it("builds both prompts with the same persona; only the shared-space one has the multi-user clause", () => {
+    const persona = { identity: "You are Hermes.", tone: "Be terse." };
+    const { system, chatSystem } = buildSystemPrompts({ pluginFragments: [], skills: jiraSkills, persona });
+    expect(system).toBe(buildSystemPrompt({ pluginFragments: [], skills: jiraSkills, multiUserChannel: false, persona }));
+    expect(chatSystem).toBe(buildSystemPrompt({ pluginFragments: [], skills: jiraSkills, multiUserChannel: true, persona }));
+    expect(system).not.toBe(chatSystem);
+  });
+
+  it("without a persona both are today's goldens", () => {
+    const { system, chatSystem } = buildSystemPrompts({ pluginFragments: [], skills: jiraSkills });
+    expect(system).toBe(golden("jira-on.mu-off.txt"));
+    expect(chatSystem).toBe(golden("jira-on.mu-on.txt"));
   });
 });

@@ -13,13 +13,16 @@
  */
 import type { Plugin } from "@mercury/plugin-types";
 import type { ChannelPlugin } from "@mercury/channel-types";
+import type { Persona } from "../session/system-prompt.ts";
 
 /** The shape of a Mercury instance's composition config: the tool plugins
  * (gated by MERCURY_CLIS) and the channel plugins (enabled by being declared
- * here — declared = active), each loaded by its own loader. */
+ * here — declared = active), each loaded by its own loader, plus the
+ * assistant's persona (its identity and tone; the defaults when left out). */
 export type MercuryConfig = {
   plugins: Plugin[];
   channels?: ChannelPlugin[];
+  persona?: Persona;
 };
 
 /**
