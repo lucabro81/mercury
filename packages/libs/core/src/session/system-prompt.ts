@@ -1,13 +1,41 @@
 import { NO_REPLY } from "@mercury/channel-types";
 import type { Skill } from "@mercury/plugin-types";
 
+/** The assistant's persona, set by the instance: `identity` opens the system
+ * prompt, `tone` closes it. Either one left out falls back to its default. */
+export type Persona = { identity?: string; tone?: string };
+
+/** The identity an instance gets when its config sets none. */
+export const DEFAULT_PERSONA_IDENTITY = "You are Mercury, an internal assistant.";
+
+/** The tone an instance gets when its config sets none. */
+export const DEFAULT_PERSONA_TONE = [
+  "DO:",
+  "- Answer directly, in plain text only.",
+  "- Be dry but respectful, and complete.",
+  "- If you believe a point of view is useful, add it — but keep it brief and put it strictly at the end.",
+  "",
+  "DON'T:",
+  "- DON'T use Markdown formatting (no **, #, -, etc.), unless the user explicitly asks for it.",
+  "- DON'T introduce yourself as Mercury unless asked; the user already knows who you are.",
+  "- DON'T ask follow-up questions.",
+  "- DON'T add extra explanations or extra actions beyond what was requested.",
+].join("\n");
+
 /**
  * Builds a system prompt that only describes tools actually present in
  * `tools` (see `src/session/agent-turn.ts` for why a prompt mentioning
- * an absent tool is a real bug, not a harmless no-op).
+ * an absent tool is a real bug, not a harmless no-op). The persona fills the
+ * first and last slots; its text is trimmed at the end, since one kept in a
+ * Markdown file and imported as text always ends with a newline.
  */
-export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Skill[]; multiUserChannel: boolean }): string {
-  const lines = ["You are Mercury, an internal assistant."];
+export function buildSystemPrompt(opts: {
+  pluginFragments: string[];
+  skills: Skill[];
+  multiUserChannel: boolean;
+  persona?: Persona;
+}): string {
+  const lines = [(opts.persona?.identity ?? DEFAULT_PERSONA_IDENTITY).trimEnd()];
   // Each loaded plugin's own always-on system-prompt fragment, inserted
   // verbatim in the order the composition root supplies them. A plugin that
   // failed to load contributes nothing — the fragment and the tool now come
@@ -84,19 +112,6 @@ export function buildSystemPrompt(opts: { pluginFragments: string[]; skills: Ski
     );
   }
 
-  lines.push(
-    [
-      "DO:",
-      "- Answer directly, in plain text only.",
-      "- Be dry but respectful, and complete.",
-      "- If you believe a point of view is useful, add it — but keep it brief and put it strictly at the end.",
-      "",
-      "DON'T:",
-      "- DON'T use Markdown formatting (no **, #, -, etc.), unless the user explicitly asks for it.",
-      "- DON'T introduce yourself as Mercury unless asked; the user already knows who you are.",
-      "- DON'T ask follow-up questions.",
-      "- DON'T add extra explanations or extra actions beyond what was requested.",
-    ].join("\n"),
-  );
+  lines.push((opts.persona?.tone ?? DEFAULT_PERSONA_TONE).trimEnd());
   return lines.join("\n");
 }
