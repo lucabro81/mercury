@@ -170,6 +170,19 @@ describe("renderApp: persona", () => {
     expect(tone).not.toContain("Mercury");
   });
 
+  // Regression: the name went through String.replaceAll as a replacement
+  // string, where "$&" and friends are patterns, so tone.md disagreed with
+  // identity.md for such a name.
+  test("a name with $ patterns lands in the tone verbatim", () => {
+    const tone = renderApp(input({ assistantName: "A$&B$'" })).get("persona/tone.md") ?? "";
+    expect(tone).toContain("DON'T introduce yourself as A$&B$' unless asked");
+  });
+
+  // Regression: a role typed as a sentence ended up with a doubled period.
+  test("a role that already ends with a period doesn't get a second one", () => {
+    expect(renderApp(input({ role: "a helper." })).get("persona/identity.md")).toBe("You are Mercury, a helper.\n");
+  });
+
   test("the default name reproduces the core's default persona", () => {
     const files = renderApp(EMPTY);
     expect(files.get("persona/identity.md")).toBe("You are Mercury, an internal assistant.\n");
@@ -208,6 +221,11 @@ describe("renderApp: validation", () => {
   test("rejects an unknown channel or plugin, naming the valid ids", () => {
     expect(() => renderApp(input({ channels: ["slack"] }))).toThrow("google-chat, http");
     expect(() => renderApp(input({ plugins: ["http"] }))).toThrow("jira, bitbucket, atlassian-admin");
+  });
+
+  test("rejects a line break in the assistant name or role (each is one line of the persona)", () => {
+    expect(() => renderApp(input({ assistantName: "Her\nmes" }))).toThrow("one line");
+    expect(() => renderApp(input({ role: "a\nhelper" }))).toThrow("one line");
   });
 
   test("rejects an empty assistant name or role", () => {

@@ -73,8 +73,10 @@ export function renderApp(input: RenderInput): Map<string, string> {
     ["markdown.d.ts", markdownDts],
     ["mercury.config.ts", renderConfig(channels, tools)],
     ["package.json", renderPackageJson(input.name, channels, tools, input.versions)],
-    ["persona/identity.md", `You are ${assistantName}, ${input.role.trim()}.\n`],
-    ["persona/tone.md", `${DEFAULT_PERSONA_TONE.replaceAll("Mercury", assistantName)}\n`],
+    ["persona/identity.md", `You are ${assistantName}, ${input.role.trim().replace(/\.+$/, "")}.\n`],
+    // A replacer function, not a string: in a replacement string "$&" and the
+    // like are patterns, and the name must land verbatim.
+    ["persona/tone.md", `${DEFAULT_PERSONA_TONE.replaceAll("Mercury", () => assistantName)}\n`],
     ["src/index.ts", indexTs],
     ["src/repl.ts", replTs],
     ["tsconfig.json", tsconfigJson],
@@ -102,17 +104,31 @@ function validate(input: RenderInput): void {
   if (!input.role.trim()) {
     throw new Error("The assistant's role can't be empty");
   }
+  if (/[\r\n]/.test(input.assistantName) || /[\r\n]/.test(input.role)) {
+    throw new Error("The assistant name and role must each be one line");
+  }
+  const selection = selectionError(input.channels, input.plugins);
+  if (selection !== undefined) {
+    throw new Error(selection);
+  }
+}
+
+/** Names the first channel or plugin id the catalog doesn't have, with the
+ * valid ones, or undefined when all are known. Shared with the command, which
+ * checks the flags before asking anything. */
+export function selectionError(channels: string[], plugins: string[]): string | undefined {
   for (const [kind, ids] of [
-    ["channel", input.channels],
-    ["tool", input.plugins],
+    ["channel", channels],
+    ["tool", plugins],
   ] as const) {
     const valid = CATALOG.filter((e) => e.kind === kind).map((e) => e.id);
     const unknown = ids.find((id) => !valid.includes(id));
     if (unknown !== undefined) {
       const label = kind === "channel" ? "channel" : "plugin";
-      throw new Error(`Unknown ${label} "${unknown}" (valid: ${valid.join(", ")})`);
+      return `Unknown ${label} "${unknown}" (valid: ${valid.join(", ")})`;
     }
   }
+  return undefined;
 }
 
 /** The catalog entries of `kind` among `ids`, deduplicated, in catalog order. */

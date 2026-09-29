@@ -8,10 +8,10 @@
 import { basename, resolve } from "node:path";
 import { parseCreateArgs, type CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
-import { renderApp } from "./render.ts";
+import { renderApp, selectionError } from "./render.ts";
 import { packageVersions } from "./versions.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
-import { writeApp } from "./write.ts";
+import { targetError, writeApp } from "./write.ts";
 
 const USAGE = `Usage:
   mercury create <folder> [options]
@@ -43,6 +43,12 @@ async function create(argv: string[]): Promise<number> {
   const args = parseCreateArgs(argv);
   const dir = resolve(args.dir);
   const defaultName = basename(dir);
+  // What the command line already settles is checked before any question, so
+  // the wizard is never answered for nothing.
+  const early = targetError(dir) ?? selectionError(args.channels ?? [], args.plugins ?? []);
+  if (early !== undefined) {
+    throw new Error(early);
+  }
   const answers = args.yes ? answersFromFlags(args, defaultName) : await askAnswers(args, defaultName);
   if (answers === undefined) {
     return 1;
@@ -79,6 +85,10 @@ async function main(argv: string[]): Promise<number> {
   if (command === undefined) {
     console.error(USAGE);
     return 1;
+  }
+  if (command === "create" && rest.some((a) => a === "--help" || a === "-h")) {
+    console.log(USAGE);
+    return 0;
   }
   if (command !== "create") {
     console.error(`Unknown command "${command}"\n\n${USAGE}`);

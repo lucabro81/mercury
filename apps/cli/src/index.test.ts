@@ -5,7 +5,7 @@
  * message saying why, writing nothing.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderApp } from "./render.ts";
@@ -24,7 +24,9 @@ afterEach(() => {
 
 /** Runs the CLI with `args`, returning its exit code and output. */
 function run(...args: string[]): { code: number; stdout: string; stderr: string } {
-  const proc = Bun.spawnSync(["bun", CLI, ...args], { stdout: "pipe", stderr: "pipe" });
+  // stdin closed and a timeout: a run that wrongly reaches the wizard fails
+  // instead of hanging the suite.
+  const proc = Bun.spawnSync(["bun", CLI, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 10_000 });
   return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
 }
 
@@ -71,6 +73,26 @@ describe("mercury create --yes", () => {
   });
 });
 
+// Regression: these were only discovered after the whole wizard had been
+// answered; they must fail before any question is asked.
+describe("mercury create, checks before the wizard", () => {
+  test("an unknown channel given as a flag, without --yes, exits 1 naming the valid ones", () => {
+    const result = run("create", join(base, "demo"), "--channels", "slack");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Unknown channel "slack" (valid: google-chat, http)');
+  });
+
+  test("a folder that isn't empty, without --yes, exits 1 and is left alone", () => {
+    const dir = join(base, "demo");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "notes.txt"), "mine");
+    const result = run("create", dir);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("is not empty");
+    expect(readdirSync(dir)).toEqual(["notes.txt"]);
+  });
+});
+
 describe("mercury (usage)", () => {
   test("no command prints the usage and exits 1", () => {
     const result = run();
@@ -82,6 +104,15 @@ describe("mercury (usage)", () => {
     const result = run("deploy");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Unknown command "deploy"');
+  });
+
+  // Regression: --help after `create` hit the strict flag parser and errored.
+  test("create --help and create -h print the usage and exit 0", () => {
+    for (const flag of ["--help", "-h"]) {
+      const result = run("create", "demo", flag);
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("mercury create <folder>");
+    }
   });
 
   test("--help prints the usage and exits 0", () => {

@@ -40,10 +40,13 @@ async function pick(kind: CatalogEntry["kind"], message: string, initial: string
  * undefined when the user cancels (Ctrl+C) or doesn't confirm. */
 export async function askAnswers(args: CreateArgs, defaultName: string): Promise<Answers | undefined> {
   p.intro("mercury create");
+  // The folder's name is offered only when it's a valid app name; otherwise
+  // there's no default, and an empty answer is rejected.
+  const nameDefault = args.name ?? defaultName;
   const name = await p.text({
     message: "App name",
-    ...suggest(args.name ?? defaultName),
-    validate: (v) => (v ? appNameError(v) : undefined),
+    ...(appNameError(nameDefault) === undefined ? suggest(nameDefault) : {}),
+    validate: (v) => (v ? appNameError(v) : appNameError(nameDefault)),
   });
   if (p.isCancel(name)) return cancelled();
   const assistantName = await p.text({
