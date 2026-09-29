@@ -59,6 +59,9 @@ WORKDIR /app
 # `chown -R /app` would duplicate every file already written in prior layers
 COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
+# The CLI (`mercury create`) is a workspace too: only its manifest goes in, for
+# the frozen-lockfile check — the running service never loads it.
+COPY --chown=mercury:mercury apps/cli/package.json ./apps/cli/
 COPY --chown=mercury:mercury packages/config/typescript-config/package.json ./packages/config/typescript-config/
 COPY --chown=mercury:mercury packages/types/plugin-types/package.json ./packages/types/plugin-types/
 # `bun install --frozen-lockfile` verifies every workspace in bun.lock exists on
