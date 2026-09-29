@@ -81,12 +81,20 @@ export function renderApp(input: RenderInput): Map<string, string> {
   ]);
 }
 
+/** Why `name` can't be an app name, or undefined when it can. Shared with the
+ * wizard, which checks the name as it's typed. */
+export function appNameError(name: string): string | undefined {
+  if (!APP_NAME.test(name) || name.length > APP_NAME_MAX) {
+    return `Invalid app name "${name}": lowercase letters, digits, ".", "_" and "-", starting with a letter or digit`;
+  }
+  return undefined;
+}
+
 /** Rejects what would produce a broken app, naming the valid choices. */
 function validate(input: RenderInput): void {
-  if (!APP_NAME.test(input.name) || input.name.length > APP_NAME_MAX) {
-    throw new Error(
-      `Invalid app name "${input.name}": lowercase letters, digits, ".", "_" and "-", starting with a letter or digit`,
-    );
+  const nameError = appNameError(input.name);
+  if (nameError !== undefined) {
+    throw new Error(nameError);
   }
   if (!input.assistantName.trim()) {
     throw new Error("The assistant name can't be empty");
