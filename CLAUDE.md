@@ -73,6 +73,11 @@ The end state (see #48) is a repo of **core + plugins only**, with Comperio's
 Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
 interim reference/production instance until the scaffolder and publishing exist.
 
+`apps/cli` is the scaffolder (`@mercury/cli`, bin `mercury`): `mercury create
+<folder>` writes a new app from its `template/` plus a hand-written catalog of
+the first-party channels and tool plugins. For now it only deposits the files;
+installing waits for the packages to be published (#47, #48).
+
 ```
 mercury/                       # repo root
 ├── CLAUDE.md                  # these conventions — apply to every workspace
@@ -103,6 +108,7 @@ mercury/                       # repo root
 │   └── config/
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
+    ├── cli/                   # @mercury/cli — `mercury create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
     └── mercury/               # ← everything below this line is relative to here
 ```
 
