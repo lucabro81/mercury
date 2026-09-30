@@ -62,7 +62,7 @@ In development, `docker-compose.override.yml` is applied automatically on top of
 bunx mfw restart
 ```
 
-Rebuilds what changed and recreates both containers even when nothing did, which is what picks up an edited `.env`.
+Rebuilds what changed and recreates both containers even when nothing did: a clean restart. An edited `.env` doesn't need it, `bunx mfw start` already recreates what the change touches.
 
 ---
 

@@ -49,15 +49,16 @@ const APP_HELP: Record<AppCommand, string> = {
   start: `Usage: mfw start [--no-cache]
 
 Builds the app's image and starts the app and Qdrant in the background. Only
-what changed is rebuilt; --no-cache rebuilds everything from scratch.`,
+what changed is rebuilt, and only what changed (image, .env, compose file) is
+recreated; --no-cache rebuilds everything from scratch.`,
   stop: `Usage: mfw stop
 
 Stops the app and Qdrant and removes their containers. The volumes (memory,
 wiki, CLI credentials) stay.`,
   restart: `Usage: mfw restart [--no-cache]
 
-Like mfw start, but recreates the containers even when nothing changed: what
-to run after editing .env. --no-cache rebuilds everything from scratch.`,
+Like mfw start, but recreates the containers even when nothing changed: a
+clean restart. --no-cache rebuilds everything from scratch.`,
   logs: `Usage: mfw logs [service]
 
 Follows the logs of every service, or only of [service] (mercury, qdrant).`,

@@ -26,7 +26,7 @@ bun create mercury-agent my-agent
 cd my-agent
 bun install
 cp .env.example .env
-docker compose up --build
+bunx mfw start
 ```
 
 `bun create mercury-agent` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
@@ -34,10 +34,10 @@ docker compose up --build
 The service is headless (channels and background jobs); to talk to the agent from a terminal, open the dev REPL:
 
 ```bash
-docker compose run --rm mercury bun run repl
+bunx mfw repl
 ```
 
-The [`@mercury-fw/cli` README](apps/cli/README.md) has every flag, for scaffolding without the questions.
+`mfw` is the app's own CLI (a devDependency, at the framework's version): besides starting and stopping the app it follows the logs, opens a shell in the container, reads and writes the wiki, reads the memory on Qdrant and resets either. The [`@mercury-fw/cli` README](apps/cli/README.md) documents every command, and every flag for scaffolding without the questions.
 
 ## Composing an app
 
@@ -81,7 +81,7 @@ The framework, released together under one version:
 | Package | What it is |
 |---|---|
 | [`@mercury-fw/core`](packages/libs/core) | The runtime: `composeMercury(config)`, the loaders, the turn loop, memory. What an app depends on. |
-| [`@mercury-fw/cli`](apps/cli) | The `mfw` command: `mfw create` scaffolds an app. |
+| [`@mercury-fw/cli`](apps/cli) | The `mfw` command: `mfw create` scaffolds an app, the other commands run it. |
 | [`create-mercury-agent`](apps/create-mercury-agent) | What `bun create mercury-agent` runs. |
 | [`@mercury-fw/formatter`](packages/formatters/formatter) | Applies an app's rules to the lists a plugin hands over. |
 | [`@mercury-fw/kit`](packages/libs/kit) | For plugin authors: the plugin and channel contracts in one import. |
