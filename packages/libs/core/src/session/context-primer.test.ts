@@ -249,12 +249,18 @@ describe("buildContextPrimer", () => {
           throw new Error("ConnectionRefused");
         },
         readIndexFileFn: async () => "- [[glossary]] — team glossary\n",
+        listWikiFilesInRootsFn: async (_vaultPath, roots) =>
+          roots.some((r) => r.includes("confirmations")) ? ["inferred/confirmations/users%2F42/j3h4b5.md"] : [],
+        readWikiFileInRootsFn: async (_vaultPath, roots) => (roots.some((r) => r.includes("confirmations")) ? confirmationNote("pending") : ""),
         log: (m) => logs.push(m),
       });
 
       const primer = await buildContextPrimer("users/42", deps);
 
-      expect(primer).toBe("Wiki index:\n- [[glossary]] — team glossary");
+      // The wiki index and the pending confirmations survive; only the recap goes.
+      expect(primer).toContain("Wiki index:\n- [[glossary]] — team glossary");
+      expect(primer).toContain("Riferimenti aperti:\n- [REQ:j3h4b5]");
+      expect(primer).not.toContain("Last session:");
       expect(logs).toEqual(["last session for users/42 unavailable, primer built without it: Error: ConnectionRefused"]);
     });
   });

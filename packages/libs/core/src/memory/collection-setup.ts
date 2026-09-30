@@ -18,11 +18,11 @@ export function setUpWhenReachable(
     const attempt = async () => {
       try {
         await setup();
-        if (failing) log("Qdrant reachable, episodic memory collections ready");
+        if (failing) log("Qdrant reachable, memory collections ready");
         resolve();
       } catch (err) {
         if (!failing) {
-          log(`Qdrant unreachable, episodic memory is off until it answers (retrying every ${retryMs / 1000}s): ${String(err)}`);
+          log(`Qdrant unreachable, Layer-3 memory is off until it answers (retrying every ${retryMs / 1000}s): ${String(err)}`);
         }
         failing = true;
         setTimeout(attempt, retryMs).unref();

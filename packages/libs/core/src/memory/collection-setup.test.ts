@@ -34,8 +34,42 @@ describe("setUpWhenReachable", () => {
     expect(calls).toBe(4);
     // One line when it goes missing, one when it's back: not one per retry.
     expect(logs).toEqual([
-      "Qdrant unreachable, episodic memory is off until it answers (retrying every 0.001s): Error: ConnectionRefused",
-      "Qdrant reachable, episodic memory collections ready",
+      "Qdrant unreachable, Layer-3 memory is off until it answers (retrying every 0.001s): Error: ConnectionRefused",
+      "Qdrant reachable, memory collections ready",
     ]);
+  });
+
+  it("logs Qdrant going missing once, however many retries fail", async () => {
+    let calls = 0;
+    const logs: string[] = [];
+    const { done } = setUpWhenReachable(
+      async () => {
+        calls++;
+        if (calls < 20) throw new Error("down");
+      },
+      { log: (m) => logs.push(m), retryMs: 1 },
+    );
+
+    await done;
+
+    expect(calls).toBe(20);
+    expect(logs.filter((m) => m.startsWith("Qdrant unreachable"))).toHaveLength(1);
+    expect(logs).toHaveLength(2);
+  });
+
+  it("stops retrying after the first success", async () => {
+    let calls = 0;
+    const { done } = setUpWhenReachable(
+      async () => {
+        calls++;
+        if (calls < 2) throw new Error("down");
+      },
+      { log: () => {}, retryMs: 1 },
+    );
+
+    await done;
+    await Bun.sleep(20);
+
+    expect(calls).toBe(2);
   });
 });
