@@ -31,7 +31,7 @@ describe("jiraPlugin", () => {
 
   it("builds a jiraCommand tool and its status describer", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
-    const tools = c.sessionTools!(sctx, {});
+    const tools = c.sessionTools!(sctx, c.postProcess);
     expect(Object.keys(tools)).toEqual(["jiraCommand"]);
     expect(c.toolStatusDescribers!.jiraCommand!({ command: "jira issue search --jql X" })).toBe("esecuzione jira issue search");
   });

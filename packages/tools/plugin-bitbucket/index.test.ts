@@ -31,7 +31,7 @@ describe("bitbucketPlugin", () => {
 
   it("builds a bitbucketCommand tool and a status describer for it", () => {
     const c = bitbucketPlugin.build!({ model: {} as never, env: {}, log: () => {} });
-    const tools = c.sessionTools!(sctx, {});
+    const tools = c.sessionTools!(sctx, c.postProcess);
     expect(Object.keys(tools)).toEqual(["bitbucketCommand"]);
     expect(Object.keys(c.toolStatusDescribers ?? {})).toEqual(["bitbucketCommand"]);
     expect(c.toolStatusDescribers!.bitbucketCommand!({ command: "bitbucket pr list" })).toBe("esecuzione bitbucket pr list");
