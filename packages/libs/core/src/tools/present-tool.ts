@@ -12,13 +12,14 @@
  * shown — the right outcome for a "how many are open?" question answered in
  * prose. Scoped to the calling session, so it can only surface its own refs.
  */
+import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import type { DisplayStore } from "./display-store.ts";
 
 export type PresentToolDeps = { sessionKey: string; store: DisplayStore };
 
-export function createPresentTool(deps: PresentToolDeps) {
+export function createPresentTool(deps: PresentToolDeps): { present: ExecutableTool } {
   const present = tool({
     description:
       "Show a previously produced artifact (e.g. a list of issues) to the user. Pass the `ref` a prior tool " +

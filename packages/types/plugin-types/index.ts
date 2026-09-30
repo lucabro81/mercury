@@ -25,6 +25,11 @@ import type { LanguageModel, Tool } from "ai";
  */
 export const PLUGIN_API_VERSION = 3;
 
+/** A tool built with `ai`'s `tool()` and an `execute`: what the core's and the
+ * plugins' tool factories return. Spelled out so their declarations name it
+ * instead of `ai`'s internal types, which a published package can't reference. */
+export type ExecutableTool = Tool & { execute: NonNullable<Tool["execute"]> };
+
 /**
  * The user-facing channel of a tool result: structured output destined for the
  * user and — unlike `data` — never placed into the model's context. `type`

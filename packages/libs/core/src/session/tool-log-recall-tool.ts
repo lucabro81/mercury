@@ -9,6 +9,7 @@
  * `tool-log-buffer.ts`, filtered to the calling session only — never
  * another conversation's history.
  */
+import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import { getToolLog } from "./tool-log-buffer.ts";
@@ -18,7 +19,7 @@ const MAX_LIMIT = 50;
 
 export type ToolLogRecallDeps = { sessionKey: string };
 
-export function createToolLogRecallTool(deps: ToolLogRecallDeps) {
+export function createToolLogRecallTool(deps: ToolLogRecallDeps): { recall_tool_calls: ExecutableTool } {
   const recall_tool_calls = tool({
     description:
       "Recall the tool calls (name, input, output) you actually made earlier in THIS conversation, most " +
