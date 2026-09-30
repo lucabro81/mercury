@@ -13,10 +13,18 @@ import { appVersions, DEFAULT_REGISTRY } from "./versions.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
 
-const USAGE = `Usage:
+const USAGE = `mfw, the Mercury command-line tool.
+
+Usage:
   mfw create <folder> [options]
 
-Writes a new Mercury app into <folder> (missing or empty), its name in kebab case.
+mfw create writes a new Mercury app into <folder>, which has to be missing or
+empty (its own name is turned into kebab case). Without options it asks for the
+app name, the assistant's name and role, and which channels and tool plugins
+to include; then it writes mercury.config.ts for that selection, the persona
+(persona/identity.md, persona/tone.md), the service and REPL entrypoints, a
+Dockerfile, a compose file with Qdrant, and an env example listing every
+variable the app reads. Nothing is installed: run bun install in the new app.
 
 Options:
   --name <name>              app name, as in package.json (default: the folder's name)
@@ -25,6 +33,13 @@ Options:
   --channels <ids>           comma-separated: ${CATALOG.filter((e) => e.kind === "channel").map((e) => e.id).join(", ")}
   --plugins <ids>            comma-separated: ${CATALOG.filter((e) => e.kind === "tool").map((e) => e.id).join(", ")}
   -y, --yes                  don't ask: use the flags and the defaults
+
+Examples:
+  mfw create my-agent
+  mfw create my-agent --assistant-name Hermes --channels http --plugins jira --yes
+
+The framework packages get this CLI's version; each chosen plugin or channel
+its latest on the registry (https://registry.npmjs.org, or MFW_REGISTRY).
 `;
 
 /** The answers taken from the flags alone, defaults for the rest. */
