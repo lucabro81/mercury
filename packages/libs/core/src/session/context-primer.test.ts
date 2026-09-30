@@ -25,6 +25,7 @@ function fakeDeps(overrides: Partial<ContextPrimerDeps> = {}): ContextPrimerDeps
     listWikiFilesInRootsFn: async () => [],
     readWikiFileInRootsFn: async () => "",
     readIndexFileFn: async () => "",
+    log: () => {},
     ...overrides,
   };
 }
@@ -235,6 +236,32 @@ describe("buildContextPrimer", () => {
       expect(primer).toBe(
         "Wiki index:\n- [[glossary]] — team glossary\n\n" + "Last session:\n- Discussed KAN-1 rollout",
       );
+    });
+  });
+
+  // Regression (#68): the last-session query hits Qdrant with no catch, so while
+  // Qdrant was down the first turn of every new tracked session failed.
+  describe("Qdrant unreachable", () => {
+    it("builds the primer without the recap and logs why", async () => {
+      const logs: string[] = [];
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => {
+          throw new Error("ConnectionRefused");
+        },
+        readIndexFileFn: async () => "- [[glossary]] — team glossary\n",
+        listWikiFilesInRootsFn: async (_vaultPath, roots) =>
+          roots.some((r) => r.includes("confirmations")) ? ["inferred/confirmations/users%2F42/j3h4b5.md"] : [],
+        readWikiFileInRootsFn: async (_vaultPath, roots) => (roots.some((r) => r.includes("confirmations")) ? confirmationNote("pending") : ""),
+        log: (m) => logs.push(m),
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      // The wiki index and the pending confirmations survive; only the recap goes.
+      expect(primer).toContain("Wiki index:\n- [[glossary]] — team glossary");
+      expect(primer).toContain("Riferimenti aperti:\n- [REQ:j3h4b5]");
+      expect(primer).not.toContain("Last session:");
+      expect(logs).toEqual(["last session for users/42 unavailable, primer built without it: Error: ConnectionRefused"]);
     });
   });
 });

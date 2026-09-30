@@ -267,6 +267,8 @@ function renderCompose(name: string, hasTools: boolean): string {
     "services:",
     "  mercury:",
     "    build: .",
+    "    # Back up after a crash or a host reboot.",
+    "    restart: unless-stopped",
     "    env_file:",
     "      - path: .env",
     "        required: false",

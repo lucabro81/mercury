@@ -21,6 +21,8 @@ export type ContextPrimerDeps = {
   listWikiFilesInRootsFn: typeof listWikiFilesInRoots;
   readWikiFileInRootsFn: typeof readWikiFileInRoots;
   readIndexFileFn: typeof readIndexFile;
+  /** Where a skipped section says why (the recap, when Qdrant doesn't answer). */
+  log: (msg: string) => void;
 };
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n/;
@@ -78,7 +80,12 @@ async function pendingConfirmationTokens(userId: string, deps: ContextPrimerDeps
  * `index.ts` supplies the real Qdrant-backed episodic query and wiki reads.
  */
 export async function buildContextPrimer(userId: string, deps: ContextPrimerDeps): Promise<string> {
-  const entries = await deps.getLastSessionEntries(userId);
+  // Episodic memory is enrichment: without Qdrant the primer goes on without
+  // the recap instead of failing the turn.
+  const entries = await deps.getLastSessionEntries(userId).catch((err: unknown) => {
+    deps.log(`last session for ${userId} unavailable, primer built without it: ${String(err)}`);
+    return [];
+  });
   // Checked regardless of `entries` — a pending confirmation isn't tied to
   // "was there a prior episodic session", it's simply still open right now.
   const pendingTokens = await pendingConfirmationTokens(userId, deps);
