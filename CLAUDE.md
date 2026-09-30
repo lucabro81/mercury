@@ -74,11 +74,18 @@ Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
 interim reference/production instance until Comperio's app is scaffolded into
 its own repo and deployed.
 
-`apps/cli` is the scaffolder (`@mercury-fw/cli`, bin `mfw`): `mfw create
+`apps/cli` is the Mercury CLI (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
 the first-party channels and tool plugins, with the framework at the CLI's own
 version and each chosen plugin at its latest on the registry; installing is
-left to the user (`bun install`). `apps/create-mercury-agent` is the same command
+left to the user (`bun install`). Every other command operates an app from
+inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
+`vault`, `memory`, `reset`), as `docker compose` calls; an app gets the CLI as
+a devDependency and runs it as `bunx mfw`. No "plumbing" commands mirroring
+compose: whoever wants that uses compose directly. The command line is declared
+with commander (`program.ts`): arguments are validated and help is generated at
+every level, so a new command is a `program.command(...)` plus its function in
+`app/commands.ts`. `apps/create-mercury-agent` is the same command
 under the `bun create mercury-agent` name.
 
 ```
@@ -111,7 +118,7 @@ mercury/                       # repo root
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
     ├── create-mercury-agent/     # what `bun create mercury-agent` runs: `mfw create`, nothing of its own
-    ├── cli/                   # @mercury-fw/cli — `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
+    ├── cli/                   # @mercury-fw/cli — program.ts (the command line, commander), `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text); app/ (find-app.ts, commands.ts: the commands that operate an app)
     └── mercury/               # ← everything below this line is relative to here
 ```
 
@@ -179,7 +186,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets); every package
 
 ## Operational notes
 
-- **Develop via Docker, not on the host**: `docker compose up` is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `docker compose run --rm mercury bun run repl`
+- **Develop via Docker, not on the host**: `bunx mfw start` (`docker compose up -d --build`) is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `bunx mfw repl`
 - Full install/run/deploy commands live in [README.md](README.md), not duplicated here — this file covers stack and conventions only
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
 - Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime. `bun run test` from the repo root runs every workspace's suite through Turborepo; each package's tests live next to its code (a plugin's tests in its own package), so `bun test` inside one package runs just that package's
@@ -189,7 +196,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets); every package
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
-- **Wiki vault maintenance**: `scripts/vault.sh <command>`. The vault is a Docker named volume (`WIKI_VAULT_PATH`), not a host path — there's nothing to `cd` into or open in an editor directly, every command runs through a one-off `docker compose run --rm -T mercury bun run ../../packages/libs/core/src/wiki/vault-cli.ts` against the same volume the real service uses. Commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]` (body read from stdin, e.g. `cat note.md | scripts/vault.sh write-curated curated/standards/x.md`). Thin routing only, no new write/read logic — reuses `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee
+- **Wiki vault and memory maintenance**: `bunx mfw vault <command>` and `bunx mfw memory <list|read>`. The vault and Qdrant's data are Docker named volumes, not host paths, so both run in a one-off `docker compose run --rm -T mercury` container, executing the core's own CLIs by path (`bun node_modules/@mercury-fw/core/src/wiki/vault-cli.ts`, `…/src/memory/memory-cli.ts`), not as package bins: the monorepo image runs `bun install` before copying the sources, and Bun doesn't link a bin whose file isn't there yet. Vault commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]`, `write-raw <raw/...path.md>` (body read from stdin). Thin routing only, reusing `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee. `mfw memory` is read-only.
 
 ## Hard-won conventions
 

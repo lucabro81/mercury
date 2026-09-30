@@ -1,46 +1,21 @@
 /**
- * The `mfw` command. One subcommand for now, `create <folder>`: writes a
- * new Mercury app from the template, asking what to put in it (or taking the
- * answers from flags with `--yes`). It writes the files; `bun install` in the
- * new app is left to the user.
+ * The `mfw` command. `create <folder>` writes a new Mercury app from the
+ * template, asking what to put in it (or taking the answers from flags with
+ * `--yes`); `bun install` in the new app is left to the user. The other
+ * commands operate an existing app from inside its folder (see
+ * `app/commands.ts`). The command line itself is declared in `program.ts`.
  */
 import { basename, dirname, join, resolve } from "node:path";
-import { parseCreateArgs, type CreateArgs } from "./args.ts";
+import type { CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
 import { kebabCase } from "./naming.ts";
+import { runProgram } from "./program.ts";
 import { renderApp, selectionError } from "./render.ts";
 import { appVersions, registryFrom } from "./versions.ts";
+import { appCommands, terminalDeps, type AppDeps } from "./app/commands.ts";
+import { findApp } from "./app/find-app.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
-
-const USAGE = `mfw, the Mercury command-line tool.
-
-Usage:
-  mfw create <folder> [options]
-
-mfw create writes a new Mercury app into <folder>, which has to be missing or
-empty (its own name is turned into kebab case). Without options it asks for the
-app name, the assistant's name and role, and which channels and tool plugins
-to include; then it writes mercury.config.ts for that selection, the persona
-(persona/identity.md, persona/tone.md), the service and REPL entrypoints, a
-Dockerfile, a compose file with Qdrant, and an env example listing every
-variable the app reads. Nothing is installed: run bun install in the new app.
-
-Options:
-  --name <name>              app name, as in package.json (default: the folder's name)
-  --assistant-name <name>    the assistant's name (default: ${DEFAULT_ASSISTANT_NAME})
-  --role <text>              completes "You are <name>, …" (default: ${DEFAULT_ROLE})
-  --channels <ids>           comma-separated: ${CATALOG.filter((e) => e.kind === "channel").map((e) => e.id).join(", ")}
-  --plugins <ids>            comma-separated: ${CATALOG.filter((e) => e.kind === "tool").map((e) => e.id).join(", ")}
-  -y, --yes                  don't ask: use the flags and the defaults
-
-Examples:
-  mfw create my-agent
-  mfw create my-agent --assistant-name Hermes --channels http --plugins jira --yes
-
-The framework packages get this CLI's version; each chosen plugin or channel
-its latest on the registry (https://registry.npmjs.org, or MFW_REGISTRY).
-`;
 
 /** The answers taken from the flags alone, defaults for the rest. */
 function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
@@ -54,8 +29,7 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
 }
 
 /** `mfw create`: returns the exit code. */
-async function create(argv: string[]): Promise<number> {
-  const args = parseCreateArgs(argv);
+async function create(args: CreateArgs): Promise<number> {
   // The folder is created in kebab case, only its own name: the parent path is
   // taken as typed. Its name is also the app name's default.
   const typed = resolve(args.dir);
@@ -85,35 +59,20 @@ Next:
   cd ${dir}
   bun install
   cp .env.example .env    # then fill it in
-  docker compose up --build`);
+  bunx mfw start`);
   return 0;
 }
 
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
  * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-agent`
- * both call it. */
-export async function main(argv: string[]): Promise<number> {
-  const [command, ...rest] = argv;
-  if (command === "--help" || command === "-h") {
-    console.log(USAGE);
-    return 0;
-  }
-  if (command === undefined) {
-    console.error(USAGE);
-    return 1;
-  }
-  if (command === "create" && rest.some((a) => a === "--help" || a === "-h")) {
-    console.log(USAGE);
-    return 0;
-  }
-  if (command !== "create") {
-    console.error(`Unknown command "${command}"\n\n${USAGE}`);
-    return 1;
-  }
-  try {
-    return await create(rest);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
+ * both call it; the app commands look for the app from `cwd` and run docker
+ * through `deps`. */
+export async function main(
+  argv: string[],
+  { cwd = process.cwd(), deps }: { cwd?: string; deps?: AppDeps } = {},
+): Promise<number> {
+  return runProgram(argv, {
+    create,
+    app: () => appCommands(findApp(cwd), deps ?? terminalDeps()),
+  });
 }

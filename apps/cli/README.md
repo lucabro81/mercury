@@ -1,18 +1,37 @@
 # @mercury-fw/cli
 
-`mfw`, the command-line tool of [Mercury](https://github.com/lucabro81/mercury-fw). For now it has one command, `mfw create`, which scaffolds a new app; operating an app (starting it, the REPL, memory maintenance) moves here next.
+`mfw`, the command-line tool of [Mercury](https://github.com/lucabro81/mercury-fw): it creates an app, then runs it. Every command except `create` works from inside an app, meaning its folder or any folder under it (the one holding `mercury.config.ts`), and wraps the `docker compose` calls that app needs, so you don't have to remember them; each section below says which calls those are. New commands get documented here as they're added.
 
-```bash
-bunx @mercury-fw/cli create my-agent
-```
+## Table of contents
 
-or, the same thing under the `create` convention:
+- [Getting it](#getting-it)
+- [Usage](#usage)
+  - [`mfw create <folder>`](#mfw-create-folder)
+  - [`mfw start [--no-cache]`](#mfw-start---no-cache)
+  - [`mfw stop`](#mfw-stop)
+  - [`mfw restart [--no-cache]`](#mfw-restart---no-cache)
+  - [`mfw logs [service]`](#mfw-logs-service)
+  - [`mfw repl`](#mfw-repl)
+  - [`mfw shell`](#mfw-shell)
+  - [`mfw vault <command>`](#mfw-vault-command)
+  - [`mfw memory list`](#mfw-memory-list)
+  - [`mfw memory read <collection> [--limit N]`](#mfw-memory-read-collection---limit-n)
+  - [`mfw reset <memory|wiki>`](#mfw-reset-memorywiki)
+- [Help](#help)
+
+## Getting it
+
+A new app comes from `bun create mercury-agent`, which is `mfw create` under the `create` convention:
 
 ```bash
 bun create mercury-agent my-agent
 ```
 
-## `mfw create <folder>`
+The app it writes lists `@mercury-fw/cli` among its devDependencies, at the same version as the framework it depends on, so after `bun install` in the app every other command runs as `bunx mfw <command>`, with no global install.
+
+## Usage
+
+### `mfw create <folder>`
 
 Writes a new Mercury app into `<folder>`, which has to be missing or empty; the folder's own name is turned into kebab case (`My Agent` becomes `my-agent`, the path above it stays as typed). Without flags it asks:
 
@@ -32,9 +51,123 @@ It writes the `mercury.config.ts` for that selection, the persona, the service a
 | `-y`, `--yes` | No questions: the flags, and the defaults for the rest. |
 
 ```bash
-mfw create my-agent --assistant-name Hermes --channels http --plugins jira --yes
+bun create mercury-agent my-agent
+bunx @mercury-fw/cli create my-agent --assistant-name Hermes --channels http --plugins jira --yes
 ```
 
 The framework packages get the CLI's own version (they're released together); each chosen plugin or channel gets its latest version on the registry, `https://registry.npmjs.org` unless `MFW_REGISTRY` names another.
+
+### `mfw start [--no-cache]`
+
+Builds the app's image and starts the app and Qdrant in the background (`docker compose up -d --build`). Docker's cache means only what changed gets rebuilt, and a running container is recreated only if its image or configuration changed, so it's also the command to run after changing a dependency, the Dockerfile or `.env`. `--no-cache` rebuilds everything from scratch (`docker compose build --no-cache`, then `up -d`), which is what refetches a tool plugin's CLI binary when a new release is out: a normal build keeps the cached one.
+
+```bash
+bunx mfw start
+bunx mfw start --no-cache
+```
+
+### `mfw stop`
+
+Stops the app and Qdrant and removes their containers (`docker compose down`). The volumes stay, so memory, the wiki and the CLI credentials are all there on the next start.
+
+```bash
+bunx mfw stop
+```
+
+### `mfw restart [--no-cache]`
+
+Like `start`, but recreates the containers even when nothing changed (`--force-recreate`): a clean restart, for a process that got stuck. A changed `.env` doesn't need it, `start` already recreates what the change touches. `--no-cache` as in `start`.
+
+```bash
+bunx mfw restart
+bunx mfw restart --no-cache
+```
+
+### `mfw logs [service]`
+
+Follows the logs of every service, interleaved, or only of the one you name, `mercury` or `qdrant` (`docker compose logs -f`). One service at most. `Ctrl+C` stops following, the app keeps running.
+
+```bash
+bunx mfw logs
+bunx mfw logs mercury
+```
+
+### `mfw repl`
+
+Opens the dev REPL, a conversation with the assistant in the terminal, in a one-off container (`docker compose run --rm mercury bun run repl`). The REPL has no user identity by design, so what you try there never lands in anyone's memory; ending it (`Ctrl+D`) removes the one-off container and leaves a running app alone.
+
+```bash
+bunx mfw repl
+```
+
+### `mfw shell`
+
+Opens a shell in the app's container: the running one if the app is up (`docker compose exec mercury bash`), a one-off one otherwise (`docker compose run --rm mercury bash`). The tool plugins' CLIs are on `PATH` there with their credentials, so it's where you check that a command works before blaming the model.
+
+```bash
+bunx mfw shell
+```
+
+### `mfw vault <command>`
+
+Maintains the wiki vault, which lives on a Docker volume and not in the app's folder, so every command runs in a one-off container on that volume (`docker compose run --rm -T mercury bun …`). Paths are vault-relative, the way `list` prints them, `curated/` or `raw/` included.
+
+| Command | |
+|---|---|
+| `list` | Every note. |
+| `read <path>` | One note (a path that isn't one says so, exit 1). |
+| `grep <pattern>` | Every line matching `<pattern>`, a regular expression, as `path:line:text`. A pattern starting with `-` goes after `--` (`mfw vault grep -- -h`). |
+| `write-curated <path> [--author NAME]` | Writes a curated note, the body read from stdin. |
+| `write-raw <path>` | Writes raw material for the nightly review to triage, the body read from stdin. |
+
+```bash
+bunx mfw vault list
+bunx mfw vault read curated/standards/jira-fields.md
+bunx mfw vault grep "story points"
+cat note.md | bunx mfw vault write-curated curated/standards/new-note.md --author luca
+```
+
+There's no command writing inferred notes on purpose: those are the agent's own, written only by its consolidation.
+
+### `mfw memory list`
+
+Lists the collections of the memory on Qdrant with how many points each holds, in a one-off container that reaches Qdrant the way the app does. Read-only.
+
+```bash
+bunx mfw memory list
+```
+
+```
+episodic_memory  25 points
+semantic_facts  20 points
+tool_corrections  37 points
+verbatim_archive  0 points
+```
+
+### `mfw memory read <collection> [--limit N]`
+
+Prints a collection's points, each as its id followed by one line per payload field. Newest first where the collection has a timestamp index (episodic memory and the verbatim archive do); in Qdrant's own order otherwise, and it says so. `--limit` defaults to 20. Read-only.
+
+```bash
+bunx mfw memory read episodic_memory
+bunx mfw memory read semantic_facts --limit 5
+```
+
+### `mfw reset <memory|wiki>`
+
+Deletes for good what the assistant remembers: `memory` is every collection on Qdrant, `wiki` the whole vault. It reads the volume's real name from the compose file, tells you which one is about to go, and asks you to type the app's name (the `name` in `package.json`); anything else, an empty answer, a `y` or closing the input included, deletes nothing and exits 1. Once confirmed it stops the service using the volume, removes its container and the volume, and starts the service again on an empty one (`docker compose stop`, `rm -f`, `docker volume rm`, `up -d`). After `memory`, a running app is restarted too (`docker compose restart mercury`), since it sets up its collections only when it starts.
+
+If a step fails once the service is stopped (the volume still in use by a one-off container, say), it stops there and says the service is down: `bunx mfw start` brings it back.
+
+```bash
+bunx mfw reset memory
+bunx mfw reset wiki
+```
+
+Useful for clearing out test data; the other layer isn't touched.
+
+## Help
+
+`mfw --help` lists every command, and `--help` after any of them describes it, down to the subcommands (`mfw vault write-curated --help`). A mistyped command gets a suggestion (`mfw strat` → "Did you mean start?"). Every argument is checked before anything runs: a wrong one exits 1 saying why, with no container started.
 
 MIT

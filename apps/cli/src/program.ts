@@ -1,0 +1,230 @@
+/**
+ * The `mfw` command line, declared with commander: every command, its
+ * arguments and options, and the help for each level (`mfw --help`,
+ * `mfw vault --help`, `mfw vault write-curated --help`). Parsing and
+ * validation happen here, before anything runs; what a command does lives in
+ * `create` (passed in) and `app/commands.ts`.
+ */
+import { Argument, Command, CommanderError, InvalidArgumentError, Option, type OutputConfiguration } from "commander";
+import { toCreateArgs, type CreateArgs, type CreateOptions } from "./args.ts";
+import { appCommands, RESET_TARGETS, type ResetTarget } from "./app/commands.ts";
+import { CATALOG } from "./catalog.ts";
+import { cliVersion } from "./versions.ts";
+import { DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE } from "./wizard.ts";
+
+/** The commands that operate an app, bound to it. */
+export type AppCommands = ReturnType<typeof appCommands>;
+
+export type ProgramHandlers = {
+  /** `mfw create`; returns the exit code. */
+  create: (args: CreateArgs) => Promise<number>;
+  /** The app the app commands act on; throws outside one. */
+  app: () => AppCommands;
+};
+
+/** `--limit`'s value: a positive whole number. */
+function positiveInt(value: string): string {
+  if (!/^\d+$/.test(value) || Number(value) < 1) {
+    throw new InvalidArgumentError(`--limit takes a positive whole number (got "${value}").`);
+  }
+  return value;
+}
+
+/** The help's closing paragraph for the commands that run inside an app. */
+const INSIDE_AN_APP = "\nRun it from the app's folder or any folder under it (the one holding mercury.config.ts).";
+
+/** Builds the `mfw` program; every action stores its exit code in `result`. */
+function buildProgram(handlers: ProgramHandlers, result: { code: number }): Command {
+  const program = new Command("mfw")
+    .description("The Mercury command-line tool: creates an app, then runs it.")
+    .version(cliVersion(), "-V, --version")
+    .showSuggestionAfterError()
+    .helpCommand(false);
+  const inApp = (run: (app: AppCommands) => Promise<number>) => async () => {
+    result.code = await run(handlers.app());
+  };
+
+  program
+    .command("create")
+    .summary("writes a new Mercury app")
+    .description(
+      "Writes a new Mercury app into <folder>, which has to be missing or empty (its own name is turned into kebab case). Without options it asks for the app name, the assistant's name and role, and which channels and tool plugins to include; then it writes mercury.config.ts for that selection, the persona (persona/identity.md, persona/tone.md), the service and REPL entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the app reads. Nothing is installed: run bun install in the new app.",
+    )
+    .argument("<folder>", "where to write the app")
+    .option("--name <name>", "app name, as in package.json (default: the folder's name)")
+    .option("--assistant-name <name>", `the assistant's name (default: ${DEFAULT_ASSISTANT_NAME})`)
+    .option("--role <text>", `completes "You are <name>, …" (default: ${DEFAULT_ROLE})`)
+    .option(
+      "--channels <ids>",
+      `comma-separated: ${CATALOG.filter((e) => e.kind === "channel").map((e) => e.id).join(", ")}`,
+    )
+    .option("--plugins <ids>", `comma-separated: ${CATALOG.filter((e) => e.kind === "tool").map((e) => e.id).join(", ")}`)
+    .option("-y, --yes", "don't ask: use the flags and the defaults")
+    .addHelpText(
+      "after",
+      `
+The framework packages get this CLI's version; each chosen plugin or channel
+its latest on the registry (https://registry.npmjs.org, or MFW_REGISTRY).
+
+Examples:
+  mfw create my-agent
+  mfw create my-agent --assistant-name Hermes --channels http --plugins jira --yes`,
+    )
+    .action(async (folder: string, opts: CreateOptions) => {
+      result.code = await handlers.create(toCreateArgs(folder, opts));
+    });
+
+  // commander reads --no-cache as "cache: false"; the commands take noCache.
+  const cacheOff = (opts: { cache: boolean }) => ({ noCache: !opts.cache });
+
+  program
+    .command("start")
+    .summary("builds and starts the app")
+    .description(
+      "Builds the app's image and starts the app and Qdrant in the background. Only what changed is rebuilt, and only what changed (image, .env, compose file) is recreated.",
+    )
+    .addOption(new Option("--no-cache", "rebuild everything from scratch"))
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(async (opts: { cache: boolean }) => inApp((app) => app.start(cacheOff(opts)))());
+
+  program
+    .command("stop")
+    .summary("stops the app")
+    .description("Stops the app and Qdrant and removes their containers. The volumes (memory, wiki, CLI credentials) stay.")
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(inApp((app) => app.stop()));
+
+  program
+    .command("restart")
+    .summary("rebuilds and restarts the app")
+    .description("Like mfw start, but recreates the containers even when nothing changed: a clean restart.")
+    .addOption(new Option("--no-cache", "rebuild everything from scratch"))
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(async (opts: { cache: boolean }) => inApp((app) => app.restart(cacheOff(opts)))());
+
+  program
+    .command("logs")
+    .summary("follows the logs")
+    .description("Follows the logs of every service, or only of [service].")
+    .argument("[service]", "mercury or qdrant")
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(async (service: string | undefined) => inApp((app) => app.logs(service))());
+
+  program
+    .command("repl")
+    .summary("opens the dev REPL")
+    .description("Opens the dev REPL, a terminal conversation with the assistant, in a one-off container. A running app isn't touched.")
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(inApp((app) => app.repl()));
+
+  program
+    .command("shell")
+    .summary("opens a shell in the app's container")
+    .description("Opens a shell in the app's container: the running one if the app is up, otherwise a one-off container.")
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(inApp((app) => app.shell()));
+
+  const vault = program
+    .command("vault")
+    .summary("wiki vault maintenance")
+    .description(
+      "Maintains the wiki vault, in a one-off container on the vault's volume. Paths are vault-relative, as mfw vault list prints them (curated/…, raw/…).",
+    )
+    .helpCommand(false)
+    .addHelpText("after", INSIDE_AN_APP);
+  vault
+    .command("list")
+    .summary("every note")
+    .description("Lists every note.")
+    .action(async () => inApp((app) => app.vault(["list"]))());
+  vault
+    .command("read")
+    .summary("a note")
+    .description("Prints a note.")
+    .argument("<path>", "the note, vault-relative")
+    .action(async (path: string) => inApp((app) => app.vault(["read", path]))());
+  vault
+    .command("grep")
+    .summary("lines matching a pattern")
+    .description("Prints every line matching <pattern> (a regular expression) as path:line:text.")
+    .argument("<pattern>", "a regular expression; after --, one starting with - too")
+    .action(async (pattern: string) => inApp((app) => app.vault(["grep", pattern]))());
+  vault
+    .command("write-curated")
+    .summary("writes a curated note from stdin")
+    .description("Writes a curated note, the body read from stdin.")
+    .argument("<path>", "curated/…, vault-relative")
+    .option("--author <name>", "who wrote it")
+    .addHelpText("after", "\nExample:\n  cat note.md | mfw vault write-curated curated/standards/new-note.md --author luca")
+    .action(async (path: string, opts: { author?: string }) =>
+      inApp((app) => app.vault(["write-curated", path, ...(opts.author === undefined ? [] : ["--author", opts.author])]))(),
+    );
+  vault
+    .command("write-raw")
+    .summary("writes raw material from stdin")
+    .description("Writes raw material for the nightly review to triage, the body read from stdin.")
+    .argument("<path>", "raw/…, vault-relative")
+    .action(async (path: string) => inApp((app) => app.vault(["write-raw", path]))());
+
+  const memory = program
+    .command("memory")
+    .summary("reads Layer-3 memory")
+    .description("Reads Layer-3 memory on Qdrant, in a one-off container. Read-only.")
+    .helpCommand(false)
+    .addHelpText("after", INSIDE_AN_APP);
+  memory
+    .command("list")
+    .summary("the collections and their points")
+    .description("Lists the collections and how many points each holds.")
+    .action(async () => inApp((app) => app.memory(["list"]))());
+  memory
+    .command("read")
+    .summary("a collection's points")
+    .description(
+      "Prints a collection's points, each as its id and one line per payload field: newest first where the collection has a timestamp index, in Qdrant's own order otherwise.",
+    )
+    .argument("<collection>", "as mfw memory list prints it")
+    .option("--limit <n>", "how many points (default: 20)", positiveInt)
+    .action(async (collection: string, opts: { limit?: string }) =>
+      inApp((app) => app.memory(["read", collection, ...(opts.limit === undefined ? [] : ["--limit", opts.limit])]))(),
+    );
+
+  program
+    .command("reset")
+    .summary("deletes memory or the wiki, after confirmation")
+    .description(
+      "Deletes for good what the assistant remembers: memory is every Qdrant collection, wiki the whole vault. It asks you to type the app's name first (anything else deletes nothing), then brings the service back up empty.",
+    )
+    .addArgument(new Argument("<target>", "what to delete").choices(Object.keys(RESET_TARGETS)))
+    .addHelpText("after", INSIDE_AN_APP)
+    .action(async (target: ResetTarget) => inApp((app) => app.reset(target))());
+
+  return program;
+}
+
+/** Runs `mfw` on `argv` (the arguments after the command name) and returns
+ * the exit code. Commander's own messages (help, errors) go to `output`, and
+ * so does the message of an error a command throws. */
+export async function runProgram(argv: string[], handlers: ProgramHandlers, output?: OutputConfiguration): Promise<number> {
+  const result = { code: 0 };
+  const program = buildProgram(handlers, result);
+  const writeErr = output?.writeErr ?? ((s: string) => process.stderr.write(s));
+  const configure = (cmd: Command): void => {
+    cmd.exitOverride();
+    if (output !== undefined) cmd.configureOutput(output);
+    cmd.commands.forEach(configure);
+  };
+  configure(program);
+  if (argv.length === 0) {
+    program.outputHelp({ error: true });
+    return 1;
+  }
+  try {
+    await program.parseAsync(argv, { from: "user" });
+    return result.code;
+  } catch (err) {
+    if (err instanceof CommanderError) return err.exitCode;
+    writeErr(`${err instanceof Error ? err.message : String(err)}\n`);
+    return 1;
+  }
+}

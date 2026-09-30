@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Maintenance CLI for the wiki vault — runs INSIDE the Mercury container
- * (the vault is a Docker named volume, not a host path, see `scripts/vault.sh`
- * and CLAUDE.md § "Manutenzione della vault wiki"). Thin argv wrapper around
+ * (the vault is a Docker named volume, not a host path): `mfw vault` runs it
+ * in a one-off container, by this path. Thin argv wrapper around
  * functions that already exist and are already tested (`wiki-note.ts`,
  * `vault-init.ts`) — no new write/read logic here, only routing.
  *
@@ -29,7 +29,7 @@ import { writeCuratedNote, writeRawEntry } from "./wiki-note.ts";
 function usage(): never {
   console.error(
     [
-      "Usage: vault-cli <command> [args]",
+      "Usage: mfw vault <command> [args]",
       "",
       "Commands:",
       "  write-curated <curated/...path.md> [--author NAME]   body read from stdin",
@@ -107,7 +107,12 @@ async function main(): Promise<void> {
     case "read": {
       const relativePath = args[0];
       if (!relativePath) usage();
-      console.log(await Bun.file(`${vaultPath}/${relativePath}`).text());
+      const note = Bun.file(`${vaultPath}/${relativePath}`);
+      if (!(await note.exists())) {
+        console.error(`no note at ${relativePath} (mfw vault list shows them)`);
+        process.exit(1);
+      }
+      console.log(await note.text());
       break;
     }
 

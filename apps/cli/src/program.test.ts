@@ -1,0 +1,218 @@
+/**
+ * The `mfw` command line (commander): what each command line reaches, with
+ * which arguments, and what's refused before anything runs. `create` and the
+ * app commands are fakes here; their behaviour has its own tests.
+ */
+import { describe, expect, test } from "bun:test";
+import type { CreateArgs } from "./args.ts";
+import { runProgram, type AppCommands } from "./program.ts";
+
+/** Handlers that record what they receive, and captured output. */
+function harness({ code = 0, appError }: { code?: number; appError?: string } = {}) {
+  const calls: unknown[][] = [];
+  const record =
+    (name: string) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return code;
+    };
+  const app: AppCommands = {
+    start: record("start"),
+    restart: record("restart"),
+    stop: record("stop"),
+    logs: record("logs"),
+    repl: record("repl"),
+    shell: record("shell"),
+    vault: record("vault"),
+    memory: record("memory"),
+    reset: record("reset"),
+  };
+  const out: string[] = [];
+  const err: string[] = [];
+  const run = (...argv: string[]) =>
+    runProgram(
+      argv,
+      {
+        create: async (args: CreateArgs) => {
+          calls.push(["create", args]);
+          return code;
+        },
+        app: () => {
+          if (appError !== undefined) throw new Error(appError);
+          return app;
+        },
+      },
+      { writeOut: (s) => void out.push(s), writeErr: (s) => void err.push(s) },
+    );
+  return { run, calls, out: () => out.join(""), err: () => err.join("") };
+}
+
+describe("create", () => {
+  test("the folder alone: nothing answered, wizard not skipped", async () => {
+    const h = harness();
+    expect(await h.run("create", "my-app")).toBe(0);
+    expect(h.calls).toEqual([["create", { dir: "my-app", yes: false }]]);
+  });
+
+  test("every flag", async () => {
+    const h = harness();
+    await h.run(
+      "create",
+      "apps/demo",
+      "--name",
+      "demo",
+      "--assistant-name",
+      "Hermes",
+      "--role",
+      "the release assistant",
+      "--channels",
+      "http,google-chat",
+      "--plugins",
+      "jira",
+      "--yes",
+    );
+    expect(h.calls).toEqual([
+      [
+        "create",
+        {
+          dir: "apps/demo",
+          name: "demo",
+          assistantName: "Hermes",
+          role: "the release assistant",
+          channels: ["http", "google-chat"],
+          plugins: ["jira"],
+          yes: true,
+        },
+      ],
+    ]);
+  });
+
+  test("lists tolerate spaces and empty items; an empty list means none", async () => {
+    const h = harness();
+    await h.run("create", "d", "--channels", " http , ", "--plugins", "");
+    expect(h.calls[0]?.[1]).toMatchObject({ channels: ["http"], plugins: [] });
+  });
+
+  test("-y is --yes", async () => {
+    const h = harness();
+    await h.run("create", "d", "-y");
+    expect((h.calls[0]?.[1] as CreateArgs).yes).toBe(true);
+  });
+
+  test.each([
+    [[], "missing required argument 'folder'"],
+    [["a", "b"], "too many arguments"],
+    [["d", "--frobnicate"], "unknown option '--frobnicate'"],
+  ])("create %p is refused: %s", async (args, message) => {
+    const h = harness();
+    expect(await h.run("create", ...args)).toBe(1);
+    expect(h.err()).toContain(message);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("create's exit code comes back", async () => {
+    expect(await harness({ code: 3 }).run("create", "d")).toBe(3);
+  });
+});
+
+describe("app commands reach the app with their arguments", () => {
+  test.each([
+    [["start"], ["start", { noCache: false }]],
+    [["start", "--no-cache"], ["start", { noCache: true }]],
+    [["restart"], ["restart", { noCache: false }]],
+    [["restart", "--no-cache"], ["restart", { noCache: true }]],
+    [["stop"], ["stop"]],
+    [["logs"], ["logs", undefined]],
+    [["logs", "qdrant"], ["logs", "qdrant"]],
+    [["repl"], ["repl"]],
+    [["shell"], ["shell"]],
+    [["reset", "memory"], ["reset", "memory"]],
+    [["reset", "wiki"], ["reset", "wiki"]],
+    [["vault", "list"], ["vault", ["list"]]],
+    [["vault", "read", "curated/x.md"], ["vault", ["read", "curated/x.md"]]],
+    [["vault", "grep", "story points"], ["vault", ["grep", "story points"]]],
+    [["vault", "write-curated", "curated/x.md"], ["vault", ["write-curated", "curated/x.md"]]],
+    [["vault", "write-curated", "curated/x.md", "--author", "luca"], ["vault", ["write-curated", "curated/x.md", "--author", "luca"]]],
+    [["vault", "write-raw", "raw/x.md"], ["vault", ["write-raw", "raw/x.md"]]],
+    [["memory", "list"], ["memory", ["list"]]],
+    [["memory", "read", "episodic_memory"], ["memory", ["read", "episodic_memory"]]],
+    [["memory", "read", "episodic_memory", "--limit", "5"], ["memory", ["read", "episodic_memory", "--limit", "5"]]],
+  ])("mfw %p", async (argv, call) => {
+    const h = harness();
+    expect(await h.run(...argv)).toBe(0);
+    expect(h.calls).toEqual([call]);
+  });
+
+  // Regression: -h anywhere on the line was taken as a request for help, so
+  // searching the vault for "-h" printed the help instead.
+  test("after --, a value that looks like a flag is passed as it is", async () => {
+    const h = harness();
+    await h.run("vault", "grep", "--", "-h");
+    expect(h.calls).toEqual([["vault", ["grep", "-h"]]]);
+  });
+
+  test("the app command's exit code comes back", async () => {
+    expect(await harness({ code: 2 }).run("vault", "read", "missing.md")).toBe(2);
+  });
+
+  test("outside an app: the error, exit 1", async () => {
+    const h = harness({ appError: "Not inside a Mercury app: no mercury.config.ts in /tmp" });
+    expect(await h.run("start")).toBe(1);
+    expect(h.err()).toContain("Not inside a Mercury app");
+  });
+});
+
+describe("refused before anything runs", () => {
+  test.each([
+    [["start", "--nocache"], "unknown option '--nocache'"],
+    [["logs", "mercury", "qdrant"], "too many arguments"],
+    [["logs", "--tail", "10"], "unknown option '--tail'"],
+    [["reset"], "missing required argument 'target'"],
+    [["reset", "everything"], "Allowed choices are memory, wiki"],
+    [["reset", "wiki", "memory"], "too many arguments"],
+    [["vault", "lst"], "unknown command 'lst'"],
+    [["vault", "read"], "missing required argument 'path'"],
+    [["memory", "read"], "missing required argument 'collection'"],
+    [["memory", "read", "x", "--limit", "0"], "--limit takes a positive whole number"],
+    [["memory", "read", "x", "--limit", "ten"], "--limit takes a positive whole number"],
+    [["memory", "list", "--limit", "5"], "unknown option '--limit'"],
+    [["deploy"], "unknown command 'deploy'"],
+  ])("mfw %p: %s", async (argv, message) => {
+    const h = harness();
+    expect(await h.run(...argv)).toBe(1);
+    expect(h.err()).toContain(message);
+    expect(h.calls).toEqual([]);
+  });
+
+  test("a typo suggests the command", async () => {
+    const h = harness();
+    await h.run("strat");
+    expect(h.err()).toContain("Did you mean start?");
+  });
+
+  test("no command prints the help and exits 1", async () => {
+    const h = harness();
+    expect(await h.run()).toBe(1);
+    expect(h.err()).toContain("Usage: mfw");
+  });
+});
+
+describe("help", () => {
+  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset"];
+
+  test("--help lists every command, exit 0", async () => {
+    const h = harness();
+    expect(await h.run("--help")).toBe(0);
+    for (const c of COMMANDS) expect(h.out()).toContain(`  ${c}`);
+  });
+
+  test.each([...COMMANDS.map((c) => [c]), ["vault", "write-curated"], ["memory", "read"]])(
+    "mfw %s … --help describes it and runs nothing",
+    async (...path) => {
+      const h = harness();
+      expect(await h.run(...path, "--help")).toBe(0);
+      expect(h.out()).toContain(`Usage: mfw ${path.join(" ")}`);
+      expect(h.calls).toEqual([]);
+    },
+  );
+});
