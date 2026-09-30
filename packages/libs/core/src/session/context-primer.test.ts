@@ -25,6 +25,7 @@ function fakeDeps(overrides: Partial<ContextPrimerDeps> = {}): ContextPrimerDeps
     listWikiFilesInRootsFn: async () => [],
     readWikiFileInRootsFn: async () => "",
     readIndexFileFn: async () => "",
+    log: () => {},
     ...overrides,
   };
 }
@@ -235,6 +236,26 @@ describe("buildContextPrimer", () => {
       expect(primer).toBe(
         "Wiki index:\n- [[glossary]] — team glossary\n\n" + "Last session:\n- Discussed KAN-1 rollout",
       );
+    });
+  });
+
+  // Regression (#68): the last-session query hits Qdrant with no catch, so while
+  // Qdrant was down the first turn of every new tracked session failed.
+  describe("Qdrant unreachable", () => {
+    it("builds the primer without the recap and logs why", async () => {
+      const logs: string[] = [];
+      const deps = fakeDeps({
+        getLastSessionEntries: async () => {
+          throw new Error("ConnectionRefused");
+        },
+        readIndexFileFn: async () => "- [[glossary]] — team glossary\n",
+        log: (m) => logs.push(m),
+      });
+
+      const primer = await buildContextPrimer("users/42", deps);
+
+      expect(primer).toBe("Wiki index:\n- [[glossary]] — team glossary");
+      expect(logs).toEqual(["last session for users/42 unavailable, primer built without it: Error: ConnectionRefused"]);
     });
   });
 });

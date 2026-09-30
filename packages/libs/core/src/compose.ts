@@ -472,6 +472,7 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
           listWikiFilesInRootsFn: listWikiFilesInRoots,
           readWikiFileInRootsFn: readWikiFileInRoots,
           readIndexFileFn: readIndexFile,
+          log: (msg) => console.error(`[memory] ${msg}`),
         });
         return getOrCreateHistory(key, trackForCapture, primer);
       }
