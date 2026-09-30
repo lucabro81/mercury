@@ -213,6 +213,10 @@ function renderPackageJson(
     }
     dependencies[pkg] = `^${version}`;
   }
+  const cli = versions["@mercury-fw/cli"];
+  if (cli === undefined) {
+    throw new Error("No version known for @mercury-fw/cli");
+  }
   const manifest: Record<string, unknown> = {
     name,
     version: "0.1.0",
@@ -220,7 +224,9 @@ function renderPackageJson(
     private: true,
     scripts: { start: "bun src/index.ts", repl: "bun src/repl.ts", typecheck: "tsc --noEmit" },
     dependencies,
-    devDependencies: { "@types/bun": "1.4.0", typescript: "6.0.3" },
+    // The CLI in the app itself, so `bunx mfw` runs the version that matches
+    // the framework the app depends on.
+    devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.0", typescript: "^6.0.3" },
   };
   if (tools.length > 0) {
     manifest.trustedDependencies = tools.map((t) => t.package).sort();
@@ -317,11 +323,11 @@ A Mercury app, scaffolded by \`mfw create\`.
 \`\`\`bash
 bun install
 cp .env.example .env
-docker compose up --build
-docker compose run --rm mercury bun run repl
+bunx mfw start
+bunx mfw repl
 \`\`\`
 
-\`bun install\` here gives your editor and \`bun run typecheck\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds.
+\`bun install\` here gives your editor, \`bun run typecheck\` and \`mfw\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds. \`bunx mfw start\` builds the image and starts the app with Qdrant in the background, \`bunx mfw repl\` opens a terminal conversation with the assistant. \`bunx mfw --help\` lists the rest: stopping and restarting, logs, a shell in the container, the wiki and the memory, and resetting them.
 ${tools.length > 0 ? CREDENTIALS_SECTION : ""}`;
 }
 

@@ -38,6 +38,7 @@ describe("appVersions", () => {
       fetchFn,
     });
     expect(versions).toEqual({
+      "@mercury-fw/cli": pkg.version,
       "@mercury-fw/core": pkg.version,
       "@mercury-fw/formatter": pkg.version,
       "@mercury-fw/plugin-jira": "0.3.2",

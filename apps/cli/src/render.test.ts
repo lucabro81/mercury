@@ -13,6 +13,7 @@ const golden = (name: string): string =>
   readFileSync(new URL(`./__fixtures__/render/${name}.golden`, import.meta.url), "utf-8");
 
 const versions: Record<string, string> = {
+  "@mercury-fw/cli": "0.1.0",
   "@mercury-fw/core": "0.1.0",
   "@mercury-fw/formatter": "0.1.0",
   "@mercury-fw/channel-google-chat": "0.1.0",
@@ -198,6 +199,14 @@ describe("renderApp: README.md", () => {
     expect(readme).toContain("Tool plugins: jira");
     expect(readme).toContain("bun install\ncp .env.example .env\n");
     expect(readme).not.toContain("published");
+  });
+
+  test("runs the app through mfw, not raw docker commands", () => {
+    const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
+    expect(readme).toContain("bun install\ncp .env.example .env\nbunx mfw start\nbunx mfw repl\n");
+    expect(readme).toContain("bunx mfw --help");
+    expect(readme).not.toContain("docker compose up");
+    expect(readme).not.toContain("docker compose run --rm mercury bun run repl");
   });
 
   // The template doesn't provision CLI credentials yet: the README must say the

@@ -69,6 +69,7 @@ async function runWith(registryUrl: string, ...args: string[]): Promise<{ code: 
 /** The versions the command writes: the framework at the CLI's version, the
  * chosen plugins and channels at what the registry reports. */
 const versions: Record<string, string> = {
+  "@mercury-fw/cli": cliVersion(),
   "@mercury-fw/core": cliVersion(),
   "@mercury-fw/formatter": cliVersion(),
   "@mercury-fw/channel-http": PLUGIN_VERSION,

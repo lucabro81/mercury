@@ -157,7 +157,7 @@ Next:
   cd ${dir}
   bun install
   cp .env.example .env    # then fill it in
-  docker compose up --build`);
+  bunx mfw start`);
   return 0;
 }
 
