@@ -4,15 +4,32 @@
  * same answers, and a command line that can't work exits non-zero with a
  * message saying why, writing nothing.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderApp } from "./render.ts";
-import { packageVersions } from "./versions.ts";
-import { CATALOG } from "./catalog.ts";
+import { cliVersion } from "./versions.ts";
 
-const CLI = new URL("./index.ts", import.meta.url).pathname;
+const CLI = new URL("./bin.ts", import.meta.url).pathname;
+
+/** The version the fake registry reports as `latest` for every plugin and channel. */
+const PLUGIN_VERSION = "0.7.3";
+
+/** A fake registry for the whole file: `latest` of any package is PLUGIN_VERSION. */
+let registry: ReturnType<typeof Bun.serve>;
+beforeAll(() => {
+  registry = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const name = decodeURIComponent(new URL(req.url).pathname.slice(1).replace(/\/latest$/, ""));
+      return Response.json({ name, version: PLUGIN_VERSION });
+    },
+  });
+});
+afterAll(() => {
+  registry.stop(true);
+});
 
 let base: string;
 beforeEach(() => {
@@ -22,20 +39,44 @@ afterEach(() => {
   rmSync(base, { recursive: true, force: true });
 });
 
-/** Runs the CLI with `args`, returning its exit code and output. */
-function run(...args: string[]): { code: number; stdout: string; stderr: string } {
-  // stdin closed and a timeout: a run that wrongly reaches the wizard fails
-  // instead of hanging the suite.
-  const proc = Bun.spawnSync(["bun", CLI, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 10_000 });
-  return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+/** Runs the CLI with `args` against the fake registry, returning its exit code
+ * and output. Async, so the fake registry in this process can answer it. */
+async function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runWith(registry.url.origin, ...args);
 }
 
-const versions = packageVersions(["@mercury-fw/core", "@mercury-fw/formatter", ...CATALOG.map((e) => e.package)]);
+/** Runs the CLI with `args` against the registry at `registryUrl`. */
+async function runWith(registryUrl: string, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  // stdin closed and a timeout: a run that wrongly reaches the wizard fails
+  // instead of hanging the suite.
+  const proc = Bun.spawn(["bun", CLI, ...args], {
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 10_000,
+    env: { ...process.env, MFW_REGISTRY: registryUrl },
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, stdout, stderr };
+}
+
+/** The versions the command writes: the framework at the CLI's version, the
+ * chosen plugins and channels at what the registry reports. */
+const versions: Record<string, string> = {
+  "@mercury-fw/core": cliVersion(),
+  "@mercury-fw/formatter": cliVersion(),
+  "@mercury-fw/channel-http": PLUGIN_VERSION,
+  "@mercury-fw/plugin-jira": PLUGIN_VERSION,
+};
 
 describe("mfw create --yes", () => {
-  test("writes exactly the rendered app, named after the folder by default", () => {
+  test("writes exactly the rendered app, named after the folder by default", async () => {
     const dir = join(base, "demo");
-    const result = run("create", dir, "--channels", "http", "--plugins", "jira", "--yes");
+    const result = await run("create", dir, "--channels", "http", "--plugins", "jira", "--yes");
     expect(result.code).toBe(0);
     const expected = renderApp({
       name: "demo",
@@ -51,23 +92,31 @@ describe("mfw create --yes", () => {
     expect(result.stdout).toContain(dir);
   });
 
-  test("takes the name, assistant name and role from the flags", () => {
+  test("an unreachable registry exits 1 saying so, writing nothing", async () => {
+    const dir = join(base, "demo");
+    const result = await runWith("http://127.0.0.1:9", "create", dir, "--plugins", "jira", "--yes");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Can't reach http://127.0.0.1:9");
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("takes the name, assistant name and role from the flags", async () => {
     const dir = join(base, "folder");
-    expect(run("create", dir, "--name", "demo", "--assistant-name", "Hermes", "--role", "a helper", "-y").code).toBe(0);
+    expect((await run("create", dir, "--name", "demo", "--assistant-name", "Hermes", "--role", "a helper", "-y")).code).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")).name).toBe("demo");
     expect(readFileSync(join(dir, "persona/identity.md"), "utf-8")).toBe("You are Hermes, a helper.\n");
   });
 
-  test("an unknown plugin exits 1, lists the valid ones, writes nothing", () => {
+  test("an unknown plugin exits 1, lists the valid ones, writes nothing", async () => {
     const dir = join(base, "demo");
-    const result = run("create", dir, "--plugins", "slack", "--yes");
+    const result = await run("create", dir, "--plugins", "slack", "--yes");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Unknown plugin "slack" (valid: jira, bitbucket, atlassian-admin)');
     expect(existsSync(dir)).toBe(false);
   });
 
-  test("the folder is created in kebab case, only its last segment; the app is named after it", () => {
-    const result = run("create", join(base, "Sub Dir", "My App"), "--yes");
+  test("the folder is created in kebab case, only its last segment; the app is named after it", async () => {
+    const result = await run("create", join(base, "Sub Dir", "My App"), "--yes");
     expect(result.code).toBe(0);
     const dir = join(base, "Sub Dir", "my-app");
     expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")).name).toBe("my-app");
@@ -75,15 +124,15 @@ describe("mfw create --yes", () => {
     expect(result.stdout).toContain(dir);
   });
 
-  test("--name is kept as given, the folder is still kebab case", () => {
-    const result = run("create", join(base, "Bot Folder"), "--name", "comperio.bot", "--yes");
+  test("--name is kept as given, the folder is still kebab case", async () => {
+    const result = await run("create", join(base, "Bot Folder"), "--name", "comperio.bot", "--yes");
     expect(result.code).toBe(0);
     const pkg = JSON.parse(readFileSync(join(base, "bot-folder", "package.json"), "utf-8"));
     expect(pkg.name).toBe("comperio.bot");
   });
 
-  test("a folder name with nothing usable in it exits 1, writing nothing", () => {
-    const result = run("create", join(base, "!!!"), "--yes");
+  test("a folder name with nothing usable in it exits 1, writing nothing", async () => {
+    const result = await run("create", join(base, "!!!"), "--yes");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('"!!!"');
     expect(readdirSync(base)).toEqual([]);
@@ -93,17 +142,17 @@ describe("mfw create --yes", () => {
 // Regression: these were only discovered after the whole wizard had been
 // answered; they must fail before any question is asked.
 describe("mfw create, checks before the wizard", () => {
-  test("an unknown channel given as a flag, without --yes, exits 1 naming the valid ones", () => {
-    const result = run("create", join(base, "demo"), "--channels", "slack");
+  test("an unknown channel given as a flag, without --yes, exits 1 naming the valid ones", async () => {
+    const result = await run("create", join(base, "demo"), "--channels", "slack");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Unknown channel "slack" (valid: google-chat, http)');
   });
 
-  test("a folder that isn't empty, without --yes, exits 1 and is left alone", () => {
+  test("a folder that isn't empty, without --yes, exits 1 and is left alone", async () => {
     const dir = join(base, "demo");
     mkdirSync(dir);
     writeFileSync(join(dir, "notes.txt"), "mine");
-    const result = run("create", dir);
+    const result = await run("create", dir);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("is not empty");
     expect(readdirSync(dir)).toEqual(["notes.txt"]);
@@ -111,29 +160,29 @@ describe("mfw create, checks before the wizard", () => {
 });
 
 describe("mercury (usage)", () => {
-  test("no command prints the usage and exits 1", () => {
-    const result = run();
+  test("no command prints the usage and exits 1", async () => {
+    const result = await run();
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("mfw create <folder>");
   });
 
-  test("an unknown command exits 1 naming it", () => {
-    const result = run("deploy");
+  test("an unknown command exits 1 naming it", async () => {
+    const result = await run("deploy");
     expect(result.code).toBe(1);
     expect(result.stderr).toContain('Unknown command "deploy"');
   });
 
   // Regression: --help after `create` hit the strict flag parser and errored.
-  test("create --help and create -h print the usage and exit 0", () => {
+  test("create --help and create -h print the usage and exit 0", async () => {
     for (const flag of ["--help", "-h"]) {
-      const result = run("create", "demo", flag);
+      const result = await run("create", "demo", flag);
       expect(result.code).toBe(0);
       expect(result.stdout).toContain("mfw create <folder>");
     }
   });
 
-  test("--help prints the usage and exits 0", () => {
-    const result = run("--help");
+  test("--help prints the usage and exits 0", async () => {
+    const result = await run("--help");
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("mfw create <folder>");
   });

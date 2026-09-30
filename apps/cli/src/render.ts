@@ -1,3 +1,4 @@
+/// <reference path="./template.d.ts" />
 /**
  * Turns the wizard's answers into the new app's files, as a `path → content`
  * map, without touching the disk (`write.ts` does that). The static files come
@@ -292,8 +293,7 @@ function renderCompose(name: string, hasTools: boolean): string {
   ].join("\n");
 }
 
-/** The app's README: what it was scaffolded with, how to run it, and that the
- * packages it depends on aren't published yet. */
+/** The app's README: what it was scaffolded with and how to run it. */
 function renderReadme(name: string, channels: CatalogEntry[], tools: CatalogEntry[]): string {
   const list = (entries: CatalogEntry[]) => (entries.length > 0 ? entries.map((e) => e.id).join(", ") : "none");
   return `# ${name}
@@ -313,12 +313,13 @@ A Mercury app, scaffolded by \`mfw create\`.
 ## Running it
 
 \`\`\`bash
+bun install
 cp .env.example .env
 docker compose up --build
 docker compose run --rm mercury bun run repl
 \`\`\`
 
-> The \`@mercury-fw/*\` packages this app depends on are not published yet, so \`bun install\` (and the image build) won't find them until they are.
+\`bun install\` here gives your editor and \`bun run typecheck\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds.
 ${tools.length > 0 ? CREDENTIALS_SECTION : ""}`;
 }
 

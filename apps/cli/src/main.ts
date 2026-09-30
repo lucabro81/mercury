@@ -1,16 +1,15 @@
-#!/usr/bin/env bun
 /**
  * The `mfw` command. One subcommand for now, `create <folder>`: writes a
  * new Mercury app from the template, asking what to put in it (or taking the
- * answers from flags with `--yes`). It only deposits the files; installing
- * comes once the packages are published.
+ * answers from flags with `--yes`). It writes the files; `bun install` in the
+ * new app is left to the user.
  */
 import { basename, dirname, join, resolve } from "node:path";
 import { parseCreateArgs, type CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
 import { kebabCase } from "./naming.ts";
 import { renderApp, selectionError } from "./render.ts";
-import { packageVersions } from "./versions.ts";
+import { appVersions, DEFAULT_REGISTRY } from "./versions.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
 
@@ -60,21 +59,25 @@ async function create(argv: string[]): Promise<number> {
   if (answers === undefined) {
     return 1;
   }
-  const versions = packageVersions(["@mercury-fw/core", "@mercury-fw/formatter", ...CATALOG.map((e) => e.package)]);
+  const chosen = CATALOG.filter(
+    (e) => (e.kind === "channel" ? answers.channels : answers.plugins).includes(e.id),
+  ).map((e) => e.package);
+  const versions = await appVersions(chosen, { registry: process.env.MFW_REGISTRY ?? DEFAULT_REGISTRY });
   writeApp(dir, renderApp({ ...answers, versions }));
   console.log(`Created ${answers.name} in ${dir}
 
 Next:
   cd ${dir}
+  bun install
   cp .env.example .env    # then fill it in
-  docker compose up --build
-
-The @mercury-fw/* packages aren't published yet, so installing won't work until they are.`);
+  docker compose up --build`);
   return 0;
 }
 
-/** Dispatches the subcommand; returns the exit code. */
-async function main(argv: string[]): Promise<number> {
+/** Runs `mfw` with `argv` (the arguments after the command name) and returns
+ * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-fw`
+ * both call it. */
+export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   if (command === "--help" || command === "-h") {
     console.log(USAGE);
@@ -99,5 +102,3 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
 }
-
-process.exit(await main(process.argv.slice(2)));

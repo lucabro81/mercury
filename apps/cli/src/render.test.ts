@@ -191,12 +191,13 @@ describe("renderApp: persona", () => {
 });
 
 describe("renderApp: README.md", () => {
-  test("names the app and what it was scaffolded with, and says it can't be installed yet", () => {
+  test("names the app and what it was scaffolded with, and starts from installing it", () => {
     const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
     expect(readme.startsWith("# demo\n")).toBe(true);
     expect(readme).toContain("Channels: http");
     expect(readme).toContain("Tool plugins: jira");
-    expect(readme).toContain("not published yet");
+    expect(readme).toContain("bun install\ncp .env.example .env\n");
+    expect(readme).not.toContain("published");
   });
 
   // The template doesn't provision CLI credentials yet: the README must say the
