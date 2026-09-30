@@ -15,7 +15,7 @@ WORKDIR /app
 # package.json's trustedDependencies); the binaries go on PATH.
 COPY --chown=mercury:mercury package.json bun.lock* ./
 RUN bun install --production && chown -R mercury:mercury node_modules
-RUN find /app/node_modules -path '*/@mercury/*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \;
+RUN find /app/node_modules -path '*/@mercury-fw/*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \;
 
 COPY --chown=mercury:mercury mercury.config.ts markdown.d.ts ./
 COPY --chown=mercury:mercury persona ./persona

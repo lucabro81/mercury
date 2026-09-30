@@ -1,5 +1,5 @@
 /**
- * The public surface of `@mercury/core` — the framework runtime a Mercury
+ * The public surface of `@mercury-fw/core` — the framework runtime a Mercury
  * instance consumes. Everything else under `src/` is internal: an app depends on
  * this barrel, never on a deep path.
  *

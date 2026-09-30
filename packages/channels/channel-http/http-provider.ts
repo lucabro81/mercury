@@ -11,7 +11,7 @@
  * injected (`confirm`/`resolveConfirmation`), so this package never imports the app.
  */
 import { startHttpServer, type ConfirmFn, type ResolveConfirmationFn } from "./http-server.ts";
-import type { Provider, HandleTurn, ChannelHostReads } from "@mercury/channel-types";
+import type { Provider, HandleTurn, ChannelHostReads } from "@mercury-fw/channel-types";
 
 export type HttpProviderDeps = {
   port: number;

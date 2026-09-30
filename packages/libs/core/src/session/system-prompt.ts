@@ -1,5 +1,5 @@
-import { NO_REPLY } from "@mercury/channel-types";
-import type { Skill } from "@mercury/plugin-types";
+import { NO_REPLY } from "@mercury-fw/channel-types";
+import type { Skill } from "@mercury-fw/plugin-types";
 
 /** The assistant's persona, set by the instance: `identity` opens the system
  * prompt, `tone` closes it. Either one left out falls back to its default. */

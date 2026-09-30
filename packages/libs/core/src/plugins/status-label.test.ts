@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { defaultStatusLabel } from "@mercury/plugin-types";
+import { defaultStatusLabel } from "@mercury-fw/plugin-types";
 
 /**
  * The contract-level default status label — what every CLI command's status

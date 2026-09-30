@@ -16,14 +16,14 @@
  *    never takes down the rest.
  *
  * The contract types (`Plugin`, `SessionToolContext`, `CliPostProcessor`,
- * `PostTurnGuard`, and the `build()` context) live in `@mercury/plugin-types`,
+ * `PostTurnGuard`, and the `build()` context) live in `@mercury-fw/plugin-types`,
  * the shared package both the core and the plugins import, so neither mirrors
  * the other. This module keeps only the core-runtime pieces: how a hand-listed
  * set of plugins is loaded and what the load produces.
  */
 import type { LanguageModel } from "ai";
-import { PLUGIN_API_VERSION } from "@mercury/plugin-types";
-import type { Plugin, CliPostProcessor, PostTurnGuard, Skill, SessionToolContext } from "@mercury/plugin-types";
+import { PLUGIN_API_VERSION } from "@mercury-fw/plugin-types";
+import type { Plugin, CliPostProcessor, PostTurnGuard, Skill, SessionToolContext } from "@mercury-fw/plugin-types";
 import type { Tool } from "ai";
 
 /** One plugin's tool contribution, kept paired so the composition root can build

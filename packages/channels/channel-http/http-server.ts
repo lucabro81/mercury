@@ -24,7 +24,7 @@ import {
   type TurnSink,
   type ChannelHostReads,
   type ConfirmOutcome,
-} from "@mercury/channel-types";
+} from "@mercury-fw/channel-types";
 
 /** Resolves a bare confirmation token to a reply string, or `null` if the input isn't a token. Injected by the core (`ctx.confirm`). */
 export type ConfirmFn = (token: string, sessionKey: string, userId: string) => Promise<string | null>;

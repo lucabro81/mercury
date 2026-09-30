@@ -1,363 +1,123 @@
 # Mercury
 
-## Table of contents
+Mercury is a framework for building your own agent on Bun and the Vercel AI SDK: you declare what the agent is made of in one config file, and the framework runs everything around it, from the conversation loop to the channels it talks through.
 
-- [What it is](#what-it-is)
-- [Installation](#installation)
-- [Running it](#running-it)
-  - [Starting it](#starting-it)
-  - [Rebuilding](#rebuilding)
-  - [Viewing logs](#viewing-logs)
-  - [Using the dev REPL](#using-the-dev-repl)
-  - [Getting a shell to test CLIs directly](#getting-a-shell-to-test-clis-directly)
-  - [Stopping everything](#stopping-everything)
-  - [Wiki vault maintenance](#wiki-vault-maintenance)
-  - [Inspecting Qdrant](#inspecting-qdrant)
-- [Scaffolding a new app](#scaffolding-a-new-app)
-- [Deploying to a remote host](#deploying-to-a-remote-host)
-  - [Setting up the Chat app's Google Cloud project](#setting-up-the-chat-apps-google-cloud-project)
-  - [First deploy](#first-deploy)
-  - [Redeploying](#redeploying)
-  - [CLI credentials without a host installation](#cli-credentials-without-a-host-installation)
-  - [Resetting memory](#resetting-memory)
-- [Scripts](#scripts)
-- [CLIs and service authentication](#clis-and-service-authentication)
-- [HTTP API](#http-api)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Composing an app](#composing-an-app)
+- [Packages](#packages)
+- [Versions and compatibility](#versions-and-compatibility)
+- [Developing in this repo](#developing-in-this-repo)
 
-## What it is
+## How it works
 
-Mercury is a generic agent built around a fixed orchestration loop, it has a three-layer memory management (context, episodic/semantic memory and an llm wiki), and its functionality can be extended through plugins.
+An agent built on Mercury can do what its plugins let it do and nothing else: each plugin contributes tools to the model, a prompt fragment, skills it loads on demand, and the core composes whatever the app declares. Some plugins work through a command-line tool, and those build on a dedicated library (`@mercury-fw/cli-engine`) that runs the command without a shell and only when it matches what the plugin allows. Channels are plugins as well (Google Chat, HTTP), so the core doesn't know where a message comes from either.
 
-## Installation
+The orchestration sits directly on the AI SDK, with no agent framework in between, and the model is whatever an Ollama-compatible endpoint serves (`OLLAMA_HOST`, `OLLAMA_MODEL`). An action a plugin marks as irreversible never runs on the model's word: Mercury stages it and hands back a one-time token, and it runs only when that token comes back (a button click on Google Chat, the pasted token in the terminal).
 
-Prerequisites: Docker + Docker Compose, a reachable Ollama endpoint (local or remote).
+Memory, as it stands today, has three layers: the conversation history, a wiki the agent reads and writes, and an episodic store on Qdrant. The history is what the agent needs to work at all, the other two enrich it and fail soft when they're unreachable. How memory becomes composable like the rest is still open ([#30](https://github.com/lucabro81/mercury-fw/issues/30)).
 
-> **Run everything below from `apps/mercury/`.** This repo is a monorepo and Mercury is one app in it; its compose files, Dockerfile and scripts live in its own directory rather than at the root, since a future app may have no containers at all. Every path and command in this README is relative to `apps/mercury/`.
+## Quick start
+
+You need Bun, Docker and an Ollama-compatible endpoint the containers can reach.
 
 ```bash
-cd apps/mercury
+bun create mercury-agent my-agent
+cd my-agent
+bun install
 cp .env.example .env
-# fill in .env: OLLAMA_HOST, OLLAMA_MODEL, QDRANT_URL, Jira/Google Chat/GitHub credentials
+docker compose up --build
 ```
 
-Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (declared = active, no env gate). Google Chat and HTTP are channel plugins; the interactive terminal is a dev command (`bun run repl`), not a channel of the running service. A declared channel left unconfigured stays inert, so leaving `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` empty runs without Google Chat.
+`bun create mercury-agent` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
 
-The assistant's persona is also set in `mercury.config.ts`, through `persona: { identity, tone }`: `identity` is the line that opens the system prompt ("You are …"), `tone` the block of rules that closes it. Both are plain strings, so they can live in Markdown files imported as text (`import tone from "./persona/tone.md" with { type: "text" }`). A field left out falls back to the default, Mercury's own; everything in between, the rules tied to the tools and the plugins, stays with the core.
-
-## Running it
-
-Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). `docker compose` starts, stops, and rebuilds both together.
-
-### Starting it
-
-```bash
-docker compose up -d
-```
-
-`-d` (detached) runs it in the background: the command returns immediately, and both containers keep running after you close the terminal. Drop it to run attached, in the foreground, with every service's output printed live and `Ctrl+C` stopping everything:
-
-```bash
-docker compose up
-```
-
----
-
-In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts this app's `src/` and the `@mercury/core` runtime it imports, and reloads on every source change, no rebuild needed for that.
-
-### Rebuilding
-
-Plain `docker compose up -d` doesn't rebuild anything if an image already exists. Add `--build` whenever something outside `src/` changed (dependencies, the Dockerfile itself):
-
-```bash
-docker compose up -d --build
-```
-
----
-
-CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them, and neither does a normal `--build`. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a plain rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache`:
-
-```bash
-docker compose build --no-cache mercury
-docker compose up -d
-```
-
-### Viewing logs
-
-```bash
-docker compose logs -f
-```
-
-Follows every service's logs together, interleaved — the same thing you'd see running `docker compose up` in the foreground.
-
----
-
-Name a service to follow only that one:
-
-```bash
-docker compose logs -f mercury
-docker compose logs -f qdrant
-```
-
-### Using the dev REPL
-
-The interactive terminal is a dev command, not part of the running service. Boot a one-off instance and open the REPL against it:
+The service is headless (channels and background jobs); to talk to the agent from a terminal, open the dev REPL:
 
 ```bash
 docker compose run --rm mercury bun run repl
 ```
 
-Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough. The REPL is identity-less by design, so a debug session never writes to per-user memory.
+The [`@mercury-fw/cli` README](apps/cli/README.md) has every flag, for scaffolding without the questions.
 
----
+## Composing an app
 
-`Ctrl+D` (or `Ctrl+C`) ends the REPL; with `--rm` the one-off container is removed on exit, leaving a service started with `docker compose up` untouched. To follow the running service's logs:
+An app is its `mercury.config.ts`, plus the environment it runs in:
 
-```bash
-docker compose logs -f mercury
+```ts
+import { defineMercuryConfig } from "@mercury-fw/core";
+import { formatterPlugin, formatter } from "@mercury-fw/formatter";
+import { jiraPlugin, type JiraDisplays } from "@mercury-fw/plugin-jira";
+import { httpChannel } from "@mercury-fw/channel-http";
+import identity from "./persona/identity.md" with { type: "text" };
+import tone from "./persona/tone.md" with { type: "text" };
+
+const jiraIssueLine = (issue: JiraDisplays["issue-list"]) =>
+  `${issue.key} ${issue.status ? `[${issue.status}] ` : ""}${issue.summary}\n${issue.url}`;
+
+export default defineMercuryConfig({
+  persona: { identity, tone },
+  plugins: [
+    formatterPlugin(
+      jiraPlugin,
+      formatter<JiraDisplays>({
+        "issue-list": { item: jiraIssueLine, empty: "No matching issues." },
+      }),
+    ),
+  ],
+  channels: [httpChannel],
+});
 ```
 
-### Getting a shell to test CLIs directly
+`plugins` are the tool plugins, and one of them contributes only when its name is also in `MERCURY_CLIS` and its allowlist validates, so the config says what the app may use and the environment what a given deployment turns on. `channels` are active as soon as they're declared (one left unconfigured stays inert).
 
-The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a plugin's allowlist. For that, open a shell in the running container instead:
+A plugin can hand the user a list (Jira does, for `issue search`), and how that list reads is the app's call: `formatterPlugin` wraps the plugin and `formatter` takes one rule per kind of list, the line for each item plus an optional text for an empty list. The kinds come typed from the plugin (`JiraDisplays`), so a kind it doesn't emit fails the typecheck, and a kind left without a rule isn't shown at all (the model still gets the data, and the log says which rule is missing).
 
-```bash
-docker compose exec mercury bash
-```
+`persona` sets who the assistant is: `identity` opens the system prompt ("You are …") and `tone` closes it with the rules on how to answer. Both are plain strings, kept here in Markdown files imported as text, and a field left out falls back to Mercury's own. Everything between them, the rules tied to the tools, stays with the core.
 
-The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them.
+## Packages
 
-`exit` or `Ctrl+D` leaves the shell and drops you back on the host. The container keeps running, since `exec` just attaches a second process to it; the dev REPL, by contrast, is its own one-off `docker compose run --rm` container, so ending it removes only that container and leaves a service started with `docker compose up` running.
+The framework, released together under one version:
 
-If the container isn't up yet, `docker compose run --rm mercury bash` opens one instead, and exiting it removes that one-off container without touching anything else.
-
-### Stopping everything
-
-```bash
-docker compose down
-```
-
-Stops and removes both containers. The named volumes (wiki vault, Qdrant data, CLI credentials) aren't touched — they survive, and the next `up` picks up right where it left off. See [Resetting memory](#resetting-memory) for actually wiping one of them.
-
-### Wiki vault maintenance
-
-The wiki vault lives on its own Docker volume, not in this repo, so there's a small maintenance CLI for it:
-
-```bash
-scripts/vault.sh list
-scripts/vault.sh read curated/standards/some-file.md
-scripts/vault.sh grep "some pattern"
-cat note.md | scripts/vault.sh write-curated curated/standards/new-file.md --author yourname
-```
-
-### Inspecting Qdrant
-
-No dedicated CLI for this one: Qdrant's own REST API is already published on `6333` (see `docker-compose.yml`), so plain `curl` reaches it directly, container running or not.
-
-```bash
-curl -s http://localhost:6333/collections | jq
-```
-
----
-
-```bash
-curl -s http://localhost:6333/collections/episodic_memory | jq '.result.points_count'
-```
-
----
-
-```bash
-curl -s -X POST http://localhost:6333/collections/episodic_memory/points/scroll \
-  -H "Content-Type: application/json" \
-  -d '{"limit": 10, "with_payload": true}' | jq
-```
-
-Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the other two collections. Drop `| jq` if it isn't installed, the raw JSON still prints fine.
-
-## Scaffolding a new app
-
-`apps/cli` is the `mercury` command, and `mercury create <folder>` writes a new Mercury app into a missing or empty folder, whose name it turns into kebab case (`My App` becomes `my-app`, the path above it stays as typed). It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
-
-It isn't published yet, so link it once from the repo (unlike the rest of this README, from the repo root):
-
-```bash
-cd apps/cli && bun link
-```
-
-and from then on `mercury create ~/somewhere/my-app` works from any folder. `--yes` skips the questions, taking `--name`, `--assistant-name`, `--role`, `--channels` and `--plugins` from the command line and the defaults for the rest; `mercury --help` lists them.
-
-For now it only writes the files: the `@mercury/*` packages the new app depends on aren't on a registry yet, so `bun install` there won't find them until they are published.
-
-## Deploying to a remote host
-
-Local dev applies `docker-compose.override.yml` automatically: it mounts `src/`, reuses your own host's CLI credentials, and starts an unauthenticated admin panel. None of that belongs on a host reachable by more than one person, so a remote deployment excludes it explicitly:
-
-```
-COMPOSE_FILE=docker-compose.yml
-```
-
-in `.env` (Compose applies the override by default whenever the file is present, so this line is what turns that off).
-
-### Setting up the Chat app's Google Cloud project
-
-A second (or third) instance needs its own Chat app identity, not a shared one: its own Google Cloud project, Pub/Sub topic and subscription, and service account. Sharing one across instances means either two processes both replying to the same message, or one conversation's events getting split between two processes with no memory of each other's half, depending on how the subscription's set up. Neither is what you want.
-
-Most of it is scriptable:
-
-```bash
-PROJECT_ID=<pick one>
-BILLING_ACCOUNT_ID=<gcloud billing accounts list>
-TOPIC=mercury-chat-events
-SUBSCRIPTION=mercury-chat-sub
-SA_NAME=mercury-bot
-
-gcloud projects create "$PROJECT_ID" --name="Mercury"
-gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID"
-gcloud services enable chat.googleapis.com pubsub.googleapis.com iam.googleapis.com --project="$PROJECT_ID"
-
-gcloud pubsub topics create "$TOPIC" --project="$PROJECT_ID"
-gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --project="$PROJECT_ID"
-
-# Google's own Chat-publishing service account needs publish rights on the topic
-gcloud pubsub topics add-iam-policy-binding "$TOPIC" \
-  --project="$PROJECT_ID" \
-  --member="serviceAccount:chat-api-push@system.gserviceaccount.com" \
-  --role="roles/pubsub.publisher"
-
-gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="Mercury bot"
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
-  --project="$PROJECT_ID" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/pubsub.subscriber"
-
-gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
-```
-
-`key.json`'s `client_email`/`private_key` go into `GOOGLE_CHAT_APP_CLIENT_EMAIL`/`GOOGLE_CHAT_APP_PRIVATE_KEY`, and `projects/$PROJECT_ID/subscriptions/$SUBSCRIPTION` into `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION`. Delete `key.json` once you've copied it in.
-
----
-
-One part has no `gcloud`/API equivalent and has to be done by hand in Cloud Console, at *APIs & Services → Enabled APIs & Services → Google Chat API → Configuration*: set an app name, avatar, and description, turn on interactive features, and under connection settings pick Cloud Pub/Sub with `$TOPIC`'s full name. Add the resulting bot to a space the same way you'd add any Chat app.
-
-### First deploy
-
-```bash
-git clone <repo-url> mercury && cd mercury
-cp .env.example .env
-# fill in .env: OLLAMA_HOST/OLLAMA_MODEL for that host's endpoint, service
-# credentials, COMPOSE_FILE above, CLI credentials below
-docker compose up -d --build
-```
-
-### Redeploying
-
-```bash
-git pull && docker compose up -d --build
-```
-
-### CLI credentials without a host installation
-
-The four CLIs (Jira, Bitbucket, Google Chat, atlassian-admin) normally read their auth from `~/.config/<cli-name>` on whatever machine runs them, which is fine in dev where you already use them outside Mercury too. A remote host usually has none of that. Instead, `.env` can carry each CLI's config as a base64-encoded tar (`JIRA_CLI_CONFIG_TAR_B64` and friends, see `.env.example` for how to generate one from a machine that already has valid credentials, or run `scripts/create-credentials.sh <cli-name>` there to copy it straight to the clipboard): `scripts/docker-entrypoint.sh` decodes it into a persistent volume the first time that CLI's own subdirectory is empty, then leaves it alone. A CLI refreshing its own token during a run writes back to that same volume, so the refresh survives a redeploy instead of reverting to the original blob every time.
-
-That "only the first time" check cuts both ways, though: once a CLI's subdirectory exists, even empty or broken from a bad first attempt, the entrypoint never touches it again, silently. Fixing `.env` and redeploying afterward does nothing, since as far as the entrypoint's concerned that CLI's already set up. Clear just that one subdirectory to force a re-materialization on the next start:
-
-```bash
-scripts/reset-cli-credentials.sh jira-cli
-```
-
-### Resetting memory
-
-```bash
-scripts/reset-qdrant.sh
-scripts/reset-wiki.sh
-```
-
-Each wipes its own named volume and lets Mercury reinitialize it empty on the next start, useful for clearing out test data without touching the other layer.
-
-## Scripts
-
-- **`vault.sh`** — maintenance CLI for the wiki vault, run manually. See [Wiki vault maintenance](#wiki-vault-maintenance).
-- **`reset-qdrant.sh`** / **`reset-wiki.sh`** — wipe one memory layer after a confirmation prompt, run manually. See [Resetting memory](#resetting-memory).
-- **`reset-cli-credentials.sh`** — wipe one CLI's leftover subdirectory in the `cli-credentials` volume after a confirmation prompt, run manually. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
-- **`create-credentials.sh`** — bundles one CLI's `~/.config/<cli-name>` into a base64 tar on the clipboard, run manually on a machine that already has valid credentials. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
-- **`redeploy-gb10.sh`** — `git pull` then `docker compose up -d --build`, run manually on a remote deployment. See [Redeploying](#redeploying).
-- **`install-clis.sh`** — fetches the CLI binaries from CLI-monorepo. Runs automatically at image build time, never by hand.
-- **`docker-entrypoint.sh`** — the container's actual entrypoint: materializes CLI credentials from `.env` if the volume's still empty, then starts Mercury. Runs automatically at container start. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
-- **`tag-release.sh`** — tags the version `changeset version` just bumped. Runs as part of `bun run release`, not standalone.
-
-## CLIs and service authentication
-
-Every external integration is a plugin (`packages/tools/plugin-*`) that owns its CLI end to end: it ships its own pinned binary, downloaded at `bun install` by the plugin's postinstall, and its own command allowlist (a `<binary>.json` living in the package, validated when the plugin loads). The core no longer knows about any CLI directly, so there's no central config directory to populate. You enable a plugin by declaring it in `mercury.config.ts` and listing its name in `MERCURY_CLIS`.
-
-A plugin can also hand the user a list (Jira does, for `issue search`), and how that list reads is up to the instance: `mercury.config.ts` wraps the plugin with `formatterPlugin` from `@mercury/formatter` and gives one rule per kind of list, the line for each item plus an optional text for an empty list. The kinds come typed from the plugin (`JiraDisplays` for Jira), so a key it doesn't emit fails the typecheck, and a kind left without a rule simply isn't shown (the model still gets the data, and the log says which rule is missing).
-
-Authenticating a CLI stays per-crate and out of this repo: run the crate's own `init` (e.g. `jira init`), or follow its README in [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo), for what subcommands and flags it actually exposes. The binary keeps its credentials under `~/.config/<cli>`, seeded once into the container's `cli-credentials` volume by `scripts/docker-entrypoint.sh` from a base64 tar in `.env` (see `*_CLI_CONFIG_TAR_B64`), or bind-mounted from the host in dev via `docker-compose.override.yml`.
-
-## HTTP API
-
-The intended primary channel for a custom web UI, shipped as the `@mercury/channel-http` plugin and active whenever it's declared in `mercury.config.ts`'s `channels` (as it is in the default config); remove it there to turn the surface off. It listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
-
-**CORS** is enabled on every response and every route answers an `OPTIONS` preflight, so a browser UI on another origin can call it. The allowed origin is `HTTP_SURFACE_CORS_ORIGIN` (default `*`; no credentials are used).
-
-The full contract is described by an **OpenAPI document**, served raw at `GET /openapi.yaml` and published as a rendered docs page on GitHub Pages (see `packages/channels/channel-http/openapi.yaml`, the single source of truth).
-
-All responses are JSON except `POST /turn`, which streams `text/event-stream`. Every JSON response is either `{ "ok": true, ... }` or, on error, `{ "ok": false, "error": "<message>" }` with HTTP `400`/`500`.
-
-### `POST /turn`
-
-Runs one conversational turn; the reply streams back as Server-Sent Events.
-
-**Request body** (`application/json`):
-
-| field | type | required | description |
-|---|---|---|---|
-| `text` | string | yes | The user message. A bare confirmation token here confirms a staged action (see the `pending` event) without invoking the model. |
-| `conversationId` | string | no | Opaque, client-owned id that continues a conversation. Omitted ⇒ a fresh one-off session. |
-
-**Responses**: `200 text/event-stream` (the events below); `400` if `text` is missing or the body isn't JSON.
-
-Reasoning and answer text arrive as **incremental deltas** — never one finished block — so a UI renders them live; treat the `final` event as the authoritative text. **To cancel** a turn (e.g. a generation that's diverging), close the connection: Mercury aborts the in-flight generation.
-
-**SSE events** — each is `event: <name>` followed by `data: <json>`:
-
-| event | data | when |
-|---|---|---|
-| `reasoning` | `{ chunk, id }` | a model reasoning delta |
-| `reasoning_end` | `{ id, failed }` | a reasoning block ends |
-| `tool` | `{ label, detail, toolCallId }` | a tool call starts |
-| `tool_finish` | `{ toolCallId, outcome }` | a tool call settles (`outcome`: `success` \| `failed` \| `pending`) |
-| `text` | `{ chunk }` | an answer-text delta |
-| `pending` | `{ command, token }` | a confirm-required action was staged; send `token` back to confirm it — as a later `/turn` `text`, or via `POST /confirm` |
-| `final` | `{ text }` | the complete answer (also emitted for a token confirmation, with no model turn) |
-| `error` | `{ message }` | the turn failed mid-stream |
-
-```bash
-curl -N -X POST http://localhost:4100/turn \
-  -H 'content-type: application/json' \
-  -d '{"text":"Quante issue nel progetto KAN?","conversationId":"c1"}'
-```
-
-### `POST /confirm`
-
-Explicit alternative to re-sending a token as `/turn` `text`. Body `{ token, conversationId }`; returns `{ ok: true, resolved: true, text }` when the token was a pending confirmation, `{ ok: true, resolved: false }` otherwise. `400` if `token` or `conversationId` is missing. Never invokes the model.
-
-### Read-only introspection
-
-All `GET`, all JSON, all reporting state already held in-process.
-
-| endpoint | `data` on success |
+| Package | What it is |
 |---|---|
-| `GET /conversation?id=<conversationId>&limit=<n>&offset=<cursor>` | `{ messages: [{ role, content, timestamp }], nextOffset }` — a conversation's durable transcript in order; `400` if `id` is missing |
-| `GET /conversations?limit=<n>` | `{ conversations: [{ sessionKey, lastTimestamp, preview }] }` — known conversations, most-recently-active first |
-| `GET /manifest` | `{ manifest: { coreApiVersion, plugins: [{ name, apiVersion, active, skills, hasBuild, customStatus }], activeClis, skills } }` |
-| `GET /confirmations` | `{ pending: [{ sessionKey, binary, args, expiresAt }] }` — tokens are deliberately never included |
-| `GET /tool-log` | `{ entries: [...] }` |
-| `GET /health` | `{ uptimeSeconds, memory, qdrantReachable, ollamaReachable }` |
-| `GET /wiki/list` | `{ files: [...] }` |
-| `GET /wiki/read?path=<vault-path>` | `{ content }` — `400` if `path` is missing |
-| `GET /wiki/grep?pattern=<regex>` | `{ matches: [...] }` — `400` if `pattern` is missing |
-| `GET /memory/scroll?collection=<name>&limit=<n>&offset=<cursor>` | one page of the named episodic/semantic collection |
-| `GET /openapi.yaml` | the OpenAPI document for this surface (`text/yaml`) |
+| [`@mercury-fw/core`](packages/libs/core) | The runtime: `composeMercury(config)`, the loaders, the turn loop, memory. What an app depends on. |
+| [`@mercury-fw/cli`](apps/cli) | The `mfw` command: `mfw create` scaffolds an app. |
+| [`create-mercury-agent`](apps/create-mercury-agent) | What `bun create mercury-agent` runs. |
+| [`@mercury-fw/formatter`](packages/formatters/formatter) | Applies an app's rules to the lists a plugin hands over. |
+| [`@mercury-fw/kit`](packages/libs/kit) | For plugin authors: the plugin and channel contracts in one import. |
+| [`@mercury-fw/plugin-types`](packages/types/plugin-types), [`@mercury-fw/channel-types`](packages/types/channel-types) | The contracts a tool plugin and a channel implement. |
+| [`@mercury-fw/cli-engine`](packages/libs/cli-engine) | For plugins that work through a CLI: parsing, allowlist, execution, confirmation staging. |
+| [`@mercury-fw/confirm-engine`](packages/libs/confirm-engine), [`@mercury-fw/utils`](packages/libs/utils) | Internals the packages above build on. |
 
-Conversation history and the conversation list are backed by the durable verbatim archive; they degrade to empty when the vector store is unreachable.
+The first-party plugins and channels, each with its own version:
+
+| Package | What it does |
+|---|---|
+| [`@mercury-fw/plugin-jira`](packages/tools/plugin-jira) | Jira through the `jira` CLI: searches, issue changes, typed issue lists, and deletion only after confirmation. |
+| [`@mercury-fw/plugin-bitbucket`](packages/tools/plugin-bitbucket) | Bitbucket pull requests through the `bitbucket` CLI, read-only. |
+| [`@mercury-fw/plugin-atlassian-admin`](packages/tools/plugin-atlassian-admin) | User lookup in an Atlassian organization through the `atlassian-admin` CLI, read-only. |
+| [`@mercury-fw/channel-google-chat`](packages/channels/channel-google-chat) | Google Chat, as a registered Chat app. |
+| [`@mercury-fw/channel-http`](packages/channels/channel-http) | An HTTP surface for a custom UI: streamed turns and read-only routes. |
+
+## Versions and compatibility
+
+The framework packages share one version and are released together, so an app picks a single framework version. Plugins and channels are versioned on their own: each declares the framework range it works with as `peerDependencies`, and at load time the core checks the contract version a plugin was written against (`apiVersion`), skipping one it can't run and logging why. While everything is `0.x`, minor releases may break things.
+
+## Developing in this repo
+
+A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and [`apps/mercury`](apps/mercury), Comperio's instance, which runs from the workspaces and is where changes get tried end to end.
+
+```bash
+bun install
+bun run test         # every package's tests
+bun run typecheck    # every package
+bun run check-pack   # what each package would publish
+```
+
+To try the CLI from source, link it once (`cd apps/cli && bun link`) and `mfw create` works from any folder.
+
+Every change that matters to users gets a changeset (`bun run changeset`), naming the packages it touches. `bun run release` turns the pending changesets into versions, changelogs and tags, and `bun run publish-packages` builds the type declarations, checks every pack and publishes to npm what isn't there yet.
+
+## License
+
+MIT

@@ -96,10 +96,10 @@ export function describeToolDetail(toolName: string, input: unknown): string {
 }
 
 // `ToolOutcome` is part of the channel `TurnSink` contract, so it lives in
-// `@mercury/channel-types` and is re-exported here for the core callers that
+// `@mercury-fw/channel-types` and is re-exported here for the core callers that
 // import it from this module.
-export type { ToolOutcome } from "@mercury/channel-types";
-import type { ToolOutcome } from "@mercury/channel-types";
+export type { ToolOutcome } from "@mercury-fw/channel-types";
+import type { ToolOutcome } from "@mercury-fw/channel-types";
 
 /**
  * Every tool in this codebase returns a uniform `{ok: true, ...}` /

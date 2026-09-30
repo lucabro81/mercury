@@ -10,19 +10,19 @@
  * every consumer declares it as a `typeof runCli` dependency and receives
  * it injected, so a test can supply a fake without spawning a subprocess.
  * `cli-tool.ts` (`runCommand`'s `execute`) and
- * `@mercury/confirm-engine`'s `confirm-flow.ts` (the second half of the confirm
+ * `@mercury-fw/confirm-engine`'s `confirm-flow.ts` (the second half of the confirm
  * flow) are the two that actually run model-requested commands; the rest use it for
  * version checks and diagnostics. The registered
- * Google Chat provider (`@mercury/channel-google-chat`) does not use this module at all — it talks to
+ * Google Chat provider (`@mercury-fw/channel-google-chat`) does not use this module at all — it talks to
  * the Chat REST API and Pub/Sub directly over HTTPS, never through a CLI
  * subprocess (see `google-chat-app-client.ts`).
  */
 
 // `CliResult` is part of the plugin contract (a post-processor receives and
-// returns one), so it lives in `@mercury/plugin-types` and is re-exported here
+// returns one), so it lives in `@mercury-fw/plugin-types` and is re-exported here
 // for the many core callers that import it from this module. Never throws —
 // callers branch on `ok` instead of catching.
-import type { CliResult } from "@mercury/plugin-types";
+import type { CliResult } from "@mercury-fw/plugin-types";
 export type { CliResult };
 
 /**

@@ -33,7 +33,7 @@ regression test that fails before the fix and passes after.
 
 ## What it is
 
-Mercury is an internal AI agent for Comperio: answers natural-language Jira queries, performs actions (create/transition/comment/delete) behind explicit confirmation when irreversible, keeps memory across three layers, proactively watches stalled PRs and tickets. Google Chat bot, with a dev REPL (`bun run repl`) for bootstrap and debugging.
+Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`). `apps/mercury` is Comperio's instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
 
 ## Stack
 
@@ -41,42 +41,45 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 - Tool calling: Vercel AI SDK — no agent framework on top (no LangChain, LlamaIndex, Mastra, etc.)
 - LLM: Ollama-compatible endpoint, always via `OLLAMA_HOST`, never hardcoded
 - Vector store: Qdrant
-- External integrations: dedicated CLI binaries per service (separate repo), invoked as subprocesses — never MCP
+- External integrations: plugins; the first-party ones wrap a pinned CLI binary per service (separate repo) through `@mercury-fw/cli-engine`
 - Container: Docker, single container, Debian base (`oven/bun:1`) — not Alpine, see Operational notes below
 
 ## Non-negotiable principles
 
-1. **CLI, not MCP.** Every external integration is a CLI binary, discovered via `--help`, never a schema preloaded into context. The model expresses which command to run as a single command-line string, the way it would type it in a terminal — Mercury parses and validates that string before ever executing it, never handing it to a real shell.
+1. **Capabilities come from plugins.** Whatever the agent can do, a plugin contributes it; the core knows no service. A plugin built on a CLI uses `@mercury-fw/cli-engine`, and that engine's rules apply to it (see What NOT to do).
 2. **No agent framework.** Custom orchestration on top of Vercel AI SDK only.
-3. **Memory layers have boundaries.** In-context history is a prerequisite for basic functionality. Any external memory/knowledge store is an enrichment — the system must work correctly even when it's empty or unreachable.
+3. **Memory, as it stands today, has three layers** (in-context history, the wiki, the episodic store on Qdrant). History is required; the rest is enrichment that must fail soft when empty or unreachable. How memory becomes composable is open in #30.
 4. **Stateless container.** Anything that must survive a restart lives on an explicit external volume, never only in-process.
 5. **Irreversible actions require explicit confirmation.** An explicit one-time token the user has to send back — never a "probably fine" inferred by the model, and never a keyword the model has to relay or the user has to remember. Mercury is a registered Chat app on Google Chat, so confirming there is a button click on the card Mercury sends; on the terminal it's pasting the bare token back. Same underlying token/store mechanism either way.
 
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`packages/libs/core/src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
+- Don't let `@mercury-fw/cli-engine` run a real shell (`sh -c`, pipes, redirects, chaining) — for a CLI-based plugin the model writes a command as free text, but the engine tokenizes it into an argv array itself (`packages/libs/cli-engine/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury-fw/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
 
-Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury/core`
+Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury-fw/core`
 (`packages/libs/core`); the plugins are siblings under `packages/`. `apps/mercury`
 is a **thin reference instance**: it declares its composition in `mercury.config.ts`
 and ships the two entrypoints (`src/index.ts` service, `src/repl.ts` dev REPL),
-both of which just import `@mercury/core` and hand it that config — the runtime
+both of which just import `@mercury-fw/core` and hand it that config — the runtime
 itself lives in core. Everything instance-specific (Dockerfile, compose files,
 scripts) lives inside `apps/mercury/`, because that instance happens to be the
 one with containers.
 
 The end state (see #48) is a repo of **core + plugins only**, with Comperio's
 Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
-interim reference/production instance until the scaffolder and publishing exist.
+interim reference/production instance until Comperio's app is scaffolded into
+its own repo and deployed.
 
-`apps/cli` is the scaffolder (`@mercury/cli`, bin `mercury`): `mercury create
+`apps/cli` is the scaffolder (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
-the first-party channels and tool plugins. For now it only deposits the files;
-installing waits for the packages to be published (#47, #48).
+the first-party channels and tool plugins, with the framework at the CLI's own
+version and each chosen plugin at its latest on the registry; installing is
+left to the user (`bun install`). `apps/create-mercury-agent` is the same command
+under the `bun create mercury-agent` name.
 
 ```
 mercury/                       # repo root
@@ -84,9 +87,8 @@ mercury/                       # repo root
 ├── README.md
 ├── turbo.json
 ├── .changeset/                # repo-level release state
-├── scripts/
-│   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
-├── packages/                  # grouped into per-role buckets; every workspace is @mercury/*
+├── scripts/                   # release tooling: release.ts (versions + tags), publish.ts (types + pack check + bun publish), build-types.ts, check-pack.ts, workspaces.ts
+├── packages/                  # grouped into per-role buckets; every workspace is @mercury-fw/*
 │   ├── types/
 │   │   ├── plugin-types/          # the shared Plugin contract (tools) — types + apiVersion + skill/status helpers, imported by core and plugins
 │   │   └── channel-types/         # the shared ChannelPlugin contract (channels) — Provider/TurnSink + confirm helpers, imported by core and channels
@@ -98,28 +100,29 @@ mercury/                       # repo root
 │   │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
 │   │   └── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
 │   ├── formatters/
-│   │   └── formatter/             # @mercury/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
+│   │   └── formatter/             # @mercury-fw/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
 │   ├── libs/
-│   │   ├── core/                 # @mercury/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
-│   │   ├── kit/                  # @mercury/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
+│   │   ├── core/                 # @mercury-fw/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
+│   │   ├── kit/                  # @mercury-fw/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
 │   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
 │   │   ├── confirm-engine/       # the core-owned confirm mechanism (store + stage + resolve), consumed by the core, injected into channels
 │   │   └── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
 │   └── config/
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
-    ├── cli/                   # @mercury/cli — `mercury create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
+    ├── create-mercury-agent/     # what `bun create mercury-agent` runs: `mfw create`, nothing of its own
+    ├── cli/                   # @mercury-fw/cli — `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
     └── mercury/               # ← everything below this line is relative to here
 ```
 
-Naming: every workspace is `@mercury/*`. The role is read from the bucket
+Naming: every workspace is `@mercury-fw/*`. The role is read from the bucket
 folder plus the name prefix (`plugin-*`, `channel-*`, `*-types`), not encoded
 again in the name. Workspace names must be unique repo-wide — the folder doesn't
 namespace them.
 
 **Paths and commands in this file and in README.md are relative to
 `apps/mercury/`** unless they clearly aren't (`.changeset/`, `turbo.json`,
-`scripts/tag-release.sh`). `docker compose` in particular only works from
+the root `scripts/`). `docker compose` in particular only works from
 there — the compose files never moved to the root.
 
 ```
@@ -138,7 +141,7 @@ apps/mercury/                  # the reference instance — thin: config + entry
 └── package.json
 ```
 
-The framework runtime the entrypoints call into lives in `@mercury/core`
+The framework runtime the entrypoints call into lives in `@mercury-fw/core`
 (`packages/libs/core/src`), config-agnostic — `composeMercury(config)` takes the
 instance's config as a parameter, it never imports a `mercury.config.ts`:
 
@@ -165,12 +168,14 @@ packages/libs/core/
 
 ## Versioning & changelog
 
-SemVer via [Changesets](https://github.com/changesets/changesets), `CHANGELOG.md` is public — same audience as README.
+SemVer via [Changesets](https://github.com/changesets/changesets); every package's `CHANGELOG.md` is public, same audience as the READMEs.
 
-- Every relevant change gets a changeset: `bun run changeset`, describe it, pick the bump type.
-- Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context — same rule as any other public doc in this repo.
-- No batching: each changeset is consumed on its own via `bun run release` from the repo root (`changeset version` + commit + `git tag vX.Y.Z`, see `scripts/tag-release.sh`), right after the change it documents.
-- The changeset's frontmatter names the workspace being released (`"mercury"`), and the version it bumps lives in `apps/mercury/package.json` — `.changeset/` itself stays at the root, where Changesets expects it.
+- **The framework moves in lockstep**: the Changesets `fixed` group (`.changeset/config.json`) holds core, the contracts, kit, cli-engine, confirm-engine, utils, formatter, the CLI and `create-mercury-agent`, so they always share one version, tagged `vX.Y.Z`. **Plugins and channels are versioned on their own** (tagged `<name>@<version>`): their `@mercury-fw/*` dependencies are `peerDependencies` over the whole `0.x` line (`workspace:*` as devDependencies for local development), because the real compatibility gate is `apiVersion`, checked at load time. The reference app `mercury` is private and outside the group.
+- No exact pins on external dependencies: caret ranges, and `bun.lock` is what makes the repo reproducible. A published package with a pinned dependency can't share it with the rest of the app (that's how two `@ai-sdk/provider` copies broke a scaffolded app's typecheck).
+- Every relevant change gets a changeset: `bun run changeset`, naming the packages it actually touches. Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context.
+- No batching: consume each changeset right after the change it documents, with `bun run release` from the repo root (`changeset version`, lockfile refresh, commit, tags; see `scripts/release.ts`), then push with tags.
+- Publishing is `bun run publish-packages` (`scripts/publish.ts`): it builds the type declarations, runs `check-pack --types`, and `bun publish`es every public workspace whose version isn't on the registry yet. Never `changeset publish` (it runs `npm publish`, which leaves `workspace:*` in the published manifests). Rehearse against a throwaway Verdaccio with `--registry`; Bun caches packages by `name@version`, so clear it (`bun pm cache rm`) before reinstalling a version republished there.
+- Packages ship their TypeScript source (Bun runs it) plus declarations in `dist/`, built only at publish time and never committed. Inside the repo a `@mercury-fw/*` import resolves to the source through the `mercury-fw-source` condition (shared tsconfig); an app's `tsc` reads `dist/*.d.ts` through `types`.
 
 ## Operational notes
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { PLUGIN_API_VERSION, type Plugin } from "@mercury/plugin-types";
+import { PLUGIN_API_VERSION, type Plugin } from "@mercury-fw/plugin-types";
 import { loadPlugins, type PluginLoadContext } from "./plugin-loader.ts";
 
 /**

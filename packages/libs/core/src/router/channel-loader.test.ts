@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext, type Provider } from "@mercury/channel-types";
+import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext, type Provider } from "@mercury-fw/channel-types";
 import { loadChannels } from "./channel-loader.ts";
 
 /** A throwaway provider — the loader never calls its methods, only carries it. */

@@ -14,12 +14,12 @@ import { runTurn } from "../session/agent-turn.ts";
 import type { StepInfo } from "../session/step-info.ts";
 // `PostTurnGuard` is part of the plugin contract (a plugin's `build()` may
 // return these to inspect/rewrite the model's finished text), so it lives in
-// `@mercury/plugin-types` and is re-exported here for the core callers that
+// `@mercury-fw/plugin-types` and is re-exported here for the core callers that
 // import it from this module. No plugin ships one today; the mechanism stays
 // generic for future use. A guard that throws is caught by the core and never
 // blocks delivery — a guard failure is a quality miss, not a reason to
 // withhold an already-generated answer.
-import type { PostTurnGuard } from "@mercury/plugin-types";
+import type { PostTurnGuard } from "@mercury-fw/plugin-types";
 export type { PostTurnGuard };
 import type { SessionHistory } from "../session/history.ts";
 import { recordStep } from "../session/tool-log-buffer.ts";

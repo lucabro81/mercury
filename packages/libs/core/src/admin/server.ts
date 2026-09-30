@@ -7,8 +7,8 @@
  * set (see `src/index.ts`).
  */
 import type { LanguageModel } from "ai";
-import type { CliConfig } from "@mercury/cli-engine";
-import type { runCli } from "@mercury/cli-engine";
+import type { CliConfig } from "@mercury-fw/cli-engine";
+import type { runCli } from "@mercury-fw/cli-engine";
 import { getCliStatus } from "./cli-routes.ts";
 import { getModelStatus, getSelfHealth } from "./model-routes.ts";
 import { scrollCollection, type ScrollableQdrantClient } from "./qdrant-scroll.ts";

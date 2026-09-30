@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { resolvePlatform, binaryAssetUrl, readPinnedBinary } from "./index.ts";
 
 /**
- * The pure half of the shared CLI-binary provisioning (`@mercury/utils`) every
+ * The pure half of the shared CLI-binary provisioning (`@mercury-fw/utils`) every
  * plugin's postinstall relies on — the platform→asset mapping and the
  * release-URL construction. These are the parts most likely to silently produce
  * a 404 (a wrong asset name, a mis-built tag), so they're pinned exactly rather

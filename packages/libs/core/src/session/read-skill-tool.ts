@@ -12,9 +12,9 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
-import type { Skill } from "@mercury/plugin-types";
+import type { Skill, ExecutableTool } from "@mercury-fw/plugin-types";
 
-export function createReadSkillTool(skills: Skill[]) {
+export function createReadSkillTool(skills: Skill[]): { read_skill: ExecutableTool } {
   const byName = new Map(skills.map((s) => [s.name, s]));
   const names = skills.map((s) => s.name).join(", ");
   const read_skill = tool({

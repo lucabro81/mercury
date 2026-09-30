@@ -25,14 +25,14 @@ import { tool, type JSONValue } from "ai";
 import { z } from "zod";
 import { parseCommand } from "./command-parser.ts";
 import type { runCli, CliResult } from "./cli-executor.ts";
-import type { StageConfirmation } from "@mercury/plugin-types";
+import type { StageConfirmation, ExecutableTool } from "@mercury-fw/plugin-types";
 
 // `CliPostProcessor` is part of the plugin contract (a plugin's `build()`
-// returns one) — it lives in `@mercury/plugin-types` and is re-exported here
+// returns one) — it lives in `@mercury-fw/plugin-types` and is re-exported here
 // for the core callers that import it from this module. It runs after every
 // allowed command and is told which allowlist prefix matched, so the plugin
 // decides what to touch; cli-tool.ts never knows what it does.
-import type { CliPostProcessor } from "@mercury/plugin-types";
+import type { CliPostProcessor } from "@mercury-fw/plugin-types";
 export type { CliPostProcessor };
 
 export type AllowedCommand = {
@@ -165,7 +165,7 @@ export function createCliTool(
      * untouched and no `displayRef` is minted. */
     stashDisplay?: (artifact: string) => string;
   },
-) {
+): { runCommand: ExecutableTool } {
   // Anchor the example on a binary actually enabled on this instance rather than
   // a hardcoded one: a fixed `jira …` example misleads the model on an instance
   // without Jira. The concrete, CLI-specific example (real subcommand + flags)

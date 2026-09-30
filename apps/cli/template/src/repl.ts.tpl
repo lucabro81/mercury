@@ -4,7 +4,7 @@
  * a channel: no user identity (nothing goes to per-user memory), no channels,
  * crons or admin panel.
  */
-import { composeMercury, createTerminalProvider } from "@mercury/core";
+import { composeMercury, createTerminalProvider } from "@mercury-fw/core";
 import mercuryConfig from "../mercury.config.ts";
 
 const app = await composeMercury(mercuryConfig);

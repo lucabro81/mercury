@@ -1,5 +1,5 @@
 /**
- * Parsing `mercury create`'s arguments: the target folder, the answers given as
+ * Parsing `mfw create`'s arguments: the target folder, the answers given as
  * flags (so the wizard can be skipped, or pre-filled), and the errors for a
  * command line that can't work.
  */

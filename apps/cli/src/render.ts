@@ -1,3 +1,4 @@
+/// <reference path="./template.d.ts" />
 /**
  * Turns the wizard's answers into the new app's files, as a `path → content`
  * map, without touching the disk (`write.ts` does that). The static files come
@@ -6,7 +7,7 @@
  * README are generated from the selection. Channels and plugins are always
  * written in catalog order, whatever order they were chosen in.
  */
-import { DEFAULT_PERSONA_TONE } from "@mercury/core";
+import { DEFAULT_PERSONA_TONE } from "@mercury-fw/core";
 import { CATALOG, type CatalogEntry, type EnvVar } from "./catalog.ts";
 import indexTs from "../template/src/index.ts.tpl" with { type: "text" };
 import replTs from "../template/src/repl.ts.tpl" with { type: "text" };
@@ -141,9 +142,9 @@ function selected(kind: CatalogEntry["kind"], ids: string[]): CatalogEntry[] {
  * starting rules) and channel. */
 function renderConfig(channels: CatalogEntry[], tools: CatalogEntry[]): string {
   const withRules = tools.filter((t) => t.formatter);
-  const imports = ['import { defineMercuryConfig } from "@mercury/core";'];
+  const imports = ['import { defineMercuryConfig } from "@mercury-fw/core";'];
   if (withRules.length > 0) {
-    imports.push('import { formatterPlugin, formatter } from "@mercury/formatter";');
+    imports.push('import { formatterPlugin, formatter } from "@mercury-fw/formatter";');
   }
   for (const t of tools) {
     const names = t.formatter ? `${t.exportName}, type ${t.formatter.displaysType}` : t.exportName;
@@ -200,9 +201,9 @@ function renderPackageJson(
   tools: CatalogEntry[],
   versions: Record<string, string>,
 ): string {
-  const packages = ["@mercury/core", ...channels.map((c) => c.package), ...tools.map((t) => t.package)];
+  const packages = ["@mercury-fw/core", ...channels.map((c) => c.package), ...tools.map((t) => t.package)];
   if (tools.some((t) => t.formatter)) {
-    packages.push("@mercury/formatter");
+    packages.push("@mercury-fw/formatter");
   }
   const dependencies: Record<string, string> = {};
   for (const pkg of packages.sort()) {
@@ -292,13 +293,12 @@ function renderCompose(name: string, hasTools: boolean): string {
   ].join("\n");
 }
 
-/** The app's README: what it was scaffolded with, how to run it, and that the
- * packages it depends on aren't published yet. */
+/** The app's README: what it was scaffolded with and how to run it. */
 function renderReadme(name: string, channels: CatalogEntry[], tools: CatalogEntry[]): string {
   const list = (entries: CatalogEntry[]) => (entries.length > 0 ? entries.map((e) => e.id).join(", ") : "none");
   return `# ${name}
 
-A Mercury app, scaffolded by \`mercury create\`.
+A Mercury app, scaffolded by \`mfw create\`.
 
 - Channels: ${list(channels)}
 - Tool plugins: ${list(tools)}
@@ -313,12 +313,13 @@ A Mercury app, scaffolded by \`mercury create\`.
 ## Running it
 
 \`\`\`bash
+bun install
 cp .env.example .env
 docker compose up --build
 docker compose run --rm mercury bun run repl
 \`\`\`
 
-> The \`@mercury/*\` packages this app depends on are not published yet, so \`bun install\` (and the image build) won't find them until they are.
+\`bun install\` here gives your editor and \`bun run typecheck\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds.
 ${tools.length > 0 ? CREDENTIALS_SECTION : ""}`;
 }
 

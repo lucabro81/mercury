@@ -53,9 +53,9 @@ import { generateText, streamText } from "ai-sdk-ollama";
 import type { Message, SessionHistory } from "./history.ts";
 import type { StepInfo } from "./step-info.ts";
 import { detectPendingConfirmation } from "./pending-confirmation.ts";
-// The sentinel is a channel-side contract value (see `@mercury/channel-types`);
+// The sentinel is a channel-side contract value (see `@mercury-fw/channel-types`);
 // re-exported here for the core callers importing it from this module.
-import { PENDING_CONFIRMATION_NOTE } from "@mercury/channel-types";
+import { PENDING_CONFIRMATION_NOTE } from "@mercury-fw/channel-types";
 export { PENDING_CONFIRMATION_NOTE };
 
 /** `""` unless `lastStep` staged a confirm-required command, in which case `PENDING_CONFIRMATION_NOTE`. */

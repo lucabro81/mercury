@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { createReadSkillTool } from "./read-skill-tool.ts";
-import type { Skill } from "@mercury/plugin-types";
+import type { Skill } from "@mercury-fw/plugin-types";
 
 /**
  * The read_skill tool is the "load" half of SKILL.md: given a skill name from

@@ -6,7 +6,7 @@ import {
   DEFAULT_PERSONA_IDENTITY,
   DEFAULT_PERSONA_TONE,
 } from "./system-prompt.ts";
-import type { Skill } from "@mercury/plugin-types";
+import type { Skill } from "@mercury-fw/plugin-types";
 
 /**
  * Golden snapshot of the composed system prompt. A plugin's skill contributes

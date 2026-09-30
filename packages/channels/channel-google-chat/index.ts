@@ -7,7 +7,7 @@
  * missing is a misconfiguration: `build()` throws and the loader skips this
  * channel fail-soft, leaving the rest of Mercury up.
  */
-import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext } from "@mercury/channel-types";
+import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext } from "@mercury-fw/channel-types";
 import { createGoogleChatProvider } from "./google-chat-provider.ts";
 
 /** Reads a required env var, failing loudly (caught by the channel loader) instead of silently degrading. */

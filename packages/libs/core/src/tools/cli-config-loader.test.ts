@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { toCliConfig, loadCliConfigFromObject } from "@mercury/cli-engine";
-import type { CliResult } from "@mercury/cli-engine";
+import { toCliConfig, loadCliConfigFromObject } from "@mercury-fw/cli-engine";
+import type { CliResult } from "@mercury-fw/cli-engine";
 
 describe("toCliConfig", () => {
   it("maps commands to allowedPrefixes and passes globalFlags through", () => {

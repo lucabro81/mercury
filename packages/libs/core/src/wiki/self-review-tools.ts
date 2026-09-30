@@ -15,6 +15,7 @@
  * exact tool set — they differ only in system prompt and pre-computed
  * input data, not in which tools they can call.
  */
+import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import { listWikiFilesInRoots, readWikiFileInRoots, grepWikiInRoots, selfReviewRoots, readIndexFile } from "./wiki-read.ts";
@@ -23,7 +24,19 @@ import { normalizeIndexKey, upsertIndexEntry, removeIndexEntry } from "./index-e
 
 export type SelfReviewToolsDeps = { vaultPath: string };
 
-export function createSelfReviewTools(deps: SelfReviewToolsDeps) {
+export function createSelfReviewTools(
+  deps: SelfReviewToolsDeps,
+): Record<
+  | "list_files"
+  | "read_file"
+  | "grep"
+  | "write_curated"
+  | "update_index_entry"
+  | "remove_index_entry"
+  | "delete_raw"
+  | "delete_curated",
+  ExecutableTool
+> {
   const { vaultPath } = deps;
   const roots = selfReviewRoots(vaultPath);
 

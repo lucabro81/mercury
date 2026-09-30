@@ -5,13 +5,13 @@
  * only through a CLI, so it owns its tool: in `build()` it validates its own
  * allowlist and builds its `atlassianAdminCommand` tool from it. Its allowlist
  * (`atlassian-admin.json`) and its pinned CLI binary (via the package's
- * postinstall, using `@mercury/utils`) travel with the package.
+ * postinstall, using `@mercury-fw/utils`) travel with the package.
  */
-import { PLUGIN_API_VERSION, type Plugin } from "@mercury/plugin-types";
-import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury/cli-engine";
+import { PLUGIN_API_VERSION, type Plugin } from "@mercury-fw/plugin-types";
+import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury-fw/cli-engine";
 import rawConfig from "./atlassian-admin.json";
 
-/** The raw, unvalidated allowlist object. The plugin validates it itself through `@mercury/cli-engine`'s loader, so nothing reaches the model's executable surface unvalidated. */
+/** The raw, unvalidated allowlist object. The plugin validates it itself through `@mercury-fw/cli-engine`'s loader, so nothing reaches the model's executable surface unvalidated. */
 export const atlassianAdminCliConfig: unknown = rawConfig;
 
 /** Reads the command string off an `atlassianAdminCommand` call's input for the status label; a missing/non-string command falls back to the generic label. */

@@ -5,7 +5,7 @@ import {
   parseChatEvent,
   type GoogleChatProviderDeps,
 } from "./google-chat-provider.ts";
-import { PENDING_CONFIRMATION_NOTE, type HandleTurn, type InboundTurn, type TurnSink } from "@mercury/channel-types";
+import { PENDING_CONFIRMATION_NOTE, type HandleTurn, type InboundTurn, type TurnSink } from "@mercury-fw/channel-types";
 
 const creds = { clientEmail: "bot@test.iam.gserviceaccount.com", privateKey: "fake" };
 

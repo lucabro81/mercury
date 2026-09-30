@@ -11,7 +11,7 @@
  *   its post-processor emits goes through the handler; everything else the
  *   plugin contributes passes through untouched.
  */
-import type { Plugin, CliPostProcessor, CliResult, ToolDisplay } from "@mercury/plugin-types";
+import type { Plugin, CliPostProcessor, CliResult, ToolDisplay } from "@mercury-fw/plugin-types";
 
 /** Renders one display into the single text block shown to the user, or
  * returns `undefined` when there is nothing to show (no rule for its kind, or

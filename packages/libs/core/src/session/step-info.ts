@@ -21,7 +21,7 @@
  * import cycle.
  */
 // `StepInfo` is part of the plugin contract (a `PostTurnGuard`'s `run`
-// receives `StepInfo[]`), so it lives in `@mercury/plugin-types` and is
+// receives `StepInfo[]`), so it lives in `@mercury-fw/plugin-types` and is
 // re-exported here for the many core callers that import it from this module.
-import type { StepInfo } from "@mercury/plugin-types";
+import type { StepInfo } from "@mercury-fw/plugin-types";
 export type { StepInfo };

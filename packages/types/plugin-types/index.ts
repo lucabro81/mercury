@@ -25,6 +25,11 @@ import type { LanguageModel, Tool } from "ai";
  */
 export const PLUGIN_API_VERSION = 3;
 
+/** A tool built with `ai`'s `tool()` and an `execute`: what the core's and the
+ * plugins' tool factories return. Spelled out so their declarations name it
+ * instead of `ai`'s internal types, which a published package can't reference. */
+export type ExecutableTool = Tool & { execute: NonNullable<Tool["execute"]> };
+
 /**
  * The user-facing channel of a tool result: structured output destined for the
  * user and — unlike `data` — never placed into the model's context. `type`
@@ -42,7 +47,7 @@ export type ToolDisplay = { type: string; items: unknown[] };
  * `data` is the model channel — the parsed JSON (or raw text) stdout the model
  * reasons on — and the optional `display` is the user channel (see
  * `ToolDisplay`), which never enters the model's context. On failure `error` is
- * a human/model-readable string. Mirrors `runCli`'s return — `@mercury/cli-engine`
+ * a human/model-readable string. Mirrors `runCli`'s return — `@mercury-fw/cli-engine`
  * owns the runner, this owns the shape both sides agree on.
  */
 export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
@@ -169,7 +174,7 @@ export type CliCommandInfo = { binary: string; args: string[]; mutating: boolean
 
 /** Turns a command about to run into the one-line status content shown while it
  * runs. A plugin may supply one to `createCliStatusDescriber` (see
- * `@mercury/cli-engine`) to override the default; the core only transports the
+ * `@mercury-fw/cli-engine`) to override the default; the core only transports the
  * result, the channel decides how to render it. */
 export type StatusDescriber = (cmd: CliCommandInfo) => string;
 
@@ -270,7 +275,7 @@ export type PluginSurface = {
  * - `surfaces`: reserved (see `PluginSurface`); absent for a plugin with none.
  *
  * A plugin no longer carries a raw `cliConfig`: the core knows nothing about
- * CLIs. A CLI-based plugin owns its allowlist and, using `@mercury/cli-engine`,
+ * CLIs. A CLI-based plugin owns its allowlist and, using `@mercury-fw/cli-engine`,
  * builds its own tool in `build()` — the core just collects the contributed
  * tools.
  */

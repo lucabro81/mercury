@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfigFromObject } from "@mercury/cli-engine";
-import { matchCommand, type CliConfig } from "@mercury/cli-engine";
-import type { CliResult } from "@mercury/cli-engine";
+import { loadCliConfigFromObject } from "@mercury-fw/cli-engine";
+import { matchCommand, type CliConfig } from "@mercury-fw/cli-engine";
+import type { CliResult } from "@mercury-fw/cli-engine";
 import { bitbucketCliConfig } from "./index.ts";
 
 /**
  * Integration-shaped safety net for the Bitbucket plugin's real, checked-in
- * allowlist (`@mercury/plugin-bitbucket`'s `bitbucket.json`, now travelling
+ * allowlist (`@mercury-fw/plugin-bitbucket`'s `bitbucket.json`, now travelling
  * with the plugin rather than living in `cli-configs/`) — same pattern as
  * plugin-jira's `allowlist.test.ts`. The stale-PR check only needs read-only PR
  * queries (client-side filtering on `participants[].approved`), so the
@@ -20,12 +20,12 @@ beforeAll(async () => {
   const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "bitbucket-cli 1.0.0" });
   const result = await loadCliConfigFromObject(bitbucketCliConfig, { runCliFn });
   if (!result.ok) {
-    throw new Error(`@mercury/plugin-bitbucket config failed to load: ${result.reason}`);
+    throw new Error(`@mercury-fw/plugin-bitbucket config failed to load: ${result.reason}`);
   }
   bitbucketConfig = result.config;
 });
 
-describe("@mercury/plugin-bitbucket allowlist", () => {
+describe("@mercury-fw/plugin-bitbucket allowlist", () => {
   it("allows read-only subcommands", () => {
     expect(matchCommand(["pr", "list", "workspace/repo"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "list"], mutating: false });
     expect(matchCommand(["pr", "list", "workspace/repo", "--state", "OPEN"], bitbucketConfig)).toEqual({ kind: "allowed", prefix: ["pr", "list"], mutating: false });

@@ -15,7 +15,7 @@
  * can't stop the user from seeing and confirming the action.
  */
 import type { ConfirmationStore } from "./confirmation-store.ts";
-import type { StageConfirmation } from "@mercury/plugin-types";
+import type { StageConfirmation } from "@mercury-fw/plugin-types";
 import type { WriteConfirmationNote } from "./confirm-flow.ts";
 
 export type { StageConfirmation };

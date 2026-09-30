@@ -11,6 +11,7 @@
  * crashed tool call.
  */
 import { resolve } from "node:path";
+import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import { listWikiFiles, readWikiFile, grepWiki, readWikiFileInRoots } from "./wiki-read.ts";
@@ -19,7 +20,9 @@ import { writeCuratedNote } from "./wiki-note.ts";
 export type WikiToolsDeps = { vaultPath: string; userId: string };
 
 /** Builds the four wiki tools scoped to `deps.userId` (curated/ fully, only their own inferred/users/<userId>/). */
-export function createWikiTools(deps: WikiToolsDeps) {
+export function createWikiTools(
+  deps: WikiToolsDeps,
+): Record<"list_files" | "read_file" | "write_file" | "grep" | "resolve_reference", ExecutableTool> {
   const { vaultPath, userId } = deps;
 
   const list_files = tool({

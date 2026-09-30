@@ -1,0 +1,38 @@
+# @mercury-fw/core
+
+The runtime of [Mercury](https://github.com/lucabro81/mercury-fw): it builds an agent from the config an app gives it and runs it, from the conversation loop to the channels. An app depends on it; a plugin doesn't (plugins build on [`@mercury-fw/kit`](https://www.npmjs.com/package/@mercury-fw/kit)).
+
+The usual way to get it is scaffolding an app, which wires it up for you:
+
+```bash
+bun create mercury-agent my-agent
+```
+
+## What it exports
+
+- `defineMercuryConfig(config)` types the app's `mercury.config.ts`: `plugins`, `channels`, `persona`.
+- `composeMercury(config)` builds the agent from that config and the environment, and returns what the entrypoints start: `handleTurn`, the declared channels with their runtime, and the background jobs (`startCrons`, `startAdmin`).
+- `loadChannels(channels, { runtime })` turns the declared channels into started providers, and `createTerminalProvider(...)` opens the dev REPL on `handleTurn`.
+- `DEFAULT_PERSONA_IDENTITY`, `DEFAULT_PERSONA_TONE` are the persona an app gets when its config sets none.
+
+A scaffolded app's `src/index.ts` (the service) and `src/repl.ts` (the REPL) are the reference for using them.
+
+## Environment
+
+| Variable | |
+|---|---|
+| `OLLAMA_HOST` | The Ollama-compatible endpoint. Required. |
+| `OLLAMA_MODEL` | The chat model. Required. |
+| `OLLAMA_EMBEDDING_MODEL` | The embedding model for the episodic memory (default `nomic-embed-text`). |
+| `OLLAMA_THINK` | `false` for a model that doesn't support thinking. |
+| `QDRANT_URL` | Qdrant, for the episodic memory (default `http://qdrant:6333`). |
+| `WIKI_VAULT_PATH` | Where the wiki lives. Required. |
+| `MERCURY_CLIS` | The tool plugins this deployment turns on, by name, comma-separated. |
+
+Qdrant being unreachable degrades memory, it doesn't stop the agent.
+
+## Requirements
+
+Bun: the package ships its TypeScript source, which Bun runs as is, plus type declarations for your editor and `tsc`.
+
+MIT

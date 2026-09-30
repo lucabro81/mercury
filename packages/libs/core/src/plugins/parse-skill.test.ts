@@ -1,11 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { parseSkill } from "@mercury/plugin-types";
+import { parseSkill } from "@mercury-fw/plugin-types";
 
 /**
  * `parseSkill` reads the Anthropic Agent Skills `SKILL.md` shape — YAML-ish
  * frontmatter with `name` and `description`, then the markdown body — into the
  * `Skill` the plugin contract carries. Deliberately a tiny hand-rolled parser
- * (no yaml dependency) so `@mercury/plugin-types` stays dependency-free: only
+ * (no yaml dependency) so `@mercury-fw/plugin-types` stays dependency-free: only
  * `name` and `description` are read from the frontmatter, everything after the
  * closing fence is the body verbatim.
  */

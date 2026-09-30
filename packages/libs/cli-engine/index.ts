@@ -7,7 +7,7 @@
  *
  * The core imports what it needs from here; a CLI-based plugin (Jira,
  * Bitbucket) rides on this one. Nothing here imports the app — its only
- * dependencies are `@mercury/plugin-types` (the shared contract) and the
+ * dependencies are `@mercury-fw/plugin-types` (the shared contract) and the
  * external `ai`/`zod`/`shell-quote` packages — so the mechanism is a self
  * contained unit that an instance with no CLI plugin never pulls in.
  */

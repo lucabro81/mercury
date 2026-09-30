@@ -40,7 +40,7 @@ import {
   type Provider,
   type HandleTurn,
   type TurnSink,
-} from "@mercury/channel-types";
+} from "@mercury-fw/channel-types";
 
 /**
  * Builds the confirmation card sent when a step stages an irreversible

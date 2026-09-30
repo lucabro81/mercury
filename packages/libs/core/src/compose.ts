@@ -16,8 +16,8 @@
  */
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { getOllamaProvider } from "./model/client.ts";
-import { runCli } from "@mercury/cli-engine";
-import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveConfirmation, type ConfirmationStore } from "@mercury/confirm-engine";
+import { runCli } from "@mercury-fw/cli-engine";
+import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveConfirmation, type ConfirmationStore } from "@mercury-fw/confirm-engine";
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
@@ -30,7 +30,7 @@ import { buildContextPrimer } from "./session/context-primer.ts";
 import { buildSystemPrompts } from "./session/system-prompt.ts";
 import { createTurnRunner } from "./router/turn-runner.ts";
 import type { TurnSink } from "./router/provider.ts";
-import type { HandleTurn, ChannelRuntimeContext, ChannelPlugin } from "@mercury/channel-types";
+import type { HandleTurn, ChannelRuntimeContext, ChannelPlugin } from "@mercury-fw/channel-types";
 import {
   truncateForDisplay,
   describeToolOutcome,

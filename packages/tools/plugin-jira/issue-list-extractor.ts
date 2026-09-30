@@ -18,10 +18,10 @@
  * derivable from any CLI output, so it's a deployment constant carried in the
  * plugin's config.
  *
- * `CliResult`/`CliPostProcessor` come from `@mercury/plugin-types`, the shared
+ * `CliResult`/`CliPostProcessor` come from `@mercury-fw/plugin-types`, the shared
  * contract both the core and the plugins import.
  */
-import type { CliResult, CliPostProcessor } from "@mercury/plugin-types";
+import type { CliResult, CliPostProcessor } from "@mercury-fw/plugin-types";
 
 /** The extractor's configuration: just `siteUrl`, Comperio's browsable Jira
  * site (e.g. `https://webcomperio.atlassian.net`), used to build each issue's

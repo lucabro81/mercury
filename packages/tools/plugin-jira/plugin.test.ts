@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury/plugin-types";
+import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury-fw/plugin-types";
 import { jiraPlugin } from "./index.ts";
 
 /**
@@ -8,7 +8,7 @@ import { jiraPlugin } from "./index.ts";
  * `--version` spawn) and turns the runtime context into the `jiraCommand` tool,
  * the issue-list extractor (only when JIRA_SITE_URL is set), and the tool's
  * status describer. The generic loader that consumes this shape is tested with
- * synthetic plugins in @mercury/core's plugin-loader.test.ts.
+ * synthetic plugins in @mercury-fw/core's plugin-loader.test.ts.
  */
 const MODEL = {} as never; // build() only closes over the model; it never calls it
 const noLog = () => {};
@@ -31,7 +31,7 @@ describe("jiraPlugin", () => {
 
   it("builds a jiraCommand tool and its status describer", () => {
     const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
-    const tools = c.sessionTools!(sctx, {});
+    const tools = c.sessionTools!(sctx, c.postProcess);
     expect(Object.keys(tools)).toEqual(["jiraCommand"]);
     expect(c.toolStatusDescribers!.jiraCommand!({ command: "jira issue search --jql X" })).toBe("esecuzione jira issue search");
   });

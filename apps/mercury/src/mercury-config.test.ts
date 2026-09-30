@@ -1,7 +1,7 @@
 /**
  * Regression over this instance's composition: `mercury.config.ts` must declare
  * the plugin and channel set Comperio's Mercury composes — the pin on which
- * plugins load and in what order. It lives with the app, not with `@mercury/core`:
+ * plugins load and in what order. It lives with the app, not with `@mercury-fw/core`:
  * the core is agnostic to which plugins any instance wires; this asserts the
  * concrete choice of *this* instance.
  */

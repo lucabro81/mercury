@@ -1,5 +1,5 @@
 /**
- * The channels and tool plugins `mercury create` can put in a new app. Written
+ * The channels and tool plugins `mfw create` can put in a new app. Written
  * by hand for now: once the packages are published, each plugin will describe
  * itself (kind, export, env vars) and this list goes away. `catalog.test.ts`
  * checks every entry against the real package until then.
@@ -32,7 +32,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "google-chat",
     kind: "channel",
-    package: "@mercury/channel-google-chat",
+    package: "@mercury-fw/channel-google-chat",
     exportName: "googleChatChannel",
     env: [
       {
@@ -46,7 +46,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "http",
     kind: "channel",
-    package: "@mercury/channel-http",
+    package: "@mercury-fw/channel-http",
     exportName: "httpChannel",
     env: [
       { name: "HTTP_SURFACE_PORT", comment: "Port of the HTTP surface (no authentication: keep it off the public network)", value: "4100" },
@@ -56,7 +56,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "jira",
     kind: "tool",
-    package: "@mercury/plugin-jira",
+    package: "@mercury-fw/plugin-jira",
     exportName: "jiraPlugin",
     env: [{ name: "JIRA_SITE_URL", comment: "Jira site the issue links point to (https://<site>.atlassian.net)" }],
     formatter: {
@@ -74,14 +74,14 @@ export const CATALOG: CatalogEntry[] = [
   {
     id: "bitbucket",
     kind: "tool",
-    package: "@mercury/plugin-bitbucket",
+    package: "@mercury-fw/plugin-bitbucket",
     exportName: "bitbucketPlugin",
     env: [],
   },
   {
     id: "atlassian-admin",
     kind: "tool",
-    package: "@mercury/plugin-atlassian-admin",
+    package: "@mercury-fw/plugin-atlassian-admin",
     exportName: "atlassianAdminPlugin",
     env: [],
   },

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from "bun:test";
-import { loadCliConfigFromObject } from "@mercury/cli-engine";
-import { matchCommand, type CliConfig } from "@mercury/cli-engine";
-import type { CliResult } from "@mercury/cli-engine";
+import { loadCliConfigFromObject } from "@mercury-fw/cli-engine";
+import { matchCommand, type CliConfig } from "@mercury-fw/cli-engine";
+import type { CliResult } from "@mercury-fw/cli-engine";
 import { jiraCliConfig } from "./index.ts";
 
 /**
- * Integration-shaped safety net for the real, shipped `@mercury/plugin-jira`
+ * Integration-shaped safety net for the real, shipped `@mercury-fw/plugin-jira`
  * allowlist — replaces the old `jira.test.ts`'s hand-written `isAllowed` unit
  * tests. Loading the plugin's real config (not a synthetic fixture) means a
  * future edit to it that breaks one of these guarantees is caught here, not
@@ -18,12 +18,12 @@ beforeAll(async () => {
   const runCliFn = async (): Promise<CliResult> => ({ ok: true, data: "jira-cli 1.0.0" });
   const result = await loadCliConfigFromObject(jiraCliConfig, { runCliFn });
   if (!result.ok) {
-    throw new Error(`@mercury/plugin-jira config failed to load: ${result.reason}`);
+    throw new Error(`@mercury-fw/plugin-jira config failed to load: ${result.reason}`);
   }
   jiraConfig = result.config;
 });
 
-describe("@mercury/plugin-jira allowlist", () => {
+describe("@mercury-fw/plugin-jira allowlist", () => {
   it("allows read-only subcommands", () => {
     expect(matchCommand(["issue", "search", "--jql", "project=KAN"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "search"], mutating: false });
     expect(matchCommand(["issue", "get", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "get"], mutating: false });

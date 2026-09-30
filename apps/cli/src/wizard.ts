@@ -1,5 +1,5 @@
 /**
- * The interactive side of `mercury create`: asks for the answers, pre-filled
+ * The interactive side of `mfw create`: asks for the answers, pre-filled
  * with whatever the flags already gave, shows a summary and asks to confirm.
  * Only questions; building and writing the app is `index.ts`'s job.
  */
@@ -41,7 +41,7 @@ async function pick(kind: CatalogEntry["kind"], message: string, initial: string
  * `dir` (already in kebab case, and the app name's default). Resolves to
  * undefined when the user cancels (Ctrl+C) or doesn't confirm. */
 export async function askAnswers(args: CreateArgs, dir: string): Promise<Answers | undefined> {
-  p.intro("mercury create");
+  p.intro("mfw create");
   // A --name that isn't a valid app name isn't offered; then there's no
   // default, and an empty answer is rejected.
   const nameDefault = args.name ?? basename(dir);
