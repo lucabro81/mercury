@@ -224,7 +224,7 @@ bunx mfw reset memory
 bunx mfw reset wiki
 ```
 
-`memory` deletes every Qdrant collection, `wiki` the whole vault: each wipes its own named volume and brings its service back up on an empty one, useful for clearing out test data without touching the other layer. Both ask you to type the app's name (`mercury`) first, and anything else deletes nothing.
+`memory` deletes every Qdrant collection, `wiki` the whole vault: each wipes its own named volume and brings its service back up on an empty one, useful for clearing out test data without touching the other layer. Both ask you to type the app's name (`mercury`) first, and anything else deletes nothing. After a memory reset a running Mercury is restarted too, since it sets up its Qdrant collections only when it starts.
 
 ## Scripts
 

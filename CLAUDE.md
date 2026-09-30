@@ -82,7 +82,10 @@ left to the user (`bun install`). Every other command operates an app from
 inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
 `vault`, `memory`, `reset`), as `docker compose` calls; an app gets the CLI as
 a devDependency and runs it as `bunx mfw`. No "plumbing" commands mirroring
-compose: whoever wants that uses compose directly. `apps/create-mercury-agent` is the same command
+compose: whoever wants that uses compose directly. The command line is declared
+with commander (`program.ts`): arguments are validated and help is generated at
+every level, so a new command is a `program.command(...)` plus its function in
+`app/commands.ts`. `apps/create-mercury-agent` is the same command
 under the `bun create mercury-agent` name.
 
 ```
@@ -115,7 +118,7 @@ mercury/                       # repo root
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
     ├── create-mercury-agent/     # what `bun create mercury-agent` runs: `mfw create`, nothing of its own
-    ├── cli/                   # @mercury-fw/cli — `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text); app/ (find-app.ts, commands.ts: the commands that operate an app)
+    ├── cli/                   # @mercury-fw/cli — program.ts (the command line, commander), `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text); app/ (find-app.ts, commands.ts: the commands that operate an app)
     └── mercury/               # ← everything below this line is relative to here
 ```
 

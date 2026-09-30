@@ -76,7 +76,7 @@ bunx mfw stop
 
 ### `mfw restart [--no-cache]`
 
-Like `start`, but recreates the containers even when nothing changed (`--force-recreate`): a clean restart, for a process that got stuck or a credentials volume you've just fixed. A changed `.env` doesn't need it, `start` already recreates what the change touches. `--no-cache` as in `start`.
+Like `start`, but recreates the containers even when nothing changed (`--force-recreate`): a clean restart, for a process that got stuck. A changed `.env` doesn't need it, `start` already recreates what the change touches. `--no-cache` as in `start`.
 
 ```bash
 bunx mfw restart
@@ -85,7 +85,7 @@ bunx mfw restart --no-cache
 
 ### `mfw logs [service]`
 
-Follows the logs of every service, interleaved, or only of the one you name, `mercury` or `qdrant` (`docker compose logs -f`). `Ctrl+C` stops following, the app keeps running.
+Follows the logs of every service, interleaved, or only of the one you name, `mercury` or `qdrant` (`docker compose logs -f`). One service at most. `Ctrl+C` stops following, the app keeps running.
 
 ```bash
 bunx mfw logs
@@ -115,8 +115,8 @@ Maintains the wiki vault, which lives on a Docker volume and not in the app's fo
 | Command | |
 |---|---|
 | `list` | Every note. |
-| `read <path>` | One note. |
-| `grep <pattern>` | Every line matching `<pattern>`, a regular expression, as `path:line:text`. |
+| `read <path>` | One note (a path that isn't one says so, exit 1). |
+| `grep <pattern>` | Every line matching `<pattern>`, a regular expression, as `path:line:text`. A pattern starting with `-` goes after `--` (`mfw vault grep -- -h`). |
 | `write-curated <path> [--author NAME]` | Writes a curated note, the body read from stdin. |
 | `write-raw <path>` | Writes raw material for the nightly review to triage, the body read from stdin. |
 
@@ -155,7 +155,9 @@ bunx mfw memory read semantic_facts --limit 5
 
 ### `mfw reset <memory|wiki>`
 
-Deletes for good what the assistant remembers: `memory` is every collection on Qdrant, `wiki` the whole vault. It reads the volume's real name from the compose file, tells you which one is about to go, and asks you to type the app's name (the `name` in `package.json`); anything else, an empty answer or a `y` included, deletes nothing. Once confirmed it stops the service using the volume, removes its container and the volume, and starts the service again on an empty one (`docker compose stop`, `rm -f`, `docker volume rm`, `up -d`).
+Deletes for good what the assistant remembers: `memory` is every collection on Qdrant, `wiki` the whole vault. It reads the volume's real name from the compose file, tells you which one is about to go, and asks you to type the app's name (the `name` in `package.json`); anything else, an empty answer, a `y` or closing the input included, deletes nothing and exits 1. Once confirmed it stops the service using the volume, removes its container and the volume, and starts the service again on an empty one (`docker compose stop`, `rm -f`, `docker volume rm`, `up -d`). After `memory`, a running app is restarted too (`docker compose restart mercury`), since it sets up its collections only when it starts.
+
+If a step fails once the service is stopped (the volume still in use by a one-off container, say), it stops there and says the service is down: `bunx mfw start` brings it back.
 
 ```bash
 bunx mfw reset memory
@@ -166,6 +168,6 @@ Useful for clearing out test data; the other layer isn't touched.
 
 ## Help
 
-`mfw --help` lists every command, `mfw <command> --help` describes one.
+`mfw --help` lists every command, and `--help` after any of them describes it, down to the subcommands (`mfw vault write-curated --help`). A mistyped command gets a suggestion (`mfw strat` → "Did you mean start?"). Every argument is checked before anything runs: a wrong one exits 1 saying why, with no container started.
 
 MIT
