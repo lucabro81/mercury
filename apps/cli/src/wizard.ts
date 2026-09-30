@@ -3,6 +3,7 @@
  * with whatever the flags already gave, shows a summary and asks to confirm.
  * Only questions; building and writing the app is `index.ts`'s job.
  */
+import { basename } from "node:path";
 import * as p from "@clack/prompts";
 import { CATALOG, type CatalogEntry } from "./catalog.ts";
 import { appNameError } from "./render.ts";
@@ -36,13 +37,14 @@ async function pick(kind: CatalogEntry["kind"], message: string, initial: string
   return p.isCancel(picked) ? undefined : picked;
 }
 
-/** Asks every question, starting from `args` and `defaultName`. Resolves to
+/** Asks every question, starting from `args`, for an app to be written into
+ * `dir` (already in kebab case, and the app name's default). Resolves to
  * undefined when the user cancels (Ctrl+C) or doesn't confirm. */
-export async function askAnswers(args: CreateArgs, defaultName: string): Promise<Answers | undefined> {
+export async function askAnswers(args: CreateArgs, dir: string): Promise<Answers | undefined> {
   p.intro("mercury create");
-  // The folder's name is offered only when it's a valid app name; otherwise
-  // there's no default, and an empty answer is rejected.
-  const nameDefault = args.name ?? defaultName;
+  // A --name that isn't a valid app name isn't offered; then there's no
+  // default, and an empty answer is rejected.
+  const nameDefault = args.name ?? basename(dir);
   const name = await p.text({
     message: "App name",
     ...(appNameError(nameDefault) === undefined ? suggest(nameDefault) : {}),
@@ -75,7 +77,7 @@ export async function askAnswers(args: CreateArgs, defaultName: string): Promise
     ].join("\n"),
     "Summary",
   );
-  const ok = await p.confirm({ message: `Create it in ${args.dir}?` });
+  const ok = await p.confirm({ message: `Create it in ${dir}?` });
   if (p.isCancel(ok) || !ok) return cancelled();
   return { name, assistantName, role, channels, plugins };
 }

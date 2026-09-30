@@ -66,10 +66,27 @@ describe("mercury create --yes", () => {
     expect(existsSync(dir)).toBe(false);
   });
 
-  test("a folder name that isn't a valid app name exits 1 and suggests --name", () => {
-    const result = run("create", join(base, "My App"), "--yes");
+  test("the folder is created in kebab case, only its last segment; the app is named after it", () => {
+    const result = run("create", join(base, "Sub Dir", "My App"), "--yes");
+    expect(result.code).toBe(0);
+    const dir = join(base, "Sub Dir", "my-app");
+    expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")).name).toBe("my-app");
+    expect(existsSync(join(base, "Sub Dir", "My App"))).toBe(false);
+    expect(result.stdout).toContain(dir);
+  });
+
+  test("--name is kept as given, the folder is still kebab case", () => {
+    const result = run("create", join(base, "Bot Folder"), "--name", "comperio.bot", "--yes");
+    expect(result.code).toBe(0);
+    const pkg = JSON.parse(readFileSync(join(base, "bot-folder", "package.json"), "utf-8"));
+    expect(pkg.name).toBe("comperio.bot");
+  });
+
+  test("a folder name with nothing usable in it exits 1, writing nothing", () => {
+    const result = run("create", join(base, "!!!"), "--yes");
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("--name");
+    expect(result.stderr).toContain('"!!!"');
+    expect(readdirSync(base)).toEqual([]);
   });
 });
 

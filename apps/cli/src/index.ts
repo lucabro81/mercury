@@ -5,9 +5,10 @@
  * answers from flags with `--yes`). It only deposits the files; installing
  * comes once the packages are published.
  */
-import { basename, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseCreateArgs, type CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
+import { kebabCase } from "./naming.ts";
 import { renderApp, selectionError } from "./render.ts";
 import { packageVersions } from "./versions.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
@@ -16,10 +17,10 @@ import { targetError, writeApp } from "./write.ts";
 const USAGE = `Usage:
   mercury create <folder> [options]
 
-Writes a new Mercury app into <folder> (missing or empty).
+Writes a new Mercury app into <folder> (missing or empty), its name in kebab case.
 
 Options:
-  --name <name>              app name (default: the folder's name)
+  --name <name>              app name, as in package.json (default: the folder's name)
   --assistant-name <name>    the assistant's name (default: ${DEFAULT_ASSISTANT_NAME})
   --role <text>              completes "You are <name>, …" (default: ${DEFAULT_ROLE})
   --channels <ids>           comma-separated: ${CATALOG.filter((e) => e.kind === "channel").map((e) => e.id).join(", ")}
@@ -41,33 +42,30 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
 /** `mercury create`: returns the exit code. */
 async function create(argv: string[]): Promise<number> {
   const args = parseCreateArgs(argv);
-  const dir = resolve(args.dir);
-  const defaultName = basename(dir);
+  // The folder is created in kebab case, only its own name: the parent path is
+  // taken as typed. Its name is also the app name's default.
+  const typed = resolve(args.dir);
+  const folder = kebabCase(basename(typed));
+  if (folder === "") {
+    throw new Error(`"${basename(typed)}" has no letters or digits to name a folder with`);
+  }
+  const dir = join(dirname(typed), folder);
   // What the command line already settles is checked before any question, so
   // the wizard is never answered for nothing.
   const early = targetError(dir) ?? selectionError(args.channels ?? [], args.plugins ?? []);
   if (early !== undefined) {
     throw new Error(early);
   }
-  const answers = args.yes ? answersFromFlags(args, defaultName) : await askAnswers(args, defaultName);
+  const answers = args.yes ? answersFromFlags(args, folder) : await askAnswers(args, dir);
   if (answers === undefined) {
     return 1;
   }
   const versions = packageVersions(["@mercury/core", "@mercury/formatter", ...CATALOG.map((e) => e.package)]);
-  let files: Map<string, string>;
-  try {
-    files = renderApp({ ...answers, versions });
-  } catch (err) {
-    if (args.name === undefined && answers.name === defaultName && err instanceof Error && err.message.includes("app name")) {
-      throw new Error(`${err.message}\nThe name comes from the folder; pass --name to choose another.`);
-    }
-    throw err;
-  }
-  writeApp(dir, files);
+  writeApp(dir, renderApp({ ...answers, versions }));
   console.log(`Created ${answers.name} in ${dir}
 
 Next:
-  cd ${args.dir}
+  cd ${dir}
   cp .env.example .env    # then fill it in
   docker compose up --build
 

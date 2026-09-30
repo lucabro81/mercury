@@ -175,7 +175,7 @@ Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the
 
 ## Scaffolding a new app
 
-`apps/cli` is the `mercury` command, and `mercury create <folder>` writes a new Mercury app into a missing or empty folder. It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
+`apps/cli` is the `mercury` command, and `mercury create <folder>` writes a new Mercury app into a missing or empty folder, whose name it turns into kebab case (`My App` becomes `my-app`, the path above it stays as typed). It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
 
 It isn't published yet, so link it once from the repo (unlike the rest of this README, from the repo root):
 
