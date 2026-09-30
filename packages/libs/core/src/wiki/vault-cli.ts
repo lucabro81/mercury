@@ -107,7 +107,12 @@ async function main(): Promise<void> {
     case "read": {
       const relativePath = args[0];
       if (!relativePath) usage();
-      console.log(await Bun.file(`${vaultPath}/${relativePath}`).text());
+      const note = Bun.file(`${vaultPath}/${relativePath}`);
+      if (!(await note.exists())) {
+        console.error(`no note at ${relativePath} (mfw vault list shows them)`);
+        process.exit(1);
+      }
+      console.log(await note.text());
       break;
     }
 
