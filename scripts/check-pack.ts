@@ -8,8 +8,12 @@
  *   tsconfig, Turbo logs, downloaded binaries), plus its package.json: nothing
  *   missing that the package needs at run time, nothing leaking into it.
  *
- * Run from the repo root: `bun scripts/check-pack.ts`. Exits 1 listing every
- * problem found.
+ * - With `--types` (what publishing runs, after `scripts/build-types.ts`), a
+ *   package that has `exports` also ships a declaration for every source file
+ *   under `dist/`; without it, `dist/` is left out of the comparison.
+ *
+ * Run from the repo root: `bun scripts/check-pack.ts [--types]`. Exits 1
+ * listing every problem found.
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -58,6 +62,14 @@ function expectedFiles(root: string, dir: string): Set<string> {
 }
 
 const root = dirname(import.meta.dir);
+const withTypes = process.argv.includes("--types");
+
+/** The declarations `build-types.ts` emits for the source files in `expected`. */
+function declarationsFor(expected: Set<string>): string[] {
+  return [...expected]
+    .filter((f) => f.endsWith(".ts") && !f.startsWith("scripts/"))
+    .map((f) => `dist/${f.endsWith(".d.ts") ? f : f.replace(/\.ts$/, ".d.ts")}`);
+}
 const manifests = run(["git", "ls-files", "--", "*package.json"], root)
   .split("\n")
   .filter((f) => f && f !== "package.json");
@@ -65,7 +77,11 @@ const manifests = run(["git", "ls-files", "--", "*package.json"], root)
 const problems: string[] = [];
 for (const manifest of manifests) {
   const dir = join(root, dirname(manifest));
-  const pkg = JSON.parse(readFileSync(join(root, manifest), "utf-8")) as { name: string; private?: boolean };
+  const pkg = JSON.parse(readFileSync(join(root, manifest), "utf-8")) as {
+    name: string;
+    private?: boolean;
+    exports?: unknown;
+  };
   if (PRIVATE.has(pkg.name)) {
     if (!pkg.private) problems.push(`${pkg.name}: must stay private`);
     continue;
@@ -76,6 +92,11 @@ for (const manifest of manifests) {
   }
   const packed = packedFiles(dir);
   const expected = expectedFiles(root, dir);
+  if (withTypes && pkg.exports) {
+    for (const d of declarationsFor(expected)) expected.add(d);
+  } else {
+    for (const f of [...packed]) if (f.startsWith("dist/")) packed.delete(f);
+  }
   for (const f of expected) if (!packed.has(f)) problems.push(`${pkg.name}: missing from the pack: ${f}`);
   for (const f of packed) if (!expected.has(f)) problems.push(`${pkg.name}: shouldn't be in the pack: ${f}`);
 }
