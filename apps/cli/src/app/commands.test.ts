@@ -118,19 +118,19 @@ describe("logs, repl, shell", () => {
 });
 
 describe("vault and memory", () => {
-  test("vault passes its subcommand and arguments to mercury-vault in a one-off container", async () => {
+  test("vault passes its subcommand and arguments to the core's vault CLI in a one-off container", async () => {
     const f = fake();
     await runAppCommand("vault", ["write-curated", "curated/x.md", "--author", "luca"], APP, f.deps);
     expect(f.runs()).toEqual([
-      ["docker", "compose", "run", "--rm", "-T", "mercury", "bun", "run", "mercury-vault", "write-curated", "curated/x.md", "--author", "luca"],
+      ["docker", "compose", "run", "--rm", "-T", "mercury", "bun", "node_modules/@mercury-fw/core/src/wiki/vault-cli.ts", "write-curated", "curated/x.md", "--author", "luca"],
     ]);
   });
 
-  test("memory passes its subcommand and arguments to mercury-memory", async () => {
+  test("memory passes its subcommand and arguments to the core's memory CLI", async () => {
     const f = fake();
     await runAppCommand("memory", ["read", "episodic_memory", "--limit", "5"], APP, f.deps);
     expect(f.runs()).toEqual([
-      ["docker", "compose", "run", "--rm", "-T", "mercury", "bun", "run", "mercury-memory", "read", "episodic_memory", "--limit", "5"],
+      ["docker", "compose", "run", "--rm", "-T", "mercury", "bun", "node_modules/@mercury-fw/core/src/memory/memory-cli.ts", "read", "episodic_memory", "--limit", "5"],
     ]);
   });
 

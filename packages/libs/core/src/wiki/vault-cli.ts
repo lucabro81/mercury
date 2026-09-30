@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Maintenance CLI for the wiki vault — runs INSIDE the Mercury container
- * (the vault is a Docker named volume, not a host path), as this package's
- * `mercury-vault` bin, which `mfw vault` runs in a one-off container. Thin argv wrapper around
+ * (the vault is a Docker named volume, not a host path): `mfw vault` runs it
+ * in a one-off container, by this path. Thin argv wrapper around
  * functions that already exist and are already tested (`wiki-note.ts`,
  * `vault-init.ts`) — no new write/read logic here, only routing.
  *

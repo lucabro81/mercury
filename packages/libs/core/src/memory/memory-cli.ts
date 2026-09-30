@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
  * Read-only CLI for Layer-3 memory on Qdrant — runs INSIDE the Mercury
- * container (where `QDRANT_URL` reaches Qdrant), as this package's
- * `mercury-memory` bin, which `mfw memory` runs in a one-off container.
+ * container (where `QDRANT_URL` reaches Qdrant): `mfw memory` runs it in a
+ * one-off container, by this path.
  * `list` shows the collections and their sizes, `read` a collection's points:
  * newest first where the collection has a `timestamp` payload index (episodic
  * memory, the verbatim archive), in Qdrant's own order otherwise, and it says

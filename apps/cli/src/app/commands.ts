@@ -27,6 +27,13 @@ const COMPOSE = ["docker", "compose"];
 /** The app's service, the one the image builds. */
 const SERVICE = "mercury";
 
+/** The core's maintenance CLIs, from the container's working directory (the
+ * app's folder, where node_modules/@mercury-fw/core is). A path and not a bin:
+ * a monorepo image installs before copying the sources, and Bun doesn't link a
+ * bin whose file isn't there yet. The core moves in lockstep with this CLI. */
+const VAULT_CLI = "node_modules/@mercury-fw/core/src/wiki/vault-cli.ts";
+const MEMORY_CLI = "node_modules/@mercury-fw/core/src/memory/memory-cli.ts";
+
 /** `args` parsed as `--no-cache` and nothing else. */
 function noCacheFlag(args: string[]): boolean {
   const { values } = parseArgs({ args, options: { "no-cache": { type: "boolean", default: false } } });
@@ -119,10 +126,10 @@ export async function runAppCommand(command: AppCommand, args: string[], app: Ap
       return runAll([[...COMPOSE, ...shell]], app, deps);
     }
     case "vault":
-      // mercury-vault checks its own subcommands and arguments.
-      return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", "run", "mercury-vault", ...args]], app, deps);
+      // The core's CLIs check their own subcommands and arguments.
+      return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", VAULT_CLI, ...args]], app, deps);
     case "memory":
-      return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", "run", "mercury-memory", ...args]], app, deps);
+      return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", MEMORY_CLI, ...args]], app, deps);
     case "reset":
       return reset(args, app, deps);
   }
