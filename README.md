@@ -116,7 +116,7 @@ bun run check-pack   # what each package would publish
 
 To try the CLI from source, link it once (`cd apps/cli && bun link`) and `mfw create` works from any folder.
 
-Every change that matters to users gets a changeset (`bun run changeset`), naming the packages it touches. `bun run release` turns the pending changesets into versions, changelogs and tags, and `bun run publish-packages` builds the type declarations, checks every pack and publishes to npm what isn't there yet.
+Every change that matters to users gets a changeset (`bun run changeset`), naming the packages it touches. `bun run release` turns the pending changesets into versions, changelogs and tags, and pushing that to `main` publishes it: the [publish workflow](.github/workflows/publish.yml) builds the type declarations, checks every pack and publishes to npm whatever version isn't there yet. `bun run publish-packages --registry <url>` does the same from your machine, for a rehearsal against a throwaway registry.
 
 ## License
 

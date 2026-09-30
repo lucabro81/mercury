@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { orderByDependencies, type Workspace } from "./workspaces.ts";
+import { orderByDependencies, workspaces, type Workspace } from "./workspaces.ts";
 import { isPublished } from "./publish.ts";
 import { comparePack } from "./check-pack.ts";
 import { pendingChangesets } from "./release.ts";
@@ -99,5 +99,14 @@ describe("pendingChangesets", () => {
   test("every other Markdown file is one", () => {
     writeFileSync(join(dir, "brave-cats-sing.md"), "---\n---\n");
     expect(pendingChangesets(dir)).toEqual(["brave-cats-sing.md"]);
+  });
+});
+
+// Regression: releases write a CHANGELOG.md into each package, but the `files`
+// whitelists left it out, so the pack check stopped the first CI publish.
+describe("every public package ships its changelog", () => {
+  test.each(workspaces().filter((w) => !w.pkg.private).map((w) => [w.pkg.name, w] as const))("%s", (_name, w) => {
+    const files = (w.pkg as { files?: string[] }).files ?? [];
+    expect(files).toContain("CHANGELOG.md");
   });
 });
