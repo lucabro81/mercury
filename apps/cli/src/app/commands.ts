@@ -100,8 +100,12 @@ export function appCommands(app: App, deps: AppDeps) {
   };
 }
 
-/** The real deps: docker on the user's terminal, questions on stdin. */
-export function terminalDeps(): AppDeps {
+/** The real deps: docker on the user's terminal, questions on `input`
+ * (stdin by default). */
+export function terminalDeps({
+  input = process.stdin,
+  output = process.stdout,
+}: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {}): AppDeps {
   return {
     run: async (argv, { cwd }) => {
       const proc = Bun.spawn(argv, { cwd, stdin: "inherit", stdout: "inherit", stderr: "inherit" });
@@ -113,14 +117,18 @@ export function terminalDeps(): AppDeps {
       if (code !== 0) throw new Error(`${argv.join(" ")} failed (exit ${code})`);
       return out;
     },
+    // Input closing before a line (Ctrl+D, `< /dev/null`) is an empty answer,
+    // never a question left waiting.
     ask: async (question) => {
-      const { createInterface } = await import("node:readline/promises");
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      try {
-        return await rl.question(question);
-      } finally {
-        rl.close();
-      }
+      const { createInterface } = await import("node:readline");
+      const rl = createInterface({ input, output });
+      return await new Promise<string>((resolve) => {
+        rl.once("close", () => resolve(""));
+        rl.question(question, (answer) => {
+          resolve(answer);
+          rl.close();
+        });
+      });
     },
     print: (line) => console.log(line),
   };

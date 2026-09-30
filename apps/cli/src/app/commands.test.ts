@@ -4,7 +4,7 @@
  * rest, and the exit code that comes back.
  */
 import { describe, expect, test } from "bun:test";
-import { appCommands, type AppDeps } from "./commands.ts";
+import { appCommands, terminalDeps, type AppDeps } from "./commands.ts";
 
 const APP = { dir: "/apps/my-agent", name: "my-agent" };
 
@@ -194,5 +194,27 @@ describe("reset", () => {
     const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent", codes: [0, 0, 1] });
     expect(await appCommands(APP, f.deps).reset("memory")).toBe(1);
     expect(f.runs()).toHaveLength(3);
+  });
+});
+
+describe("terminalDeps().ask", () => {
+  // Regression: with stdin closed before an answer (`< /dev/null`, Ctrl+D, a
+  // script), readline's question never settled and `mfw reset` hung forever.
+  test("stdin closing without an answer counts as an empty answer", async () => {
+    const { Readable, Writable } = await import("node:stream");
+    const input = Readable.from([]);
+    const output = new Writable({ write: (_chunk, _enc, done) => done() });
+    const answer = await Promise.race([
+      terminalDeps({ input, output }).ask("Type the app's name: "),
+      Bun.sleep(2000).then(() => "TIMED OUT"),
+    ]);
+    expect(answer).toBe("");
+  });
+
+  test("a typed line is the answer", async () => {
+    const { Readable, Writable } = await import("node:stream");
+    const input = Readable.from(["my-agent\n"]);
+    const output = new Writable({ write: (_chunk, _enc, done) => done() });
+    expect(await terminalDeps({ input, output }).ask("Type the app's name: ")).toBe("my-agent");
   });
 });
