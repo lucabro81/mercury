@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { handleTurnRequest, handleConfirmRequest, openApiResponse, readRoutes } from "./http-server.ts";
-import type { HandleTurn, InboundTurn, ChannelHostReads } from "@mercury/channel-types";
-import type { StepInfo } from "@mercury/plugin-types";
+import type { HandleTurn, InboundTurn, ChannelHostReads } from "@mercury-fw/channel-types";
+import type { StepInfo } from "@mercury-fw/plugin-types";
 
 /**
  * The conversational endpoint's streaming behaviour, exercised without a socket:
@@ -180,7 +180,7 @@ describe("handleTurnRequest", () => {
 // An explicit confirmation endpoint: a nicer contract than re-POSTing the bare
 // token as `text` to /turn. It maps the injected resolveConfirmation's structured
 // ConfirmOutcome onto the response — the store-backed end-to-end behaviour lives
-// in @mercury/confirm-engine's own tests.
+// in @mercury-fw/confirm-engine's own tests.
 describe("handleConfirmRequest", () => {
   const confirmReq = (body: unknown): Request =>
     new Request("http://x/confirm", { method: "POST", body: JSON.stringify(body) });

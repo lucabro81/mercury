@@ -13,14 +13,14 @@ const versionOf = (relative: string): string =>
 
 describe("packageVersions", () => {
   test("reads each package's own version", () => {
-    expect(packageVersions(["@mercury/core", "@mercury/plugin-jira"])).toEqual({
-      "@mercury/core": versionOf("libs/core"),
-      "@mercury/plugin-jira": versionOf("tools/plugin-jira"),
+    expect(packageVersions(["@mercury-fw/core", "@mercury-fw/plugin-jira"])).toEqual({
+      "@mercury-fw/core": versionOf("libs/core"),
+      "@mercury-fw/plugin-jira": versionOf("tools/plugin-jira"),
     });
   });
 
   test("covers every package a new app can depend on", () => {
-    const all = ["@mercury/core", "@mercury/formatter", ...CATALOG.map((e) => e.package)];
+    const all = ["@mercury-fw/core", "@mercury-fw/formatter", ...CATALOG.map((e) => e.package)];
     const versions = packageVersions(all);
     for (const pkg of all) {
       expect(versions[pkg], pkg).toMatch(/^\d+\.\d+\.\d+/);
@@ -28,6 +28,6 @@ describe("packageVersions", () => {
   });
 
   test("a package it can't find is an error naming it", () => {
-    expect(() => packageVersions(["@mercury/nope"])).toThrow("@mercury/nope");
+    expect(() => packageVersions(["@mercury-fw/nope"])).toThrow("@mercury-fw/nope");
   });
 });

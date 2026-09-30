@@ -9,13 +9,13 @@
  * allowlist validates (see `loadPlugins`); listing it here declares intent, not
  * unconditional activation.
  */
-import { defineMercuryConfig } from "@mercury/core";
-import { formatterPlugin, formatter } from "@mercury/formatter";
-import { jiraPlugin, type JiraDisplays } from "@mercury/plugin-jira";
-import { bitbucketPlugin } from "@mercury/plugin-bitbucket";
-import { atlassianAdminPlugin } from "@mercury/plugin-atlassian-admin";
-import { googleChatChannel } from "@mercury/channel-google-chat";
-import { httpChannel } from "@mercury/channel-http";
+import { defineMercuryConfig } from "@mercury-fw/core";
+import { formatterPlugin, formatter } from "@mercury-fw/formatter";
+import { jiraPlugin, type JiraDisplays } from "@mercury-fw/plugin-jira";
+import { bitbucketPlugin } from "@mercury-fw/plugin-bitbucket";
+import { atlassianAdminPlugin } from "@mercury-fw/plugin-atlassian-admin";
+import { googleChatChannel } from "@mercury-fw/channel-google-chat";
+import { httpChannel } from "@mercury-fw/channel-http";
 
 /** One Jira issue in a search result: key, status in brackets when there is
  * one, summary, and the browse link on its own line. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { CliConfigFileSchema } from "@mercury/cli-engine";
+import { CliConfigFileSchema } from "@mercury-fw/cli-engine";
 
 describe("CliConfigFileSchema", () => {
   it("accepts a minimal valid file (no minVersion, no globalFlags)", () => {

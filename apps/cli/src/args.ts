@@ -1,5 +1,5 @@
 /**
- * Parses `mercury create`'s command line: one target folder plus the answers
+ * Parses `mfw create`'s command line: one target folder plus the answers
  * that can be given as flags, either to skip the wizard (`--yes`) or to
  * pre-fill it. No validation of the answers themselves here: `renderApp` owns
  * that, so the wizard and the flags go through the same checks.

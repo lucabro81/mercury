@@ -7,7 +7,7 @@
  * `CHANNEL_API_VERSION`). The stateful half of confirmation (`ConfirmationStore`,
  * `tryConfirm`) stays in the core and reaches a channel via `ctx.confirm`.
  */
-import type { StepInfo } from "@mercury/plugin-types";
+import type { StepInfo } from "@mercury-fw/plugin-types";
 
 /** Settled outcome of a tool call (or guard/capture-ping) reported via `onToolFinish`. `pending` = action deferred behind a token, not run. */
 export type ToolOutcome = "success" | "failed" | "pending";
@@ -180,7 +180,7 @@ export type ChannelRuntimeContext = {
 
 /**
  * A channel plugin: the value the core's channel loader consumes, mirroring
- * `@mercury/plugin-types`' `Plugin`. A channel package exports one and does not
+ * `@mercury-fw/plugin-types`' `Plugin`. A channel package exports one and does not
  * import the app.
  *
  * - `apiVersion`: contract version (see `CHANNEL_API_VERSION`); the loader refuses a mismatch.

@@ -10,7 +10,7 @@
  * thunk (see `StagedAction`) and reports the outcome. A CLI delete, a future
  * memory purge — same path, because the doing was closed over at stage time.
  */
-import type { ConfirmOutcome } from "@mercury/channel-types";
+import type { ConfirmOutcome } from "@mercury-fw/channel-types";
 import { isTokenShaped, type ConfirmationStore } from "./confirmation-store.ts";
 
 /**
@@ -45,7 +45,7 @@ export type ConfirmDeps = {
   now?: () => Date;
 };
 
-/** Resolves a token to a structured {@link ConfirmOutcome} (from `@mercury/channel-types`), running the staged action for a match. See `tryConfirm` for the string-returning wrapper. */
+/** Resolves a token to a structured {@link ConfirmOutcome} (from `@mercury-fw/channel-types`), running the staged action for a match. See `tryConfirm` for the string-returning wrapper. */
 export async function resolveConfirmation(
   input: string,
   sessionKey: string,

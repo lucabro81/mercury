@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * The `mercury` command. One subcommand for now, `create <folder>`: writes a
+ * The `mfw` command. One subcommand for now, `create <folder>`: writes a
  * new Mercury app from the template, asking what to put in it (or taking the
  * answers from flags with `--yes`). It only deposits the files; installing
  * comes once the packages are published.
@@ -15,7 +15,7 @@ import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "
 import { targetError, writeApp } from "./write.ts";
 
 const USAGE = `Usage:
-  mercury create <folder> [options]
+  mfw create <folder> [options]
 
 Writes a new Mercury app into <folder> (missing or empty), its name in kebab case.
 
@@ -39,7 +39,7 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
   };
 }
 
-/** `mercury create`: returns the exit code. */
+/** `mfw create`: returns the exit code. */
 async function create(argv: string[]): Promise<number> {
   const args = parseCreateArgs(argv);
   // The folder is created in kebab case, only its own name: the parent path is
@@ -60,7 +60,7 @@ async function create(argv: string[]): Promise<number> {
   if (answers === undefined) {
     return 1;
   }
-  const versions = packageVersions(["@mercury/core", "@mercury/formatter", ...CATALOG.map((e) => e.package)]);
+  const versions = packageVersions(["@mercury-fw/core", "@mercury-fw/formatter", ...CATALOG.map((e) => e.package)]);
   writeApp(dir, renderApp({ ...answers, versions }));
   console.log(`Created ${answers.name} in ${dir}
 
@@ -69,7 +69,7 @@ Next:
   cp .env.example .env    # then fill it in
   docker compose up --build
 
-The @mercury/* packages aren't published yet, so installing won't work until they are.`);
+The @mercury-fw/* packages aren't published yet, so installing won't work until they are.`);
   return 0;
 }
 

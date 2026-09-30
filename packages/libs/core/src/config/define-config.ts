@@ -11,8 +11,8 @@
  * now the config carries only the plugin list. Per-plugin configuration and the
  * eventual retirement of the file-based cli-configs are deliberately not here.
  */
-import type { Plugin } from "@mercury/plugin-types";
-import type { ChannelPlugin } from "@mercury/channel-types";
+import type { Plugin } from "@mercury-fw/plugin-types";
+import type { ChannelPlugin } from "@mercury-fw/channel-types";
 import type { Persona } from "../session/system-prompt.ts";
 
 /** The shape of a Mercury instance's composition config: the tool plugins

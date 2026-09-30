@@ -59,7 +59,7 @@ WORKDIR /app
 # `chown -R /app` would duplicate every file already written in prior layers
 COPY --chown=mercury:mercury package.json bun.lock ./
 COPY --chown=mercury:mercury apps/mercury/package.json ./apps/mercury/
-# The CLI (`mercury create`) is a workspace too: only its manifest goes in, for
+# The CLI (`mfw create`) is a workspace too: only its manifest goes in, for
 # the frozen-lockfile check — the running service never loads it.
 COPY --chown=mercury:mercury apps/cli/package.json ./apps/cli/
 COPY --chown=mercury:mercury packages/config/typescript-config/package.json ./packages/config/typescript-config/
@@ -71,7 +71,7 @@ COPY --chown=mercury:mercury packages/types/plugin-types/package.json ./packages
 COPY --chown=mercury:mercury packages/libs/cli-engine/package.json ./packages/libs/cli-engine/
 COPY --chown=mercury:mercury packages/libs/confirm-engine/package.json ./packages/libs/confirm-engine/
 COPY --chown=mercury:mercury packages/libs/core/package.json ./packages/libs/core/
-# @mercury/kit is authoring-only (no app imports it), so only its manifest goes
+# @mercury-fw/kit is authoring-only (no app imports it), so only its manifest goes
 # in — the frozen-lockfile check needs every workspace present, but its source
 # is never loaded by the running service.
 COPY --chown=mercury:mercury packages/libs/kit/package.json ./packages/libs/kit/
@@ -79,7 +79,7 @@ COPY --chown=mercury:mercury packages/types/channel-types/package.json ./package
 COPY --chown=mercury:mercury packages/channels/channel-google-chat/package.json ./packages/channels/channel-google-chat/
 COPY --chown=mercury:mercury packages/channels/channel-http/package.json ./packages/channels/channel-http/
 COPY --chown=mercury:mercury packages/formatters/formatter/package.json ./packages/formatters/formatter/
-# @mercury/utils is copied in full BEFORE install too: a plugin's postinstall
+# @mercury-fw/utils is copied in full BEFORE install too: a plugin's postinstall
 # imports its downloadPinnedBinary at install time, so its source has to be
 # present when `bun install` runs the postinstall.
 COPY --chown=mercury:mercury packages/libs/utils ./packages/libs/utils
@@ -115,7 +115,7 @@ COPY --chown=mercury:mercury apps/mercury/mercury.config.ts ./apps/mercury/mercu
 COPY --chown=mercury:mercury packages/types/plugin-types ./packages/types/plugin-types
 COPY --chown=mercury:mercury packages/libs/cli-engine ./packages/libs/cli-engine
 COPY --chown=mercury:mercury packages/libs/confirm-engine ./packages/libs/confirm-engine
-# The framework runtime the app imports (@mercury/core) — the bulk of what used
+# The framework runtime the app imports (@mercury-fw/core) — the bulk of what used
 # to live under apps/mercury/src. No postinstall, so copied after install.
 COPY --chown=mercury:mercury packages/libs/core ./packages/libs/core
 COPY --chown=mercury:mercury packages/types/channel-types ./packages/types/channel-types

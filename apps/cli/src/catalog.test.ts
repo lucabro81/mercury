@@ -40,7 +40,7 @@ describe("CATALOG", () => {
 
 describe("findEntry", () => {
   test("returns the entry of that kind with that id", () => {
-    expect(findEntry("tool", "jira")?.package).toBe("@mercury/plugin-jira");
+    expect(findEntry("tool", "jira")?.package).toBe("@mercury-fw/plugin-jira");
     expect(findEntry("channel", "http")?.exportName).toBe("httpChannel");
   });
 

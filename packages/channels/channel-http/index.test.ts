@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { httpChannel } from "./index.ts";
-import { CHANNEL_API_VERSION, type ChannelRuntimeContext, type ChannelHostReads } from "@mercury/channel-types";
+import { CHANNEL_API_VERSION, type ChannelRuntimeContext, type ChannelHostReads } from "@mercury-fw/channel-types";
 
 const reads: ChannelHostReads = {
   manifest: () => ({}),

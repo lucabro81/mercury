@@ -5,17 +5,17 @@
  * `--help`-driven discovery in the system prompt covers it).
  *
  * Like Jira, it works only through a CLI, so it owns its tool: it depends on
- * `@mercury/cli-engine` and, in `build()`, validates its own allowlist and
+ * `@mercury-fw/cli-engine` and, in `build()`, validates its own allowlist and
  * builds its `bitbucketCommand` tool from it. Its allowlist (`bitbucket.json`)
  * and its pinned CLI binary (via the package's postinstall, using
- * `@mercury/utils`) travel with the package.
+ * `@mercury-fw/utils`) travel with the package.
  */
-import { PLUGIN_API_VERSION, type Plugin } from "@mercury/plugin-types";
-import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury/cli-engine";
+import { PLUGIN_API_VERSION, type Plugin } from "@mercury-fw/plugin-types";
+import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury-fw/cli-engine";
 import rawConfig from "./bitbucket.json";
 
 /** The raw, unvalidated allowlist object. The plugin validates it itself through
- * `@mercury/cli-engine`'s loader, so nothing reaches the model's executable
+ * `@mercury-fw/cli-engine`'s loader, so nothing reaches the model's executable
  * surface unvalidated. */
 export const bitbucketCliConfig: unknown = rawConfig;
 

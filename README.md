@@ -62,7 +62,7 @@ docker compose up
 
 ---
 
-In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts this app's `src/` and the `@mercury/core` runtime it imports, and reloads on every source change, no rebuild needed for that.
+In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts this app's `src/` and the `@mercury-fw/core` runtime it imports, and reloads on every source change, no rebuild needed for that.
 
 ### Rebuilding
 
@@ -175,7 +175,7 @@ Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the
 
 ## Scaffolding a new app
 
-`apps/cli` is the `mercury` command, and `mercury create <folder>` writes a new Mercury app into a missing or empty folder, whose name it turns into kebab case (`My App` becomes `my-app`, the path above it stays as typed). It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
+`apps/cli` is the `mfw` command, and `mfw create <folder>` writes a new Mercury app into a missing or empty folder, whose name it turns into kebab case (`My App` becomes `my-app`, the path above it stays as typed). It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
 
 It isn't published yet, so link it once from the repo (unlike the rest of this README, from the repo root):
 
@@ -183,9 +183,9 @@ It isn't published yet, so link it once from the repo (unlike the rest of this R
 cd apps/cli && bun link
 ```
 
-and from then on `mercury create ~/somewhere/my-app` works from any folder. `--yes` skips the questions, taking `--name`, `--assistant-name`, `--role`, `--channels` and `--plugins` from the command line and the defaults for the rest; `mercury --help` lists them.
+and from then on `mfw create ~/somewhere/my-app` works from any folder. `--yes` skips the questions, taking `--name`, `--assistant-name`, `--role`, `--channels` and `--plugins` from the command line and the defaults for the rest; `mfw --help` lists them.
 
-For now it only writes the files: the `@mercury/*` packages the new app depends on aren't on a registry yet, so `bun install` there won't find them until they are published.
+For now it only writes the files: the `@mercury-fw/*` packages the new app depends on aren't on a registry yet, so `bun install` there won't find them until they are published.
 
 ## Deploying to a remote host
 
@@ -290,13 +290,13 @@ Each wipes its own named volume and lets Mercury reinitialize it empty on the ne
 
 Every external integration is a plugin (`packages/tools/plugin-*`) that owns its CLI end to end: it ships its own pinned binary, downloaded at `bun install` by the plugin's postinstall, and its own command allowlist (a `<binary>.json` living in the package, validated when the plugin loads). The core no longer knows about any CLI directly, so there's no central config directory to populate. You enable a plugin by declaring it in `mercury.config.ts` and listing its name in `MERCURY_CLIS`.
 
-A plugin can also hand the user a list (Jira does, for `issue search`), and how that list reads is up to the instance: `mercury.config.ts` wraps the plugin with `formatterPlugin` from `@mercury/formatter` and gives one rule per kind of list, the line for each item plus an optional text for an empty list. The kinds come typed from the plugin (`JiraDisplays` for Jira), so a key it doesn't emit fails the typecheck, and a kind left without a rule simply isn't shown (the model still gets the data, and the log says which rule is missing).
+A plugin can also hand the user a list (Jira does, for `issue search`), and how that list reads is up to the instance: `mercury.config.ts` wraps the plugin with `formatterPlugin` from `@mercury-fw/formatter` and gives one rule per kind of list, the line for each item plus an optional text for an empty list. The kinds come typed from the plugin (`JiraDisplays` for Jira), so a key it doesn't emit fails the typecheck, and a kind left without a rule simply isn't shown (the model still gets the data, and the log says which rule is missing).
 
 Authenticating a CLI stays per-crate and out of this repo: run the crate's own `init` (e.g. `jira init`), or follow its README in [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo), for what subcommands and flags it actually exposes. The binary keeps its credentials under `~/.config/<cli>`, seeded once into the container's `cli-credentials` volume by `scripts/docker-entrypoint.sh` from a base64 tar in `.env` (see `*_CLI_CONFIG_TAR_B64`), or bind-mounted from the host in dev via `docker-compose.override.yml`.
 
 ## HTTP API
 
-The intended primary channel for a custom web UI, shipped as the `@mercury/channel-http` plugin and active whenever it's declared in `mercury.config.ts`'s `channels` (as it is in the default config); remove it there to turn the surface off. It listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
+The intended primary channel for a custom web UI, shipped as the `@mercury-fw/channel-http` plugin and active whenever it's declared in `mercury.config.ts`'s `channels` (as it is in the default config); remove it there to turn the surface off. It listens on `HTTP_SURFACE_PORT` (default `4100`). **No authentication** — do not publish the port outside the container network (same posture as the admin panel). Base URL `http://<host>:<port>`.
 
 **CORS** is enabled on every response and every route answers an `OPTIONS` preflight, so a browser UI on another origin can call it. The allowed origin is `HTTP_SURFACE_CORS_ORIGIN` (default `*`; no credentials are used).
 

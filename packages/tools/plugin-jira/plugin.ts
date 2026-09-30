@@ -2,7 +2,7 @@
  * The Jira plugin's module object — the single value the composition config
  * lists and the core's generic loader (`loadPlugins`) processes. Jira works only
  * through a CLI, so it owns its CLI tool outright: it depends on the
- * `@mercury/cli-engine` library and, in `build()`, validates its own allowlist
+ * `@mercury-fw/cli-engine` library and, in `build()`, validates its own allowlist
  * and builds its own `jiraCommand` tool from it. The core composes nothing
  * CLI-specific for it.
  *
@@ -20,13 +20,13 @@
  * `Plugin` is what the composition config's typing checks.
  */
 import { readFileSync } from "node:fs";
-import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury/plugin-types";
-import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury/cli-engine";
+import { PLUGIN_API_VERSION, type Plugin, type CliPostProcessor, parseSkill } from "@mercury-fw/plugin-types";
+import { runCli, createCliTool, parseCliConfig, createCliStatusDescriber } from "@mercury-fw/cli-engine";
 import rawConfig from "./jira.json";
 import { createJiraIssueListExtractor } from "./issue-list-extractor.ts";
 
 /** The raw, unvalidated allowlist object. The plugin validates it itself through
- * `@mercury/cli-engine`'s loader (the same `.strict()` Zod + version-check
+ * `@mercury-fw/cli-engine`'s loader (the same `.strict()` Zod + version-check
  * barrier), so nothing reaches the model's executable surface unvalidated. */
 export const jiraCliConfig: unknown = rawConfig;
 

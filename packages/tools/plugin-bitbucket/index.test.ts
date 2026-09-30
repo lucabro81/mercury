@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury/plugin-types";
+import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury-fw/plugin-types";
 import { bitbucketPlugin } from "./index.ts";
 
 /**

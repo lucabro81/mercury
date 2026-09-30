@@ -9,7 +9,7 @@
  * describer returns. This is CLI-specific, so it lives with the CLI mechanism,
  * not in the core session layer.
  */
-import { defaultStatusLabel, type StatusDescriber } from "@mercury/plugin-types";
+import { defaultStatusLabel, type StatusDescriber } from "@mercury-fw/plugin-types";
 import { parseCommand } from "./command-parser.ts";
 import { matchCommand, type CliConfig } from "./cli-tool.ts";
 

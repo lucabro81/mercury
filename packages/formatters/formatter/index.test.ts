@@ -12,7 +12,7 @@ import {
   type PluginRuntimeContributions,
   type PluginRuntimeContext,
   type CliResult,
-} from "@mercury/plugin-types";
+} from "@mercury-fw/plugin-types";
 import { formatter, formatterPlugin } from "./index.ts";
 
 type Displays = {

@@ -1,13 +1,13 @@
 import { describe, it, expect } from "bun:test";
 import { createJiraIssueListExtractor } from "./index.ts";
-import type { CliResult } from "@mercury/cli-engine";
+import type { CliResult } from "@mercury-fw/cli-engine";
 
 /**
- * Integration-shaped test of the real `@mercury/plugin-jira` issue-list
+ * Integration-shaped test of the real `@mercury-fw/plugin-jira` issue-list
  * extractor. It emits **structured records** on the user-facing `display`
  * channel — one `{ key, status, summary, url }` per issue, never a rendered
  * string; turning those into text is the composition render handler's job (see
- * its own tests in @mercury/core). These assertions cover extraction and its
+ * its own tests in @mercury-fw/core). These assertions cover extraction and its
  * defensive shape handling, plus the plugin-owned config schema.
  */
 const SITE_URL = "https://webcomperio.atlassian.net";

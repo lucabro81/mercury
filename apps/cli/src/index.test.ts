@@ -1,5 +1,5 @@
 /**
- * `mercury create` end to end, run as the real command without the wizard
+ * `mfw create` end to end, run as the real command without the wizard
  * (`--yes`): the files on disk are exactly what `renderApp` produces for the
  * same answers, and a command line that can't work exits non-zero with a
  * message saying why, writing nothing.
@@ -30,9 +30,9 @@ function run(...args: string[]): { code: number; stdout: string; stderr: string 
   return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
 }
 
-const versions = packageVersions(["@mercury/core", "@mercury/formatter", ...CATALOG.map((e) => e.package)]);
+const versions = packageVersions(["@mercury-fw/core", "@mercury-fw/formatter", ...CATALOG.map((e) => e.package)]);
 
-describe("mercury create --yes", () => {
+describe("mfw create --yes", () => {
   test("writes exactly the rendered app, named after the folder by default", () => {
     const dir = join(base, "demo");
     const result = run("create", dir, "--channels", "http", "--plugins", "jira", "--yes");
@@ -92,7 +92,7 @@ describe("mercury create --yes", () => {
 
 // Regression: these were only discovered after the whole wizard had been
 // answered; they must fail before any question is asked.
-describe("mercury create, checks before the wizard", () => {
+describe("mfw create, checks before the wizard", () => {
   test("an unknown channel given as a flag, without --yes, exits 1 naming the valid ones", () => {
     const result = run("create", join(base, "demo"), "--channels", "slack");
     expect(result.code).toBe(1);
@@ -114,7 +114,7 @@ describe("mercury (usage)", () => {
   test("no command prints the usage and exits 1", () => {
     const result = run();
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("mercury create <folder>");
+    expect(result.stderr).toContain("mfw create <folder>");
   });
 
   test("an unknown command exits 1 naming it", () => {
@@ -128,13 +128,13 @@ describe("mercury (usage)", () => {
     for (const flag of ["--help", "-h"]) {
       const result = run("create", "demo", flag);
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("mercury create <folder>");
+      expect(result.stdout).toContain("mfw create <folder>");
     }
   });
 
   test("--help prints the usage and exits 0", () => {
     const result = run("--help");
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("mercury create <folder>");
+    expect(result.stdout).toContain("mfw create <folder>");
   });
 });

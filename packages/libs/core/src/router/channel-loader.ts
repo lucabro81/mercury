@@ -16,7 +16,7 @@
  *  - a `build()` that returns `undefined` means "present but inert" (the
  *    instance isn't configured for it) — not started, not an error.
  */
-import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext, type Provider } from "@mercury/channel-types";
+import { CHANNEL_API_VERSION, type ChannelPlugin, type ChannelRuntimeContext, type Provider } from "@mercury-fw/channel-types";
 
 /** Everything the loader needs from the composition root: the runtime context every `build()` gets. */
 export type LoadChannelsContext = {

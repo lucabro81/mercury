@@ -1,5 +1,5 @@
 /**
- * Service entrypoint: builds the instance via `@mercury/core`'s `composeMercury`,
+ * Service entrypoint: builds the instance via `@mercury-fw/core`'s `composeMercury`,
  * fed this app's `mercury.config.ts`, and starts what a long-running service runs
  * — the declared channels, the POC admin panel, and the Layer-3 crons. Headless:
  * the terminal REPL is a separate dev entrypoint (`repl.ts`), not part of the
@@ -9,7 +9,7 @@
  * StreamingPull, the HTTP server) and the cron intervals, and shuts down on a
  * signal (SIGINT/SIGTERM — what `docker compose stop` sends), not on stdin EOF.
  */
-import { composeMercury, loadChannels, type LoadedChannel } from "@mercury/core";
+import { composeMercury, loadChannels, type LoadedChannel } from "@mercury-fw/core";
 import mercuryConfig from "../mercury.config.ts";
 
 const app = await composeMercury(mercuryConfig);

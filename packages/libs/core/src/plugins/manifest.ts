@@ -10,7 +10,7 @@
  * active CLI binaries are the activated plugins plus the file-based CLIs (the
  * residual with no owning plugin).
  */
-import { PLUGIN_API_VERSION, type Plugin, type Skill } from "@mercury/plugin-types";
+import { PLUGIN_API_VERSION, type Plugin, type Skill } from "@mercury-fw/plugin-types";
 
 export type PluginManifest = {
   coreApiVersion: number;

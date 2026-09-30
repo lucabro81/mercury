@@ -7,7 +7,7 @@
  * Stays alive on the channels' background resources and the cron intervals,
  * and shuts down on SIGINT/SIGTERM (what `docker compose stop` sends).
  */
-import { composeMercury, loadChannels, type LoadedChannel } from "@mercury/core";
+import { composeMercury, loadChannels, type LoadedChannel } from "@mercury-fw/core";
 import mercuryConfig from "../mercury.config.ts";
 
 const app = await composeMercury(mercuryConfig);

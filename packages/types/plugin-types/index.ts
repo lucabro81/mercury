@@ -42,7 +42,7 @@ export type ToolDisplay = { type: string; items: unknown[] };
  * `data` is the model channel — the parsed JSON (or raw text) stdout the model
  * reasons on — and the optional `display` is the user channel (see
  * `ToolDisplay`), which never enters the model's context. On failure `error` is
- * a human/model-readable string. Mirrors `runCli`'s return — `@mercury/cli-engine`
+ * a human/model-readable string. Mirrors `runCli`'s return — `@mercury-fw/cli-engine`
  * owns the runner, this owns the shape both sides agree on.
  */
 export type CliResult = { ok: true; data: unknown; display?: ToolDisplay } | { ok: false; error: string };
@@ -169,7 +169,7 @@ export type CliCommandInfo = { binary: string; args: string[]; mutating: boolean
 
 /** Turns a command about to run into the one-line status content shown while it
  * runs. A plugin may supply one to `createCliStatusDescriber` (see
- * `@mercury/cli-engine`) to override the default; the core only transports the
+ * `@mercury-fw/cli-engine`) to override the default; the core only transports the
  * result, the channel decides how to render it. */
 export type StatusDescriber = (cmd: CliCommandInfo) => string;
 
@@ -270,7 +270,7 @@ export type PluginSurface = {
  * - `surfaces`: reserved (see `PluginSurface`); absent for a plugin with none.
  *
  * A plugin no longer carries a raw `cliConfig`: the core knows nothing about
- * CLIs. A CLI-based plugin owns its allowlist and, using `@mercury/cli-engine`,
+ * CLIs. A CLI-based plugin owns its allowlist and, using `@mercury-fw/cli-engine`,
  * builds its own tool in `build()` — the core just collects the contributed
  * tools.
  */

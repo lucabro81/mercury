@@ -6,20 +6,20 @@
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { DEFAULT_PERSONA_TONE } from "@mercury/core";
+import { DEFAULT_PERSONA_TONE } from "@mercury-fw/core";
 import { renderApp, type RenderInput } from "./render.ts";
 
 const golden = (name: string): string =>
   readFileSync(new URL(`./__fixtures__/render/${name}.golden`, import.meta.url), "utf-8");
 
 const versions: Record<string, string> = {
-  "@mercury/core": "0.1.0",
-  "@mercury/formatter": "0.1.0",
-  "@mercury/channel-google-chat": "0.1.0",
-  "@mercury/channel-http": "0.1.0",
-  "@mercury/plugin-jira": "0.1.0",
-  "@mercury/plugin-bitbucket": "0.1.0",
-  "@mercury/plugin-atlassian-admin": "0.1.0",
+  "@mercury-fw/core": "0.1.0",
+  "@mercury-fw/formatter": "0.1.0",
+  "@mercury-fw/channel-google-chat": "0.1.0",
+  "@mercury-fw/channel-http": "0.1.0",
+  "@mercury-fw/plugin-jira": "0.1.0",
+  "@mercury-fw/plugin-bitbucket": "0.1.0",
+  "@mercury-fw/plugin-atlassian-admin": "0.1.0",
 };
 
 const input = (over: Partial<RenderInput> = {}): RenderInput => ({
@@ -87,7 +87,7 @@ describe("renderApp: mercury.config.ts", () => {
   test("a plugin chosen twice is imported and declared once", () => {
     const twice = input({ plugins: ["bitbucket", "bitbucket"] });
     const config = renderApp(twice).get("mercury.config.ts") ?? "";
-    expect(config.split('from "@mercury/plugin-bitbucket"').length - 1).toBe(1);
+    expect(config.split('from "@mercury-fw/plugin-bitbucket"').length - 1).toBe(1);
     expect(config).toContain("  plugins: [\n    bitbucketPlugin,\n  ],\n");
   });
 
@@ -105,22 +105,22 @@ describe("renderApp: package.json", () => {
 
   test("nothing chosen: only the core, no trustedDependencies", () => {
     const pkg = JSON.parse(renderApp(EMPTY).get("package.json") ?? "");
-    expect(pkg.dependencies).toEqual({ "@mercury/core": "^0.1.0" });
+    expect(pkg.dependencies).toEqual({ "@mercury-fw/core": "^0.1.0" });
     expect(pkg.trustedDependencies).toBeUndefined();
   });
 
   test("every tool plugin is trusted (it downloads its CLI at install), channels are not", () => {
     const pkg = JSON.parse(renderApp(FULL).get("package.json") ?? "");
     expect(pkg.trustedDependencies).toEqual([
-      "@mercury/plugin-atlassian-admin",
-      "@mercury/plugin-bitbucket",
-      "@mercury/plugin-jira",
+      "@mercury-fw/plugin-atlassian-admin",
+      "@mercury-fw/plugin-bitbucket",
+      "@mercury-fw/plugin-jira",
     ]);
   });
 
   test("a package with no known version fails instead of writing a broken range", () => {
-    const { ["@mercury/plugin-jira"]: _dropped, ...partial } = versions;
-    expect(() => renderApp(input({ plugins: ["jira"], versions: partial }))).toThrow("@mercury/plugin-jira");
+    const { ["@mercury-fw/plugin-jira"]: _dropped, ...partial } = versions;
+    expect(() => renderApp(input({ plugins: ["jira"], versions: partial }))).toThrow("@mercury-fw/plugin-jira");
   });
 });
 

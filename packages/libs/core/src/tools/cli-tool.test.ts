@@ -6,10 +6,10 @@ import {
   createCliTool,
   omitDisplayForModel,
   type CliConfig,
-} from "@mercury/cli-engine";
-import { createConfirmationStore, createStageConfirmation } from "@mercury/confirm-engine";
+} from "@mercury-fw/cli-engine";
+import { createConfirmationStore, createStageConfirmation } from "@mercury-fw/confirm-engine";
 import { createDisplayStore } from "./display-store.ts";
-import type { CliResult } from "@mercury/cli-engine";
+import type { CliResult } from "@mercury-fw/cli-engine";
 
 describe("stripGlobalFlags", () => {
   it("removes a value-taking flag and its value from anywhere in args", () => {

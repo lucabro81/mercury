@@ -55,16 +55,16 @@ Mercury is an internal AI agent for Comperio: answers natural-language Jira quer
 ## What NOT to do
 
 - Don't add heavy dependencies (frameworks, alternative vector stores, message brokers) without flagging it first
-- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`packages/libs/core/src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
+- Don't let the CLI executor run a real shell (`sh -c`, pipes, redirects, chaining) — the model writes a command as free text, but Mercury tokenizes it into an argv array itself (`packages/libs/core/src/tools/command-parser.ts`) before spawning, and only binaries with a maintainer-authored, schema-valid config file (each plugin ships its own `<binary>.json`, validated by `@mercury-fw/cli-engine` when the plugin loads) whose argv matches an allowed prefix ever execute — a prefix marked `confirm: true` in that file is staged instead of run directly, and only executes once the exact token Mercury hands back comes in on its own — a card-button click on Google Chat, a bare pasted token on the terminal, no keyword required
 - Don't assume where the LLM endpoint runs — always via `OLLAMA_HOST`
 
 ## Repo structure
 
-Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury/core`
+Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury-fw/core`
 (`packages/libs/core`); the plugins are siblings under `packages/`. `apps/mercury`
 is a **thin reference instance**: it declares its composition in `mercury.config.ts`
 and ships the two entrypoints (`src/index.ts` service, `src/repl.ts` dev REPL),
-both of which just import `@mercury/core` and hand it that config — the runtime
+both of which just import `@mercury-fw/core` and hand it that config — the runtime
 itself lives in core. Everything instance-specific (Dockerfile, compose files,
 scripts) lives inside `apps/mercury/`, because that instance happens to be the
 one with containers.
@@ -73,7 +73,7 @@ The end state (see #48) is a repo of **core + plugins only**, with Comperio's
 Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
 interim reference/production instance until the scaffolder and publishing exist.
 
-`apps/cli` is the scaffolder (`@mercury/cli`, bin `mercury`): `mercury create
+`apps/cli` is the scaffolder (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
 the first-party channels and tool plugins. For now it only deposits the files;
 installing waits for the packages to be published (#47, #48).
@@ -86,7 +86,7 @@ mercury/                       # repo root
 ├── .changeset/                # repo-level release state
 ├── scripts/
 │   └── tag-release.sh         # repo-level: bumps and tags apps/mercury
-├── packages/                  # grouped into per-role buckets; every workspace is @mercury/*
+├── packages/                  # grouped into per-role buckets; every workspace is @mercury-fw/*
 │   ├── types/
 │   │   ├── plugin-types/          # the shared Plugin contract (tools) — types + apiVersion + skill/status helpers, imported by core and plugins
 │   │   └── channel-types/         # the shared ChannelPlugin contract (channels) — Provider/TurnSink + confirm helpers, imported by core and channels
@@ -98,21 +98,21 @@ mercury/                       # repo root
 │   │   ├── plugin-bitbucket/      # Bitbucket plugin: allowlist + pinned CLI binary (the minimal plugin shape)
 │   │   └── plugin-atlassian-admin/ # atlassian-admin plugin: allowlist + pinned CLI binary (read-only)
 │   ├── formatters/
-│   │   └── formatter/             # @mercury/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
+│   │   └── formatter/             # @mercury-fw/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
 │   ├── libs/
-│   │   ├── core/                 # @mercury/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
-│   │   ├── kit/                  # @mercury/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
+│   │   ├── core/                 # @mercury-fw/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
+│   │   ├── kit/                  # @mercury-fw/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
 │   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
 │   │   ├── confirm-engine/       # the core-owned confirm mechanism (store + stage + resolve), consumed by the core, injected into channels
 │   │   └── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
 │   └── config/
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
-    ├── cli/                   # @mercury/cli — `mercury create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
+    ├── cli/                   # @mercury-fw/cli — `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
     └── mercury/               # ← everything below this line is relative to here
 ```
 
-Naming: every workspace is `@mercury/*`. The role is read from the bucket
+Naming: every workspace is `@mercury-fw/*`. The role is read from the bucket
 folder plus the name prefix (`plugin-*`, `channel-*`, `*-types`), not encoded
 again in the name. Workspace names must be unique repo-wide — the folder doesn't
 namespace them.
@@ -138,7 +138,7 @@ apps/mercury/                  # the reference instance — thin: config + entry
 └── package.json
 ```
 
-The framework runtime the entrypoints call into lives in `@mercury/core`
+The framework runtime the entrypoints call into lives in `@mercury-fw/core`
 (`packages/libs/core/src`), config-agnostic — `composeMercury(config)` takes the
 instance's config as a parameter, it never imports a `mercury.config.ts`:
 

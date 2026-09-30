@@ -11,7 +11,7 @@
  * inversion). Those two are optional on the contract but required here, so a
  * context missing them throws — the loader isolates it fail-soft.
  */
-import { CHANNEL_API_VERSION, type ChannelPlugin } from "@mercury/channel-types";
+import { CHANNEL_API_VERSION, type ChannelPlugin } from "@mercury-fw/channel-types";
 import { createHttpProvider } from "./http-provider.ts";
 
 export { createHttpProvider, type HttpProviderDeps } from "./http-provider.ts";

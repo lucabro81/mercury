@@ -1,6 +1,6 @@
 /**
  * Dev REPL entrypoint (`bun run repl`): Mercury's developer console. Boots the
- * same composed instance the service uses (`@mercury/core`'s `composeMercury`,
+ * same composed instance the service uses (`@mercury-fw/core`'s `composeMercury`,
  * fed this app's `mercury.config.ts`) and opens the terminal REPL against its
  * `handleTurn`. For bootstrap before a channel is wired and for local debugging
  * — not a production channel: it is identity-less by design (turns carry no
@@ -11,7 +11,7 @@
  * scaffolds an instance) as its `repl` command — see `compose.ts`'s header. Not
  * built yet, so this lives with the app.
  */
-import { composeMercury, createTerminalProvider } from "@mercury/core";
+import { composeMercury, createTerminalProvider } from "@mercury-fw/core";
 import mercuryConfig from "../mercury.config.ts";
 
 const app = await composeMercury(mercuryConfig);
