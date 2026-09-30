@@ -91,7 +91,7 @@ if (import.meta.main) {
   } catch (err) {
     // What's published stays published; rerunning skips it and carries on.
     console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     rmSync(tarballs, { recursive: true, force: true });
   }

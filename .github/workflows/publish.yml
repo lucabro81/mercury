@@ -38,6 +38,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # A real publish only ever runs from main: from another branch, fail
+      # loudly instead of skipping the publish job and reporting green.
+      - name: Refuse a real publish outside main
+        if: ${{ github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
+        run: |
+          echo "::error::A real publish runs only from main; dispatch it from main, or keep dry_run."
+          exit 1
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
