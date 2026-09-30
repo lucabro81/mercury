@@ -19,7 +19,7 @@ export type AppDeps = {
 };
 
 /** The names of the app commands, as `mfw` dispatches them. */
-export const APP_COMMANDS = ["start", "stop", "restart", "logs", "repl", "shell", "vault", "memory"] as const;
+export const APP_COMMANDS = ["start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset"] as const;
 export type AppCommand = (typeof APP_COMMANDS)[number];
 
 const COMPOSE = ["docker", "compose"];
@@ -46,6 +46,50 @@ async function runAll(calls: string[][], app: App, deps: AppDeps): Promise<numbe
     if (code !== 0) return code;
   }
   return 0;
+}
+
+/** What `mfw reset` can wipe: the compose service using the volume, the
+ * volume's key in the compose file, and how to say what's lost. */
+const RESET_TARGETS = {
+  memory: { service: "qdrant", volume: "qdrant-data", what: "Layer-3 memory (every Qdrant collection)" },
+  wiki: { service: SERVICE, volume: "wiki-vault", what: "the wiki vault (every note)" },
+} as const;
+
+/** `mfw reset <memory|wiki>`: deletes the target's volume once the user types
+ * the app's name, then brings its service back up on an empty volume. The
+ * volume's real name comes from the compose file, and a wrong answer deletes
+ * nothing. */
+async function reset(args: string[], app: App, deps: AppDeps): Promise<number> {
+  const { positionals } = parseArgs({ args, options: {}, allowPositionals: true });
+  const key = positionals[0];
+  if (positionals.length !== 1 || (key !== "memory" && key !== "wiki")) {
+    throw new Error(`reset takes one of: ${Object.keys(RESET_TARGETS).join(", ")}`);
+  }
+  const target = RESET_TARGETS[key];
+  const config = JSON.parse(
+    await deps.capture([...COMPOSE, "config", "--no-interpolate", "--format", "json"], { cwd: app.dir }),
+  ) as { volumes?: Record<string, { name?: string }> };
+  const volume = config.volumes?.[target.volume]?.name;
+  if (volume === undefined) {
+    throw new Error(`The compose file has no "${target.volume}" volume to reset`);
+  }
+  const answer = await deps.ask(
+    `This deletes ${target.what} for good: volume ${volume}. Type the app's name (${app.name}) to confirm: `,
+  );
+  if (answer.trim() !== app.name) {
+    deps.print("Not confirmed: nothing deleted.");
+    return 1;
+  }
+  return runAll(
+    [
+      [...COMPOSE, "stop", target.service],
+      [...COMPOSE, "rm", "-f", target.service],
+      ["docker", "volume", "rm", volume],
+      [...COMPOSE, "up", "-d", target.service],
+    ],
+    app,
+    deps,
+  );
 }
 
 /** Runs the app command `command` with `args` on `app`; returns the exit code.
@@ -79,6 +123,8 @@ export async function runAppCommand(command: AppCommand, args: string[], app: Ap
       return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", "run", "mercury-vault", ...args]], app, deps);
     case "memory":
       return runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, "bun", "run", "mercury-memory", ...args]], app, deps);
+    case "reset":
+      return reset(args, app, deps);
   }
 }
 

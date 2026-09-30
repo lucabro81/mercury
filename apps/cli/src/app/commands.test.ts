@@ -10,7 +10,13 @@ const APP = { dir: "/apps/my-agent", name: "my-agent" };
 
 /** Deps that record every call; `codes` are the exit codes of the successive
  * `run` calls (0 past the end), `captured` what each `capture` returns. */
-function fake({ codes = [], captured = {} }: { codes?: number[]; captured?: Record<string, string> } = {}) {
+function fake({
+  codes = [],
+  captured = {},
+  answer = "",
+}: { codes?: number[]; captured?: Record<string, string>; answer?: string } = {}) {
+  const asked: string[] = [];
+  const printed: string[] = [];
   const calls: Array<{ kind: "run" | "capture"; argv: string[]; cwd: string }> = [];
   const deps: AppDeps = {
     run: async (argv, { cwd }) => {
@@ -21,10 +27,13 @@ function fake({ codes = [], captured = {} }: { codes?: number[]; captured?: Reco
       calls.push({ kind: "capture", argv, cwd });
       return captured[argv.join(" ")] ?? "";
     },
-    ask: async () => "",
-    print: () => {},
+    ask: async (q) => {
+      asked.push(q);
+      return answer;
+    },
+    print: (line) => void printed.push(line),
   };
-  return { deps, calls, runs: () => calls.filter((c) => c.kind === "run").map((c) => c.argv) };
+  return { deps, calls, asked, printed, runs: () => calls.filter((c) => c.kind === "run").map((c) => c.argv) };
 }
 
 describe("lifecycle", () => {
@@ -128,5 +137,74 @@ describe("vault and memory", () => {
   test("the container's exit code comes back", async () => {
     const f = fake({ codes: [2] });
     expect(await runAppCommand("vault", ["read", "missing.md"], APP, f.deps)).toBe(2);
+  });
+});
+
+describe("reset", () => {
+  const CONFIG = "docker compose config --no-interpolate --format json";
+  const compose = JSON.stringify({
+    services: { mercury: {}, qdrant: {} },
+    volumes: {
+      "wiki-vault": { name: "my-agent_wiki-vault" },
+      "qdrant-data": { name: "my-agent_qdrant-data" },
+    },
+  });
+
+  test("memory, confirmed with the app's name: Qdrant's volume goes, Qdrant comes back empty", async () => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent" });
+    expect(await runAppCommand("reset", ["memory"], APP, f.deps)).toBe(0);
+    expect(f.asked).toEqual([
+      "This deletes Layer-3 memory (every Qdrant collection) for good: volume my-agent_qdrant-data. Type the app's name (my-agent) to confirm: ",
+    ]);
+    expect(f.runs()).toEqual([
+      ["docker", "compose", "stop", "qdrant"],
+      ["docker", "compose", "rm", "-f", "qdrant"],
+      ["docker", "volume", "rm", "my-agent_qdrant-data"],
+      ["docker", "compose", "up", "-d", "qdrant"],
+    ]);
+  });
+
+  test("wiki: the vault's volume goes, the app comes back with a fresh vault", async () => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer: "  my-agent\n" });
+    expect(await runAppCommand("reset", ["wiki"], APP, f.deps)).toBe(0);
+    expect(f.runs()).toEqual([
+      ["docker", "compose", "stop", "mercury"],
+      ["docker", "compose", "rm", "-f", "mercury"],
+      ["docker", "volume", "rm", "my-agent_wiki-vault"],
+      ["docker", "compose", "up", "-d", "mercury"],
+    ]);
+  });
+
+  test.each(["", "y", "yes", "My-Agent", "my-agen"])("answer %p: nothing is deleted, exit 1", async (answer) => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer });
+    expect(await runAppCommand("reset", ["wiki"], APP, f.deps)).toBe(1);
+    expect(f.runs()).toEqual([]);
+    expect(f.printed).toEqual(["Not confirmed: nothing deleted."]);
+  });
+
+  test("the volume name comes from the compose file, whatever it is", async () => {
+    const custom = JSON.stringify({ volumes: { "qdrant-data": { name: "mercury_qdrant-data" } } });
+    const f = fake({ captured: { [CONFIG]: custom }, answer: "my-agent" });
+    await runAppCommand("reset", ["memory"], APP, f.deps);
+    expect(f.runs()).toContainEqual(["docker", "volume", "rm", "mercury_qdrant-data"]);
+  });
+
+  test("a compose file without that volume is an error before any question", async () => {
+    const f = fake({ captured: { [CONFIG]: JSON.stringify({ volumes: {} }) }, answer: "my-agent" });
+    await expect(runAppCommand("reset", ["wiki"], APP, f.deps)).rejects.toThrow('no "wiki-vault" volume');
+    expect(f.asked).toEqual([]);
+    expect(f.runs()).toEqual([]);
+  });
+
+  test.each([[[]], [["everything"]], [["wiki", "memory"]]])("target %p is an error, nothing runs", async (args) => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent" });
+    await expect(runAppCommand("reset", args, APP, f.deps)).rejects.toThrow("reset takes one of: memory, wiki");
+    expect(f.calls).toEqual([]);
+  });
+
+  test("a failed step stops the reset there", async () => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent", codes: [0, 0, 1] });
+    expect(await runAppCommand("reset", ["memory"], APP, f.deps)).toBe(1);
+    expect(f.runs()).toHaveLength(3);
   });
 });
