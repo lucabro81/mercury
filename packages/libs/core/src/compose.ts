@@ -56,6 +56,7 @@ import { ensureVerbatimCollection, listVerbatimBySession, listVerbatimSessions }
 import { createVerbatimArchiveProvider } from "./memory/memory-provider.ts";
 import { ensureSemanticFactsCollection, storeSemanticFact, searchSemanticFactsByTopic } from "./memory/semantic-facts-store.ts";
 import { ensureToolCorrectionsCollection, storeToolCorrection, searchToolCorrectionsByTopic } from "./memory/tool-corrections-store.ts";
+import { setUpWhenReachable } from "./memory/collection-setup.ts";
 import { consolidateSemanticFact, consolidateToolCorrection, type ToolCorrectionConsolidationDeps } from "./cron/semantic-consolidation.ts";
 import { createToolCorrectionExtractor } from "./session/tool-correction-extractor.ts";
 import { createEmbedder } from "./memory/embedder.ts";
@@ -227,14 +228,12 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   const qdrant = new QdrantClient({ url: process.env.QDRANT_URL ?? "http://qdrant:6333" });
   const episodicCollection = process.env.QDRANT_EPISODIC_COLLECTION ?? "episodic_memory";
   const episodicVectorSize = Number(process.env.QDRANT_EPISODIC_VECTOR_SIZE ?? "768");
-  await ensureEpisodicCollection(qdrant, episodicCollection, episodicVectorSize);
 
   // Verbatim conversation archive (#4): a distinct collection holding the raw
   // user<->model exchange, lossless and durable — separate from the lossy
   // Layer-1 window and the derived episodic summaries above.
   const verbatimCollection = process.env.QDRANT_VERBATIM_COLLECTION ?? "verbatim_archive";
   const verbatimVectorSize = Number(process.env.QDRANT_VERBATIM_VECTOR_SIZE ?? "768");
-  await ensureVerbatimCollection(qdrant, verbatimCollection, verbatimVectorSize);
   const verbatimProvider = createVerbatimArchiveProvider({ client: qdrant, collectionName: verbatimCollection, embed });
 
   // Semantic consolidation (D-22/D-34): a separate Qdrant collection from
@@ -242,7 +241,6 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // vector embedded on the topic alone (see semantic-facts-store.ts for why).
   const semanticFactsCollection = process.env.QDRANT_SEMANTIC_FACTS_COLLECTION ?? "semantic_facts";
   const semanticFactsVectorSize = Number(process.env.QDRANT_SEMANTIC_FACTS_VECTOR_SIZE ?? "768");
-  await ensureSemanticFactsCollection(qdrant, semanticFactsCollection, semanticFactsVectorSize);
   const extractFacts = createSemanticFactExtractor(model);
 
   // Idempotent self-heal: the vault lives on a named Docker volume, empty on
@@ -322,7 +320,17 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // the tool-call trace only exists in memory for the duration of its turn.
   const toolCorrectionsCollection = process.env.QDRANT_TOOL_CORRECTIONS_COLLECTION ?? "tool_corrections";
   const toolCorrectionsVectorSize = Number(process.env.QDRANT_TOOL_CORRECTIONS_VECTOR_SIZE ?? "768");
-  await ensureToolCorrectionsCollection(qdrant, toolCorrectionsCollection, toolCorrectionsVectorSize);
+  // Every Layer-3 collection, set up in the background: Mercury starts even
+  // while Qdrant isn't answering yet, and memory switches on once it does.
+  setUpWhenReachable(
+    async () => {
+      await ensureEpisodicCollection(qdrant, episodicCollection, episodicVectorSize);
+      await ensureVerbatimCollection(qdrant, verbatimCollection, verbatimVectorSize);
+      await ensureSemanticFactsCollection(qdrant, semanticFactsCollection, semanticFactsVectorSize);
+      await ensureToolCorrectionsCollection(qdrant, toolCorrectionsCollection, toolCorrectionsVectorSize);
+    },
+    { log: (msg) => console.error(`[memory] ${msg}`) },
+  );
   const extractToolCorrections = createToolCorrectionExtractor(model, undefined, {
     log: (msg) => console.error(`[cron] ${msg}`),
   });
