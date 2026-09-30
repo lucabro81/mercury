@@ -55,6 +55,11 @@ export function appCommands(app: App, deps: AppDeps) {
     return 0;
   };
   const oneOff = (argv: string[]) => runAll([[...COMPOSE, "run", "--rm", "-T", SERVICE, ...argv]]);
+  /** The compose services running right now. */
+  const running = async (): Promise<string[]> =>
+    (await deps.capture([...COMPOSE, "ps", "--status", "running", "--services"], { cwd: app.dir }))
+      .split("\n")
+      .map((s) => s.trim());
 
   return {
     start: ({ noCache }: { noCache: boolean }) => runAll(startCalls(noCache, false)),
@@ -63,10 +68,7 @@ export function appCommands(app: App, deps: AppDeps) {
     logs: (service?: string) => runAll([[...COMPOSE, "logs", "-f", ...(service === undefined ? [] : [service])]]),
     repl: () => runAll([[...COMPOSE, "run", "--rm", SERVICE, "bun", "run", "repl"]]),
     shell: async () => {
-      const running = (await deps.capture([...COMPOSE, "ps", "--status", "running", "--services"], { cwd: app.dir }))
-        .split("\n")
-        .map((s) => s.trim());
-      const shell = running.includes(SERVICE) ? ["exec", SERVICE, "bash"] : ["run", "--rm", SERVICE, "bash"];
+      const shell = (await running()).includes(SERVICE) ? ["exec", SERVICE, "bash"] : ["run", "--rm", SERVICE, "bash"];
       return runAll([[...COMPOSE, ...shell]]);
     },
     /** `args` is the vault CLI's own command line (`list`, `read <path>`, …). */
@@ -90,12 +92,23 @@ export function appCommands(app: App, deps: AppDeps) {
         deps.print("Not confirmed: nothing deleted.");
         return 1;
       }
-      return runAll([
+      const steps = [
         [...COMPOSE, "stop", service],
         [...COMPOSE, "rm", "-f", service],
         ["docker", "volume", "rm", volume],
         [...COMPOSE, "up", "-d", service],
-      ]);
+      ];
+      for (const [i, argv] of steps.entries()) {
+        const code = await deps.run(argv, { cwd: app.dir });
+        if (code === 0) continue;
+        if (i > 0) deps.print(`The ${service} service was stopped and not restarted: bunx mfw start brings it back.`);
+        return code;
+      }
+      // A running app sets up its Qdrant collections only when it starts.
+      if (target === "memory" && (await running()).includes(SERVICE)) {
+        return runAll([[...COMPOSE, "restart", SERVICE]]);
+      }
+      return 0;
     },
   };
 }

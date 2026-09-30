@@ -190,10 +190,38 @@ describe("reset", () => {
     expect(f.runs()).toEqual([]);
   });
 
-  test("a failed step stops the reset there", async () => {
+  // Regression: a step failing after the stop (the volume still in use, say)
+  // left the service down with nothing but an exit code to show for it.
+  test("a step failing after the stop says the service is down and how to bring it back", async () => {
     const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent", codes: [0, 0, 1] });
     expect(await appCommands(APP, f.deps).reset("memory")).toBe(1);
     expect(f.runs()).toHaveLength(3);
+    expect(f.printed).toEqual(["The qdrant service was stopped and not restarted: bunx mfw start brings it back."]);
+  });
+
+  test("a failed stop leaves nothing to say: nothing was stopped", async () => {
+    const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent", codes: [1] });
+    expect(await appCommands(APP, f.deps).reset("wiki")).toBe(1);
+    expect(f.runs()).toHaveLength(1);
+    expect(f.printed).toEqual([]);
+  });
+
+  // Regression: the running app sets up its Qdrant collections only when it
+  // starts, so after a memory reset it wrote to collections that no longer
+  // existed until someone restarted it.
+  test("memory, with the app running: the app restarts too, to set up its collections again", async () => {
+    const f = fake({
+      captured: { [CONFIG]: compose, "docker compose ps --status running --services": "qdrant\nmercury\n" },
+      answer: "my-agent",
+    });
+    expect(await appCommands(APP, f.deps).reset("memory")).toBe(0);
+    expect(f.runs()).toEqual([
+      ["docker", "compose", "stop", "qdrant"],
+      ["docker", "compose", "rm", "-f", "qdrant"],
+      ["docker", "volume", "rm", "my-agent_qdrant-data"],
+      ["docker", "compose", "up", "-d", "qdrant"],
+      ["docker", "compose", "restart", "mercury"],
+    ]);
   });
 });
 
