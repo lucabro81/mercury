@@ -32,7 +32,12 @@ export function workspaces(): Workspace[] {
 
 /** The public workspaces, each after the workspaces it depends on. */
 export function publicWorkspacesInOrder(): Workspace[] {
-  const all = workspaces().filter((w) => !w.pkg.private);
+  return orderByDependencies(workspaces().filter((w) => !w.pkg.private));
+}
+
+/** `all`, each after the workspaces of `all` it depends on (dependencies and
+ * peers; anything outside `all` is ignored), otherwise in the given order. */
+export function orderByDependencies(all: Workspace[]): Workspace[] {
   const byName = new Map(all.map((w) => [w.pkg.name, w]));
   const ordered: Workspace[] = [];
   const seen = new Set<string>();

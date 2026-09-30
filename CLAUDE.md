@@ -71,12 +71,15 @@ one with containers.
 
 The end state (see #48) is a repo of **core + plugins only**, with Comperio's
 Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
-interim reference/production instance until the scaffolder and publishing exist.
+interim reference/production instance until Comperio's app is scaffolded into
+its own repo and deployed.
 
 `apps/cli` is the scaffolder (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
-the first-party channels and tool plugins. For now it only deposits the files;
-installing waits for the packages to be published (#47, #48).
+the first-party channels and tool plugins, with the framework at the CLI's own
+version and each chosen plugin at its latest on the registry; installing is
+left to the user (`bun install`). `apps/create-mercury-fw` is the same command
+under the `bun create mercury-fw` name.
 
 ```
 mercury/                       # repo root
