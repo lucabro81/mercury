@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # A real publish only ever runs from main; from any other branch the
-      # workflow can only dry-run, and the token isn't even passed.
+      # workflow can only dry-run, and the secret is never passed there.
       - name: Refuse a real publish outside main
         if: ${{ github.ref != 'refs/heads/main' && !inputs.dry_run }}
         run: |
@@ -64,5 +64,8 @@ jobs:
         run: bun run test
       - name: Publish
         env:
-          NPM_CONFIG_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.NPM_TOKEN || '' }}
+          # bun publish wants a token even for a dry run, which never uses it: a
+          # dry run gets a worthless placeholder, a real publish the secret, and
+          # only from main.
+          NPM_CONFIG_TOKEN: ${{ inputs.dry_run && 'dry-run' || (github.ref == 'refs/heads/main' && secrets.NPM_TOKEN || '') }}
         run: bun scripts/publish.ts ${{ inputs.dry_run && '--dry-run' || '' }}
