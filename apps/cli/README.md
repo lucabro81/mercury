@@ -17,6 +17,8 @@
   - [`mfw memory list`](#mfw-memory-list)
   - [`mfw memory read <collection> [--limit N]`](#mfw-memory-read-collection---limit-n)
   - [`mfw reset <memory|wiki>`](#mfw-reset-memorywiki)
+  - [`mfw credentials set <plugin> [--from <dir>] [--print]`](#mfw-credentials-set-plugin---from-dir---print)
+  - [`mfw credentials reset <plugin>`](#mfw-credentials-reset-plugin)
 - [Help](#help)
 
 ## Getting it
@@ -165,6 +167,26 @@ bunx mfw reset wiki
 ```
 
 Useful for clearing out test data; the other layer isn't touched.
+
+### `mfw credentials set <plugin> [--from <dir>] [--print]`
+
+Hands a tool plugin's CLI its login. Every such CLI keeps it in a config folder of its own (`jira-cli`, `bitbucket-cli`, `atlassian-admin-cli`); log in with the CLI on your machine first, then this packs that folder (`~/.config/<cli>`, or `--from` when it lives elsewhere) into a base64 tar.gz and writes it as the plugin's variable in the app's `.env` (`JIRA_CLI_CONFIG_TAR_B64` and so on), replacing an older value and leaving the other lines alone. The value is never printed; `--print` prints the whole line instead and leaves `.env` alone, for pasting it into another host's.
+
+When the container starts, the app's `docker-entrypoint.sh` unpacks the variable onto the credentials volume, but only if that CLI's folder isn't there yet: what the CLI writes back while running, like a refreshed token, stays on the volume across redeploys, and an older value in `.env` never overwrites it. `<plugin>` has to be a tool plugin the app depends on.
+
+```bash
+bunx mfw credentials set jira
+bunx mfw credentials set bitbucket --from ~/work/bitbucket-login
+bunx mfw credentials set jira --print
+```
+
+### `mfw credentials reset <plugin>`
+
+Deletes the plugin's CLI folder from the credentials volume, so the variable in `.env` is unpacked again at the next start: what to run after correcting a variable whose folder is already on the volume, since the entrypoint never touches an existing folder. It asks you to type the plugin's name first, because a token the CLI refreshed on the volume goes too (and with a CLI that rotates its refresh token, the one in `.env` may no longer work). Once confirmed it stops the app, removes the folder in a one-off container of the app's own image, and starts the app again (`docker compose stop mercury`, `run --rm --no-deps -T mercury rm -rf …`, `up -d mercury`).
+
+```bash
+bunx mfw credentials reset jira
+```
 
 ## Help
 
