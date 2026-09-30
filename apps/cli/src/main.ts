@@ -9,7 +9,7 @@ import { parseCreateArgs, type CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
 import { kebabCase } from "./naming.ts";
 import { renderApp, selectionError } from "./render.ts";
-import { appVersions, DEFAULT_REGISTRY } from "./versions.ts";
+import { appVersions, registryFrom } from "./versions.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
 
@@ -77,7 +77,7 @@ async function create(argv: string[]): Promise<number> {
   const chosen = CATALOG.filter(
     (e) => (e.kind === "channel" ? answers.channels : answers.plugins).includes(e.id),
   ).map((e) => e.package);
-  const versions = await appVersions(chosen, { registry: process.env.MFW_REGISTRY ?? DEFAULT_REGISTRY });
+  const versions = await appVersions(chosen, { registry: registryFrom(process.env.MFW_REGISTRY) });
   writeApp(dir, renderApp({ ...answers, versions }));
   console.log(`Created ${answers.name} in ${dir}
 

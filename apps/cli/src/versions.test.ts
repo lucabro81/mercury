@@ -5,7 +5,7 @@
  * `latest`, asked for only the ones chosen.
  */
 import { describe, expect, test } from "bun:test";
-import { appVersions, cliVersion, FRAMEWORK_PACKAGES } from "./versions.ts";
+import { appVersions, cliVersion, DEFAULT_REGISTRY, FRAMEWORK_PACKAGES, registryFrom } from "./versions.ts";
 import pkg from "../package.json";
 
 /** A fake registry answering `latest` from `versions`, recording what was asked. */
@@ -68,6 +68,27 @@ describe("appVersions", () => {
     await expect(
       appVersions(["@mercury-fw/plugin-jira"], { registry: "https://registry.test", fetchFn }),
     ).rejects.toThrow("@mercury-fw/plugin-jira is not on https://registry.test");
+  });
+
+  // Regression: a 200 without a usable version wrote "^undefined" into the app.
+  test("an answer without a version is an error naming the package", async () => {
+    const fetchFn = (async () => Response.json({ name: "x" })) as unknown as typeof fetch;
+    await expect(
+      appVersions(["@mercury-fw/plugin-jira"], { registry: "https://registry.test", fetchFn }),
+    ).rejects.toThrow("@mercury-fw/plugin-jira");
+    const notJson = (async () => new Response("<html>")) as unknown as typeof fetch;
+    await expect(
+      appVersions(["@mercury-fw/plugin-jira"], { registry: "https://registry.test", fetchFn: notJson }),
+    ).rejects.toThrow("@mercury-fw/plugin-jira");
+  });
+
+  // Regression: an empty MFW_REGISTRY was taken as a registry and every lookup
+  // failed; empty means the default.
+  test("registryFrom: empty or unset is the default registry", () => {
+    expect(registryFrom(undefined)).toBe(DEFAULT_REGISTRY);
+    expect(registryFrom("")).toBe(DEFAULT_REGISTRY);
+    expect(registryFrom("  ")).toBe(DEFAULT_REGISTRY);
+    expect(registryFrom("http://localhost:4873")).toBe("http://localhost:4873");
   });
 
   test("an unreachable registry is an error that says so", async () => {

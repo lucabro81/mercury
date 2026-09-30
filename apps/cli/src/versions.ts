@@ -12,6 +12,12 @@ export const FRAMEWORK_PACKAGES = ["@mercury-fw/core", "@mercury-fw/formatter"];
 /** The registry asked when `MFW_REGISTRY` doesn't name another. */
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 
+/** The registry to ask: `value` (from `MFW_REGISTRY`) unless it's unset or
+ * blank, the default otherwise. */
+export function registryFrom(value: string | undefined): string {
+  return value?.trim() ? value.trim() : DEFAULT_REGISTRY;
+}
+
 /** This CLI's version, which is the framework's. */
 export function cliVersion(): string {
   return pkg.version;
@@ -38,7 +44,11 @@ export async function appVersions(
       if (!res.ok) {
         throw new Error(`${name} is not on ${registry}`);
       }
-      return [name, ((await res.json()) as { version: string }).version] as const;
+      const body = (await res.json().catch(() => undefined)) as { version?: unknown } | undefined;
+      if (typeof body?.version !== "string") {
+        throw new Error(`${registry} gave no version for ${name}`);
+      }
+      return [name, body.version] as const;
     }),
   );
   for (const [name, version] of latest) {
