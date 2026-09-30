@@ -8,9 +8,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { orderByDependencies, workspaces, type Workspace } from "./workspaces.ts";
+import { orderByDependencies, root, workspaces, type Workspace } from "./workspaces.ts";
 import { isPublished, publishCommand } from "./publish.ts";
-import { trustCommand } from "./trust-publishers.ts";
+import { trustAll, trustCommand } from "./trust-publishers.ts";
 import { comparePack } from "./check-pack.ts";
 import { pendingChangesets } from "./release.ts";
 
@@ -152,5 +152,26 @@ describe("trustCommand", () => {
       "--allow-publish",
       "--yes",
     ]);
+  });
+});
+
+describe("trustAll", () => {
+  // Regression (#73): npm trust ran from the repo root, where npm reads the root
+  // manifest's devEngines (Bun) and refuses every command.
+  test("runs every npm trust outside the repo", () => {
+    const cwds: string[] = [];
+    trustAll(["@mercury-fw/core", "@mercury-fw/kit"], (_cmd, cwd) => void cwds.push(cwd));
+    expect(cwds).toHaveLength(2);
+    for (const cwd of cwds) expect(cwd.startsWith(root)).toBe(false);
+  });
+
+  test("a failing package is reported and doesn't stop the others", () => {
+    const ran: string[] = [];
+    const failed = trustAll(["a", "b", "c"], (cmd) => {
+      ran.push(cmd[3] as string);
+      if (cmd[3] === "b") throw new Error("npm trust failed");
+    });
+    expect(ran).toEqual(["a", "b", "c"]);
+    expect(failed).toEqual(["b"]);
   });
 });
