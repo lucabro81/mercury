@@ -9,7 +9,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { orderByDependencies, workspaces, type Workspace } from "./workspaces.ts";
-import { isPublished } from "./publish.ts";
+import { isPublished, publishCommand } from "./publish.ts";
+import { trustCommand } from "./trust-publishers.ts";
 import { comparePack } from "./check-pack.ts";
 import { pendingChangesets } from "./release.ts";
 
@@ -108,5 +109,48 @@ describe("every public package ships its changelog", () => {
   test.each(workspaces().filter((w) => !w.pkg.private).map((w) => [w.pkg.name, w] as const))("%s", (_name, w) => {
     const files = (w.pkg as { files?: string[] }).files ?? [];
     expect(files).toContain("CHANGELOG.md");
+  });
+});
+
+describe("publishCommand", () => {
+  test("publishes the tarball with npm, which trusted publishing needs", () => {
+    expect(publishCommand("/tmp/core.tgz", { registry: "https://registry.npmjs.org", dryRun: false })).toEqual([
+      "npm",
+      "publish",
+      "/tmp/core.tgz",
+      "--access",
+      "public",
+      "--registry=https://registry.npmjs.org",
+    ]);
+  });
+
+  test("a dist-tag and a dry run are passed through", () => {
+    expect(publishCommand("/tmp/core.tgz", { registry: "http://localhost:4873", tag: "next", dryRun: true })).toEqual([
+      "npm",
+      "publish",
+      "/tmp/core.tgz",
+      "--access",
+      "public",
+      "--registry=http://localhost:4873",
+      "--tag=next",
+      "--dry-run",
+    ]);
+  });
+});
+
+describe("trustCommand", () => {
+  test("trusts this repo's publish workflow to publish the package", () => {
+    expect(trustCommand("@mercury-fw/core")).toEqual([
+      "npm",
+      "trust",
+      "github",
+      "@mercury-fw/core",
+      "--file",
+      "publish.yml",
+      "--repo",
+      "lucabro81/mercury-fw",
+      "--allow-publish",
+      "--yes",
+    ]);
   });
 });

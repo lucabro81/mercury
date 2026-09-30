@@ -7,12 +7,18 @@
  *
  * First it emits the type declarations (`scripts/build-types.ts`) and checks
  * every pack with them (`scripts/check-pack.ts --types`); a problem stops
- * everything before anything is published. Then `bun publish`, not
- * `changeset publish`: the latter runs `npm publish`, which leaves
- * `workspace:*` in the published manifests. Authentication is the registry's
- * usual one (an `.npmrc` token, or `NPM_CONFIG_TOKEN`). Without `--tag`,
- * versions go to `latest`, which is where the CLI looks plugins up.
+ * everything before anything is published. Then each package is packed with
+ * `bun pm pack`, which rewrites `workspace:*` into real versions, and the
+ * tarball is published with `npm publish`, the only client npm's trusted
+ * publishing works with (in CI the registry trusts the workflow through OIDC,
+ * no token). Never `changeset publish` or `npm publish` on the folder: both
+ * leave `workspace:*` in the published manifests. Locally, authentication is
+ * the registry's usual one (an `.npmrc` token). Without `--tag`, versions go
+ * to `latest`, which is where the CLI looks plugins up.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { publicWorkspacesInOrder, run } from "./workspaces.ts";
 
@@ -36,6 +42,28 @@ export async function isPublished(
   throw new Error(`${registry} answered ${res.status} checking ${name}@${version}: stopping`);
 }
 
+/** The `npm publish` argv for one packed tarball. */
+export function publishCommand(
+  tarball: string,
+  { registry, tag, dryRun }: { registry: string; tag?: string; dryRun: boolean },
+): string[] {
+  const cmd = ["npm", "publish", tarball, "--access", "public", `--registry=${registry}`];
+  if (tag) cmd.push(`--tag=${tag}`);
+  if (dryRun) cmd.push("--dry-run");
+  return cmd;
+}
+
+/** Packs the workspace in `dir` into `destination` and returns the tarball's path. */
+function pack(dir: string, destination: string): string {
+  const proc = Bun.spawnSync(["bun", "pm", "pack", "--destination", destination, "--quiet"], {
+    cwd: dir,
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  if (proc.exitCode !== 0) throw new Error(`bun pm pack failed in ${dir}`);
+  return proc.stdout.toString().trim();
+}
+
 if (import.meta.main) {
   const { values } = parseArgs({
     args: process.argv.slice(2),
@@ -46,6 +74,7 @@ if (import.meta.main) {
     },
   });
   const registry = (values.registry as string).replace(/\/+$/, "");
+  const tarballs = mkdtempSync(join(tmpdir(), "mercury-publish-"));
   try {
     run(["bun", "scripts/build-types.ts"]);
     run(["bun", "scripts/check-pack.ts", "--types"]);
@@ -54,15 +83,16 @@ if (import.meta.main) {
         console.log(`skip ${pkg.name}@${pkg.version}: already on ${registry}`);
         continue;
       }
-      const cmd = ["bun", "publish", "--access", "public", `--registry=${registry}`];
-      if (values.tag) cmd.push(`--tag=${values.tag}`);
-      if (values["dry-run"]) cmd.push("--dry-run");
       console.log(`publish ${pkg.name}@${pkg.version}`);
-      run(cmd, dir);
+      // From the tarballs' folder, outside the repo: npm would otherwise read
+      // the root manifest's devEngines (Bun) and refuse to run.
+      run(publishCommand(pack(dir, tarballs), { registry, tag: values.tag, dryRun: values["dry-run"] as boolean }), tarballs);
     }
   } catch (err) {
     // What's published stays published; rerunning skips it and carries on.
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
+  } finally {
+    rmSync(tarballs, { recursive: true, force: true });
   }
 }
