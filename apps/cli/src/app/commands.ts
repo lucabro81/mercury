@@ -5,6 +5,11 @@
  * and validated before any of this runs (`program.ts`); what runs a command is
  * injected (`AppDeps`), which is how the tests see the exact calls.
  */
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { CATALOG, type CliCredentials } from "../catalog.ts";
+import { packCredentials, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
 
 export type AppDeps = {
@@ -16,6 +21,8 @@ export type AppDeps = {
   ask: (question: string) => Promise<string>;
   /** Tells the user something. */
   print: (line: string) => void;
+  /** The user's home folder, where a CLI keeps its config (`~/.config/<cli>`). */
+  home: string;
 };
 
 const COMPOSE = ["docker", "compose"];
@@ -92,25 +99,83 @@ export function appCommands(app: App, deps: AppDeps) {
         deps.print("Not confirmed: nothing deleted.");
         return 1;
       }
-      const steps = [
-        [...COMPOSE, "stop", service],
+      const code = await stopped(service, [
         [...COMPOSE, "rm", "-f", service],
         ["docker", "volume", "rm", volume],
-        [...COMPOSE, "up", "-d", service],
-      ];
-      for (const [i, argv] of steps.entries()) {
-        const code = await deps.run(argv, { cwd: app.dir });
-        if (code === 0) continue;
-        if (i > 0) deps.print(`The ${service} service was stopped and not restarted: bunx mfw start brings it back.`);
-        return code;
-      }
+      ]);
+      if (code !== 0) return code;
       // A running app sets up its Qdrant collections only when it starts.
       if (target === "memory" && (await running()).includes(SERVICE)) {
         return runAll([[...COMPOSE, "restart", SERVICE]]);
       }
       return 0;
     },
+    /** Packs the plugin's CLI config folder (`from`, by default
+     * `~/.config/<folder>`) into its credentials variable, written into the
+     * app's env file, or printed with `print`. */
+    credentialsSet: async (plugin: string, { from, print }: { from?: string; print: boolean }) => {
+      const { folder, variable } = credentialsOf(app, plugin);
+      const source = resolve(from ?? join(deps.home, ".config", folder));
+      const value = await packCredentials(source, folder);
+      if (print) {
+        deps.print(`${variable}=${value}`);
+        return 0;
+      }
+      const envFile = join(app.dir, ".env");
+      setEnvVar(envFile, variable, value);
+      deps.print(`${variable} set in ${envFile}, from ${source}.`);
+      deps.print(
+        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run bunx mfw credentials reset ${plugin} first.`,
+      );
+      return 0;
+    },
+    /** Deletes the plugin's CLI folder from the credentials volume once the
+     * user types the plugin's name, so its variable is unpacked again at the
+     * next start. A wrong answer deletes nothing. */
+    credentialsReset: async (plugin: string) => {
+      const { folder } = credentialsOf(app, plugin);
+      const answer = await deps.ask(
+        `This deletes ${folder}'s folder from the app's credentials volume, and any token the CLI refreshed since it was unpacked. Type the plugin's name (${plugin}) to confirm: `,
+      );
+      if (answer.trim() !== plugin) {
+        deps.print("Not confirmed: nothing deleted.");
+        return 1;
+      }
+      return stopped(SERVICE, [[...COMPOSE, "run", "--rm", "--no-deps", "-T", SERVICE, "rm", "-rf", `/home/mercury/.config/${folder}`]]);
+    },
   };
+
+  /** Stops `service`, runs `steps`, starts it again; stops at the first
+   * failure and, once the service is stopped, says it's down and how to bring
+   * it back. Returns the exit code. */
+  async function stopped(service: string, steps: string[][]): Promise<number> {
+    const all = [[...COMPOSE, "stop", service], ...steps, [...COMPOSE, "up", "-d", service]];
+    for (const [i, argv] of all.entries()) {
+      const code = await deps.run(argv, { cwd: app.dir });
+      if (code === 0) continue;
+      if (i > 0) deps.print(`The ${service} service was stopped and not restarted: bunx mfw start brings it back.`);
+      return code;
+    }
+    return 0;
+  }
+}
+
+/** The credentials of the tool plugin `plugin`, which `app` must depend on;
+ * throws naming the ones it has otherwise. */
+function credentialsOf(app: App, plugin: string): CliCredentials {
+  const manifest = JSON.parse(readFileSync(join(app.dir, "package.json"), "utf-8")) as {
+    dependencies?: Record<string, string>;
+  };
+  const have = CATALOG.filter(
+    (e) => e.kind === "tool" && e.credentials !== undefined && manifest.dependencies?.[e.package] !== undefined,
+  );
+  const entry = have.find((e) => e.id === plugin);
+  if (entry?.credentials === undefined) {
+    throw new Error(
+      `${app.name} has no "${plugin}" tool plugin with CLI credentials. It has: ${have.map((e) => e.id).join(", ") || "none"}.`,
+    );
+  }
+  return entry.credentials;
 }
 
 /** The real deps: docker on the user's terminal, questions on `input`
@@ -144,5 +209,6 @@ export function terminalDeps({
       });
     },
     print: (line) => console.log(line),
+    home: homedir(),
   };
 }

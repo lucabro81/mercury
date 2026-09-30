@@ -26,6 +26,8 @@ function harness({ code = 0, appError }: { code?: number; appError?: string } = 
     vault: record("vault"),
     memory: record("memory"),
     reset: record("reset"),
+    credentialsSet: record("credentialsSet"),
+    credentialsReset: record("credentialsReset"),
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -137,6 +139,9 @@ describe("app commands reach the app with their arguments", () => {
     [["memory", "list"], ["memory", ["list"]]],
     [["memory", "read", "episodic_memory"], ["memory", ["read", "episodic_memory"]]],
     [["memory", "read", "episodic_memory", "--limit", "5"], ["memory", ["read", "episodic_memory", "--limit", "5"]]],
+    [["credentials", "set", "jira"], ["credentialsSet", "jira", { print: false }]],
+    [["credentials", "set", "jira", "--from", "/x/login", "--print"], ["credentialsSet", "jira", { from: "/x/login", print: true }]],
+    [["credentials", "reset", "jira"], ["credentialsReset", "jira"]],
   ])("mfw %p", async (argv, call) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(0);
@@ -177,6 +182,10 @@ describe("refused before anything runs", () => {
     [["memory", "read", "x", "--limit", "ten"], "--limit takes a positive whole number"],
     [["memory", "list", "--limit", "5"], "unknown option '--limit'"],
     [["deploy"], "unknown command 'deploy'"],
+    [["credentials", "set"], "missing required argument 'plugin'"],
+    [["credentials", "set", "jira", "--form", "/x"], "unknown option '--form'"],
+    [["credentials", "reset", "jira", "bitbucket"], "too many arguments"],
+    [["credentials", "copy", "jira"], "unknown command 'copy'"],
   ])("mfw %p: %s", async (argv, message) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(1);
@@ -198,7 +207,7 @@ describe("refused before anything runs", () => {
 });
 
 describe("help", () => {
-  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset"];
+  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials"];
 
   test("--help lists every command, exit 0", async () => {
     const h = harness();
@@ -206,7 +215,7 @@ describe("help", () => {
     for (const c of COMMANDS) expect(h.out()).toContain(`  ${c}`);
   });
 
-  test.each([...COMMANDS.map((c) => [c]), ["vault", "write-curated"], ["memory", "read"]])(
+  test.each([...COMMANDS.map((c) => [c]), ["vault", "write-curated"], ["memory", "read"], ["credentials", "set"], ["credentials", "reset"]])(
     "mfw %s … --help describes it and runs nothing",
     async (...path) => {
       const h = harness();
