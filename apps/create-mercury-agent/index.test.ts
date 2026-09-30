@@ -73,7 +73,7 @@ describe("create-mercury-agent", () => {
   test("--help shows the create usage", async () => {
     const result = await run(["bun", CREATE, "--help"]);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("mfw create <folder>");
+    expect(result.stdout).toContain("Usage: mfw create [options] <folder>");
   });
 
   test("an error exits 1, like mfw create", async () => {

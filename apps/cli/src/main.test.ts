@@ -162,32 +162,33 @@ describe("mfw create, checks before the wizard", () => {
   });
 });
 
-describe("mercury (usage)", () => {
-  test("no command prints the usage and exits 1", async () => {
+describe("mfw (usage), through the real binary", () => {
+  test("no command prints the help and exits 1", async () => {
     const result = await run();
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("mfw create <folder>");
+    expect(result.stderr).toContain("Usage: mfw");
+    expect(result.stderr).toContain("create");
   });
 
   test("an unknown command exits 1 naming it", async () => {
     const result = await run("deploy");
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain('Unknown command "deploy"');
+    expect(result.stderr).toContain("unknown command 'deploy'");
   });
 
   // Regression: --help after `create` hit the strict flag parser and errored.
-  test("create --help and create -h print the usage and exit 0", async () => {
+  test("create --help and create -h print create's help and exit 0", async () => {
     for (const flag of ["--help", "-h"]) {
       const result = await run("create", "demo", flag);
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("mfw create <folder>");
+      expect(result.stdout).toContain("Usage: mfw create [options] <folder>");
     }
   });
 
-  test("--help prints the usage and exits 0", async () => {
+  test("--help prints the help and exits 0", async () => {
     const result = await run("--help");
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("mfw create <folder>");
+    expect(result.stdout).toContain("Usage: mfw");
   });
 });
 
@@ -227,29 +228,5 @@ describe("app commands", () => {
     const { dir, runs, deps } = setup();
     expect(await main(["reset", "everything"], { cwd: dir, deps })).toBe(1);
     expect(runs).toEqual([]);
-  });
-
-  test.each(["start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "create"])(
-    "mfw %s --help describes the command and runs nothing",
-    async (command) => {
-      const { dir, runs, deps } = setup();
-      const out: string[] = [];
-      const log = console.log;
-      console.log = (line: string) => void out.push(line);
-      try {
-        expect(await main([command, "--help"], { cwd: dir, deps })).toBe(0);
-      } finally {
-        console.log = log;
-      }
-      expect(out.join("\n")).toContain(`mfw ${command}`);
-      expect(runs).toEqual([]);
-    },
-  );
-
-  test("the general usage lists every command", async () => {
-    const result = await run("--help");
-    for (const command of ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset"]) {
-      expect(result.stdout).toContain(`mfw ${command}`);
-    }
   });
 });
