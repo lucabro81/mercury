@@ -17,6 +17,7 @@ const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")) a
 describe("core bins", () => {
   test.each([
     ["mercury-vault", "./src/wiki/vault-cli.ts"],
+    ["mercury-memory", "./src/memory/memory-cli.ts"],
   ])("%s → %s, a Bun script", (name, path) => {
     expect(manifest.bin?.[name]).toBe(path);
     expect(readFileSync(join(root, path), "utf-8").startsWith("#!/usr/bin/env bun\n")).toBe(true);
