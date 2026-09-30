@@ -42,132 +42,96 @@ Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (decl
 
 ## Running it
 
-Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). `docker compose` starts, stops, and rebuilds both together.
+Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). You operate them with `mfw`, the Mercury CLI, from this folder or any folder under it (`bun install` at the repo root puts it in `node_modules/.bin`); each command below says which `docker compose` call it makes, in case you need to go around it. `bunx mfw --help` lists them all, and the [CLI's README](../cli/README.md) documents each one.
 
 ### Starting it
 
 ```bash
-docker compose up -d
+bunx mfw start
 ```
 
-`-d` (detached) runs it in the background: the command returns immediately, and both containers keep running after you close the terminal. Drop it to run attached, in the foreground, with every service's output printed live and `Ctrl+C` stopping everything:
-
-```bash
-docker compose up
-```
+Builds whatever changed and starts both services in the background (`docker compose up -d --build`): the command returns immediately, and both containers keep running after you close the terminal.
 
 ---
 
 In development, `docker-compose.override.yml` is applied automatically on top of `docker-compose.yml`: it mounts this app's `src/` and the `@mercury-fw/core` runtime it imports, and reloads on every source change, no rebuild needed for that.
 
-### Rebuilding
-
-Plain `docker compose up -d` doesn't rebuild anything if an image already exists. Add `--build` whenever something outside `src/` changed (dependencies, the Dockerfile itself):
+### Restarting and rebuilding
 
 ```bash
-docker compose up -d --build
+bunx mfw restart
 ```
+
+Rebuilds what changed and recreates both containers even when nothing did, which is what picks up an edited `.env`.
 
 ---
 
-CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on — the `src/` bind mount doesn't touch them, and neither does a normal `--build`. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a plain rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache`:
+CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a normal rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache` (`docker compose build --no-cache`, then `up -d`):
 
 ```bash
-docker compose build --no-cache mercury
-docker compose up -d
+bunx mfw restart --no-cache
 ```
 
 ### Viewing logs
 
 ```bash
-docker compose logs -f
+bunx mfw logs
+bunx mfw logs mercury
 ```
 
-Follows every service's logs together, interleaved — the same thing you'd see running `docker compose up` in the foreground.
-
----
-
-Name a service to follow only that one:
-
-```bash
-docker compose logs -f mercury
-docker compose logs -f qdrant
-```
+Follows every service's logs together, interleaved, or only the one you name (`docker compose logs -f [service]`).
 
 ### Using the dev REPL
 
-The interactive terminal is a dev command, not part of the running service. Boot a one-off instance and open the REPL against it:
+The interactive terminal is a dev command, not part of the running service. It boots a one-off instance and opens the REPL against it (`docker compose run --rm mercury bun run repl`):
 
 ```bash
-docker compose run --rm mercury bun run repl
+bunx mfw repl
 ```
 
-Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough. The REPL is identity-less by design, so a debug session never writes to per-user memory.
-
----
-
-`Ctrl+D` (or `Ctrl+C`) ends the REPL; with `--rm` the one-off container is removed on exit, leaving a service started with `docker compose up` untouched. To follow the running service's logs:
-
-```bash
-docker compose logs -f mercury
-```
+Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough. The REPL is identity-less by design, so a debug session never writes to per-user memory. `Ctrl+D` (or `Ctrl+C`) ends it and removes the one-off container, leaving a running service untouched.
 
 ### Getting a shell to test CLIs directly
 
-The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a plugin's allowlist. For that, open a shell in the running container instead:
+The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a plugin's allowlist. For that, open a shell in the container:
 
 ```bash
-docker compose exec mercury bash
+bunx mfw shell
 ```
 
-The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them.
-
-`exit` or `Ctrl+D` leaves the shell and drops you back on the host. The container keeps running, since `exec` just attaches a second process to it; the dev REPL, by contrast, is its own one-off `docker compose run --rm` container, so ending it removes only that container and leaves a service started with `docker compose up` running.
-
-If the container isn't up yet, `docker compose run --rm mercury bash` opens one instead, and exiting it removes that one-off container without touching anything else.
+It joins the running container (`docker compose exec mercury bash`), or opens a one-off one if the service isn't up (`docker compose run --rm mercury bash`). The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them. `exit` or `Ctrl+D` leaves the shell; a joined container keeps running.
 
 ### Stopping everything
 
 ```bash
-docker compose down
+bunx mfw stop
 ```
 
-Stops and removes both containers. The named volumes (wiki vault, Qdrant data, CLI credentials) aren't touched — they survive, and the next `up` picks up right where it left off. See [Resetting memory](#resetting-memory) for actually wiping one of them.
+Stops and removes both containers (`docker compose down`). The named volumes (wiki vault, Qdrant data, CLI credentials) aren't touched: they survive, and the next start picks up right where it left off. See [Resetting memory](#resetting-memory) for actually wiping one of them.
 
 ### Wiki vault maintenance
 
-The wiki vault lives on its own Docker volume, not in this repo, so there's a small maintenance CLI for it:
+The wiki vault lives on its own Docker volume, not in this repo, so its maintenance runs in a one-off container on that volume:
 
 ```bash
-scripts/vault.sh list
-scripts/vault.sh read curated/standards/some-file.md
-scripts/vault.sh grep "some pattern"
-cat note.md | scripts/vault.sh write-curated curated/standards/new-file.md --author yourname
+bunx mfw vault list
+bunx mfw vault read curated/standards/some-file.md
+bunx mfw vault grep "some pattern"
+cat note.md | bunx mfw vault write-curated curated/standards/new-file.md --author yourname
 ```
 
 ### Inspecting Qdrant
 
-No dedicated CLI for this one: Qdrant's own REST API is already published on `6333` (see `docker-compose.yml`), so plain `curl` reaches it directly, container running or not.
+```bash
+bunx mfw memory list
+bunx mfw memory read episodic_memory --limit 10
+```
+
+`list` prints every collection with its number of points, `read` a collection's points with their payload, newest first where the collection has a timestamp index (episodic memory, the verbatim archive). Read-only. For anything else Qdrant's own REST API is published on `6333` (see `docker-compose.yml`):
 
 ```bash
 curl -s http://localhost:6333/collections | jq
 ```
-
----
-
-```bash
-curl -s http://localhost:6333/collections/episodic_memory | jq '.result.points_count'
-```
-
----
-
-```bash
-curl -s -X POST http://localhost:6333/collections/episodic_memory/points/scroll \
-  -H "Content-Type: application/json" \
-  -d '{"limit": 10, "with_payload": true}' | jq
-```
-
-Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the other two collections. Drop `| jq` if it isn't installed, the raw JSON still prints fine.
 
 ## Deploying to a remote host
 
@@ -229,14 +193,19 @@ git clone <repo-url> mercury && cd mercury
 cp .env.example .env
 # fill in .env: OLLAMA_HOST/OLLAMA_MODEL for that host's endpoint, service
 # credentials, COMPOSE_FILE above, CLI credentials below
-docker compose up -d --build
+bun install
+bunx mfw start
 ```
+
+`mfw` needs Bun and a `bun install` on the host. Without them, `docker compose up -d --build` is what `mfw start` runs.
 
 ### Redeploying
 
 ```bash
-git pull && docker compose up -d --build
+git pull && bunx mfw restart
 ```
+
+Add `--no-cache` to also refetch the CLI binaries. Without Bun on the host: `git pull && docker compose up -d --build`.
 
 ### CLI credentials without a host installation
 
@@ -251,19 +220,18 @@ scripts/reset-cli-credentials.sh jira-cli
 ### Resetting memory
 
 ```bash
-scripts/reset-qdrant.sh
-scripts/reset-wiki.sh
+bunx mfw reset memory
+bunx mfw reset wiki
 ```
 
-Each wipes its own named volume and lets Mercury reinitialize it empty on the next start, useful for clearing out test data without touching the other layer.
+`memory` deletes every Qdrant collection, `wiki` the whole vault: each wipes its own named volume and brings its service back up on an empty one, useful for clearing out test data without touching the other layer. Both ask you to type the app's name (`mercury`) first, and anything else deletes nothing.
 
 ## Scripts
 
-- **`vault.sh`** — maintenance CLI for the wiki vault, run manually. See [Wiki vault maintenance](#wiki-vault-maintenance).
-- **`reset-qdrant.sh`** / **`reset-wiki.sh`** — wipe one memory layer after a confirmation prompt, run manually. See [Resetting memory](#resetting-memory).
+What's left here until the CLI covers it (credentials: #57), plus what the image runs on its own. Everything else is an `mfw` command.
+
 - **`reset-cli-credentials.sh`** — wipe one CLI's leftover subdirectory in the `cli-credentials` volume after a confirmation prompt, run manually. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
 - **`create-credentials.sh`** — bundles one CLI's `~/.config/<cli-name>` into a base64 tar on the clipboard, run manually on a machine that already has valid credentials. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
-- **`redeploy-gb10.sh`** — `git pull` then `docker compose up -d --build`, run manually on a remote deployment. See [Redeploying](#redeploying).
 - **`install-clis.sh`** — fetches the CLI binaries from CLI-monorepo. Runs automatically at image build time, never by hand.
 - **`docker-entrypoint.sh`** — the container's actual entrypoint: materializes CLI credentials from `.env` if the volume's still empty, then starts Mercury. Runs automatically at container start. See [CLI credentials without a host installation](#cli-credentials-without-a-host-installation).
 
