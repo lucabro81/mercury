@@ -17,7 +17,13 @@ function fakeClient(collections: Record<string, Point[]>, indexed: string[] = []
     count: async (name) => ({ count: collections[name]?.length ?? 0 }),
     scroll: async (name, params) => {
       scrolls.push({ name, params });
-      if (params.order_by && !indexed.includes(name)) throw new Error("Bad Request: no range index for timestamp");
+      // What the Qdrant client throws when a collection has no index to order by.
+      if (params.order_by && !indexed.includes(name)) {
+        throw Object.assign(new Error("Bad Request"), {
+          status: 400,
+          data: { status: { error: "Bad request: No range index for `order_by` key: `timestamp`" } },
+        });
+      }
       const points = [...(collections[name] ?? [])];
       if (params.order_by) points.sort((a, b) => String(b.payload?.timestamp).localeCompare(String(a.payload?.timestamp)));
       return { points: points.slice(0, params.limit) };
@@ -121,7 +127,45 @@ describe("errors", () => {
     expect(r).toEqual({ code: 1, out: [], err: ["Can't reach Qdrant: TypeError: fetch failed"] });
   });
 
-  test.each([[[]], [["drop"]], [["read"]]])("usage %p prints the usage, exit 1", async (argv) => {
+  // Regression: any failure of the ordered read was taken for a missing
+  // timestamp index, and a second failure escaped as a stack trace.
+  test("a read failing for another reason is an error, not a fallback", async () => {
+    const { client, scrolls } = fakeClient({ episodic_memory: episodic }, ["episodic_memory"]);
+    client.scroll = async (name, params) => {
+      scrolls.push({ name, params });
+      throw new TypeError("fetch failed");
+    };
+    const r = await run(["read", "episodic_memory"], client);
+    expect(r).toEqual({ code: 1, out: [], err: ["Qdrant error: TypeError: fetch failed"] });
+    expect(scrolls).toHaveLength(1);
+  });
+
+  test("the fallback read failing is an error too", async () => {
+    const { client } = fakeClient({ semantic_facts: [] });
+    const ordered = client.scroll;
+    let calls = 0;
+    client.scroll = async (name, params) => {
+      calls++;
+      if (calls === 1) return ordered(name, params);
+      throw new TypeError("fetch failed");
+    };
+    const r = await run(["read", "semantic_facts"], client);
+    expect(r.code).toBe(1);
+    expect(r.err).toEqual([
+      "semantic_facts has no timestamp index: points in Qdrant's own order.",
+      "Qdrant error: TypeError: fetch failed",
+    ]);
+  });
+
+  test("counting failing in list is an error", async () => {
+    const { client } = fakeClient({ episodic_memory: episodic });
+    client.count = async () => {
+      throw new TypeError("fetch failed");
+    };
+    expect(await run(["list"], client)).toEqual({ code: 1, out: [], err: ["Qdrant error: TypeError: fetch failed"] });
+  });
+
+  test.each([[[]], [["drop"]], [["read"]], [["list", "--limit", "5"]]])("usage %p prints the usage, exit 1", async (argv) => {
     const { client } = fakeClient({});
     const r = await run(argv, client);
     expect(r.code).toBe(1);

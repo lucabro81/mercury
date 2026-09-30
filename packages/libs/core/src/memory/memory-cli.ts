@@ -50,6 +50,14 @@ function pointLines(point: { id: string | number; payload?: Record<string, unkno
   return [String(point.id), ...fields, ""];
 }
 
+/** Whether `err` is Qdrant refusing to order by a field it has no index on
+ * (HTTP 400, "No range index for `order_by` key"). */
+function isMissingOrderIndex(err: unknown): boolean {
+  const e = err as { status?: number; message?: string; data?: unknown };
+  const text = `${e?.message ?? ""} ${JSON.stringify(e?.data ?? "")}`;
+  return (e?.status === 400 || /\b400\b/.test(text)) && /index/i.test(text);
+}
+
 /** Runs the CLI on `argv` against `io.client`; returns the exit code. */
 export async function runMemoryCli(argv: string[], { client, out, err }: Io): Promise<number> {
   const usage = () => {
@@ -63,7 +71,9 @@ export async function runMemoryCli(argv: string[], { client, out, err }: Io): Pr
     return usage();
   }
   const [command, collection, ...extra] = parsed.positionals;
-  if (extra.length > 0 || (command === "list" && collection !== undefined)) return usage();
+  if (extra.length > 0 || (command === "list" && (collection !== undefined || parsed.values.limit !== undefined))) {
+    return usage();
+  }
   if (command !== "list" && !(command === "read" && collection !== undefined)) return usage();
 
   const limitText = parsed.values.limit ?? "20";
@@ -81,35 +91,41 @@ export async function runMemoryCli(argv: string[], { client, out, err }: Io): Pr
     return 1;
   }
 
-  if (command === "list") {
-    if (names.length === 0) {
-      out("No collections yet.");
+  try {
+    if (command === "list") {
+      if (names.length === 0) {
+        out("No collections yet.");
+        return 0;
+      }
+      for (const name of names) {
+        out(`${name}  ${(await client.count(name, { exact: true })).count} points`);
+      }
       return 0;
     }
-    for (const name of names) {
-      out(`${name}  ${(await client.count(name, { exact: true })).count} points`);
-    }
-    return 0;
-  }
 
-  if (!names.includes(collection as string)) {
-    err(`No collection "${collection}". There are: ${names.join(", ") || "none"}.`);
+    if (!names.includes(collection as string)) {
+      err(`No collection "${collection}". There are: ${names.join(", ") || "none"}.`);
+      return 1;
+    }
+    let points: Array<{ id: string | number; payload?: Record<string, unknown> | null }>;
+    try {
+      // Qdrant orders by a payload field only when it has an index on it.
+      ({ points } = await client.scroll(collection as string, {
+        limit,
+        with_payload: true,
+        order_by: { key: "timestamp", direction: "desc" },
+      }));
+    } catch (e) {
+      if (!isMissingOrderIndex(e)) throw e;
+      err(`${collection} has no timestamp index: points in Qdrant's own order.`);
+      ({ points } = await scrollCollection(client, collection as string, { limit }));
+    }
+    points.flatMap(pointLines).forEach((line) => out(line));
+    return 0;
+  } catch (e) {
+    err(`Qdrant error: ${String(e)}`);
     return 1;
   }
-  let points: Array<{ id: string | number; payload?: Record<string, unknown> | null }>;
-  try {
-    // Qdrant orders by a payload field only when it has an index on it.
-    ({ points } = await client.scroll(collection as string, {
-      limit,
-      with_payload: true,
-      order_by: { key: "timestamp", direction: "desc" },
-    }));
-  } catch {
-    err(`${collection} has no timestamp index: points in Qdrant's own order.`);
-    ({ points } = await scrollCollection(client, collection as string, { limit }));
-  }
-  points.flatMap(pointLines).forEach((line) => out(line));
-  return 0;
 }
 
 if (import.meta.main) {
