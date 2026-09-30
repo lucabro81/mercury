@@ -13,6 +13,7 @@
   - [Stopping everything](#stopping-everything)
   - [Wiki vault maintenance](#wiki-vault-maintenance)
   - [Inspecting Qdrant](#inspecting-qdrant)
+- [Scaffolding a new app](#scaffolding-a-new-app)
 - [Deploying to a remote host](#deploying-to-a-remote-host)
   - [Setting up the Chat app's Google Cloud project](#setting-up-the-chat-apps-google-cloud-project)
   - [First deploy](#first-deploy)
@@ -171,6 +172,20 @@ curl -s -X POST http://localhost:6333/collections/episodic_memory/points/scroll 
 ```
 
 Swap `episodic_memory` for `semantic_facts` or `tool_corrections` to inspect the other two collections. Drop `| jq` if it isn't installed, the raw JSON still prints fine.
+
+## Scaffolding a new app
+
+`apps/cli` is the `mercury` command, and `mercury create <folder>` writes a new Mercury app into a missing or empty folder, whose name it turns into kebab case (`My App` becomes `my-app`, the path above it stays as typed). It asks for the app name, the assistant's name and role (they become `persona/identity.md`, next to a `persona/tone.md` to edit), which channels and which tool plugins to include, then writes the config, the entrypoints, Dockerfile, compose file and an env example covering exactly what was chosen. Jira comes wrapped in the formatter with an example rule for its issue lists, yours to change.
+
+It isn't published yet, so link it once from the repo (unlike the rest of this README, from the repo root):
+
+```bash
+cd apps/cli && bun link
+```
+
+and from then on `mercury create ~/somewhere/my-app` works from any folder. `--yes` skips the questions, taking `--name`, `--assistant-name`, `--role`, `--channels` and `--plugins` from the command line and the defaults for the rest; `mercury --help` lists them.
+
+For now it only writes the files: the `@mercury/*` packages the new app depends on aren't on a registry yet, so `bun install` there won't find them until they are published.
 
 ## Deploying to a remote host
 
