@@ -90,7 +90,7 @@ Next:
 }
 
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
- * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-fw`
+ * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-agent`
  * both call it. */
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;

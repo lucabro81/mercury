@@ -9,7 +9,7 @@ bunx @mercury-fw/cli create my-agent
 or, the same thing under the `create` convention:
 
 ```bash
-bun create mercury-fw my-agent
+bun create mercury-agent my-agent
 ```
 
 ## `mfw create <folder>`

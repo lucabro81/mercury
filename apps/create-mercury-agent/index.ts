@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * `create-mercury-fw`: what `bun create mercury-fw <folder>` runs. It is
+ * `create-mercury-agent`: what `bun create mercury-agent <folder>` runs. It is
  * `mfw create` under the name the `create` convention looks for, with the same
  * arguments and the same result.
  */

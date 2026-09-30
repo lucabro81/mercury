@@ -1,5 +1,5 @@
 /**
- * `create-mercury-fw` is `mfw create` under the name `bun create mercury-fw`
+ * `create-mercury-agent` is `mfw create` under the name `bun create mercury-agent`
  * looks for: for the same arguments it writes the same app, file for file.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -21,7 +21,7 @@ afterAll(() => {
 
 let base: string;
 beforeEach(() => {
-  base = mkdtempSync(join(tmpdir(), "create-mercury-fw-"));
+  base = mkdtempSync(join(tmpdir(), "create-mercury-agent-"));
 });
 afterEach(() => {
   rmSync(base, { recursive: true, force: true });
@@ -58,7 +58,7 @@ function tree(dir: string): Record<string, string> {
   return out;
 }
 
-describe("create-mercury-fw", () => {
+describe("create-mercury-agent", () => {
   test("writes the same app as `mfw create` for the same arguments", async () => {
     const flags = ["--name", "demo", "--channels", "http", "--plugins", "jira", "--yes"];
     const viaCreate = await run(["bun", CREATE, join(base, "a"), ...flags]);

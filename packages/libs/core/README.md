@@ -5,7 +5,7 @@ The runtime of [Mercury](https://github.com/lucabro81/mercury-fw): it builds an 
 The usual way to get it is scaffolding an app, which wires it up for you:
 
 ```bash
-bun create mercury-fw my-agent
+bun create mercury-agent my-agent
 ```
 
 ## What it exports

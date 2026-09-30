@@ -33,7 +33,7 @@ regression test that fails before the fix and passes after.
 
 ## What it is
 
-Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-fw` (`mfw create`). `apps/mercury` is Comperio's instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
+Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`). `apps/mercury` is Comperio's instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
 
 ## Stack
 
@@ -78,8 +78,8 @@ its own repo and deployed.
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
 the first-party channels and tool plugins, with the framework at the CLI's own
 version and each chosen plugin at its latest on the registry; installing is
-left to the user (`bun install`). `apps/create-mercury-fw` is the same command
-under the `bun create mercury-fw` name.
+left to the user (`bun install`). `apps/create-mercury-agent` is the same command
+under the `bun create mercury-agent` name.
 
 ```
 mercury/                       # repo root
@@ -110,7 +110,7 @@ mercury/                       # repo root
 │   └── config/
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
-    ├── create-mercury-fw/     # what `bun create mercury-fw` runs: `mfw create`, nothing of its own
+    ├── create-mercury-agent/     # what `bun create mercury-agent` runs: `mfw create`, nothing of its own
     ├── cli/                   # @mercury-fw/cli — `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text)
     └── mercury/               # ← everything below this line is relative to here
 ```
@@ -170,7 +170,7 @@ packages/libs/core/
 
 SemVer via [Changesets](https://github.com/changesets/changesets); every package's `CHANGELOG.md` is public, same audience as the READMEs.
 
-- **The framework moves in lockstep**: the Changesets `fixed` group (`.changeset/config.json`) holds core, the contracts, kit, cli-engine, confirm-engine, utils, formatter, the CLI and `create-mercury-fw`, so they always share one version, tagged `vX.Y.Z`. **Plugins and channels are versioned on their own** (tagged `<name>@<version>`): their `@mercury-fw/*` dependencies are `peerDependencies` over the whole `0.x` line (`workspace:*` as devDependencies for local development), because the real compatibility gate is `apiVersion`, checked at load time. The reference app `mercury` is private and outside the group.
+- **The framework moves in lockstep**: the Changesets `fixed` group (`.changeset/config.json`) holds core, the contracts, kit, cli-engine, confirm-engine, utils, formatter, the CLI and `create-mercury-agent`, so they always share one version, tagged `vX.Y.Z`. **Plugins and channels are versioned on their own** (tagged `<name>@<version>`): their `@mercury-fw/*` dependencies are `peerDependencies` over the whole `0.x` line (`workspace:*` as devDependencies for local development), because the real compatibility gate is `apiVersion`, checked at load time. The reference app `mercury` is private and outside the group.
 - No exact pins on external dependencies: caret ranges, and `bun.lock` is what makes the repo reproducible. A published package with a pinned dependency can't share it with the rest of the app (that's how two `@ai-sdk/provider` copies broke a scaffolded app's typecheck).
 - Every relevant change gets a changeset: `bun run changeset`, naming the packages it actually touches. Changeset descriptions are public text: no `D-XX`/`S-XX`/milestone references, no internal-only context.
 - No batching: consume each changeset right after the change it documents, with `bun run release` from the repo root (`changeset version`, lockfile refresh, commit, tags; see `scripts/release.ts`), then push with tags.

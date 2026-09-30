@@ -22,14 +22,14 @@ Memory, as it stands today, has three layers: the conversation history, a wiki t
 You need Bun, Docker and an Ollama-compatible endpoint the containers can reach.
 
 ```bash
-bun create mercury-fw my-agent
+bun create mercury-agent my-agent
 cd my-agent
 bun install
 cp .env.example .env
 docker compose up --build
 ```
 
-`bun create mercury-fw` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
+`bun create mercury-agent` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
 
 The service is headless (channels and background jobs); to talk to the agent from a terminal, open the dev REPL:
 
@@ -82,7 +82,7 @@ The framework, released together under one version:
 |---|---|
 | [`@mercury-fw/core`](packages/libs/core) | The runtime: `composeMercury(config)`, the loaders, the turn loop, memory. What an app depends on. |
 | [`@mercury-fw/cli`](apps/cli) | The `mfw` command: `mfw create` scaffolds an app. |
-| [`create-mercury-fw`](apps/create-mercury-fw) | What `bun create mercury-fw` runs. |
+| [`create-mercury-agent`](apps/create-mercury-agent) | What `bun create mercury-agent` runs. |
 | [`@mercury-fw/formatter`](packages/formatters/formatter) | Applies an app's rules to the lists a plugin hands over. |
 | [`@mercury-fw/kit`](packages/libs/kit) | For plugin authors: the plugin and channel contracts in one import. |
 | [`@mercury-fw/plugin-types`](packages/types/plugin-types), [`@mercury-fw/channel-types`](packages/types/channel-types) | The contracts a tool plugin and a channel implement. |
@@ -105,7 +105,7 @@ The framework packages share one version and are released together, so an app pi
 
 ## Developing in this repo
 
-A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-fw` under `apps/`, and [`apps/mercury`](apps/mercury), Comperio's instance, which runs from the workspaces and is where changes get tried end to end.
+A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and [`apps/mercury`](apps/mercury), Comperio's instance, which runs from the workspaces and is where changes get tried end to end.
 
 ```bash
 bun install

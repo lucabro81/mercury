@@ -1,6 +1,6 @@
 # Mercury (reference instance)
 
-Comperio's Mercury, the instance this repo runs in production until it moves to its own repo scaffolded with `bun create mercury-fw`: Jira, Bitbucket and atlassian-admin as tool plugins, Google Chat and HTTP as channels. It's also where the framework gets tried out end to end, so its setup is more hands-on than a scaffolded app's (the image builds from the whole monorepo, and the plugins come from the workspaces, not from npm).
+Comperio's Mercury, the instance this repo runs in production until it moves to its own repo scaffolded with `bun create mercury-agent`: Jira, Bitbucket and atlassian-admin as tool plugins, Google Chat and HTTP as channels. It's also where the framework gets tried out end to end, so its setup is more hands-on than a scaffolded app's (the image builds from the whole monorepo, and the plugins come from the workspaces, not from npm).
 
 For the framework itself, see the [repo README](../../README.md). The HTTP channel's API is documented in [its package](../../packages/channels/channel-http/README.md).
 
