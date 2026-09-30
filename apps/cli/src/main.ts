@@ -1,8 +1,9 @@
 /**
- * The `mfw` command. One subcommand for now, `create <folder>`: writes a
- * new Mercury app from the template, asking what to put in it (or taking the
- * answers from flags with `--yes`). It writes the files; `bun install` in the
- * new app is left to the user.
+ * The `mfw` command. `create <folder>` writes a new Mercury app from the
+ * template, asking what to put in it (or taking the answers from flags with
+ * `--yes`); `bun install` in the new app is left to the user. The other
+ * commands operate an existing app from inside its folder (see
+ * `app/commands.ts`).
  */
 import { basename, dirname, join, resolve } from "node:path";
 import { parseCreateArgs, type CreateArgs } from "./args.ts";
@@ -10,13 +11,13 @@ import { CATALOG } from "./catalog.ts";
 import { kebabCase } from "./naming.ts";
 import { renderApp, selectionError } from "./render.ts";
 import { appVersions, registryFrom } from "./versions.ts";
+import { APP_COMMANDS, runAppCommand, terminalDeps, type AppCommand, type AppDeps } from "./app/commands.ts";
+import { findApp } from "./app/find-app.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
 
-const USAGE = `mfw, the Mercury command-line tool.
-
-Usage:
-  mfw create <folder> [options]
+/** `mfw create --help`. */
+const CREATE_HELP = `Usage: mfw create <folder> [options]
 
 mfw create writes a new Mercury app into <folder>, which has to be missing or
 empty (its own name is turned into kebab case). Without options it asks for the
@@ -40,6 +41,77 @@ Examples:
 
 The framework packages get this CLI's version; each chosen plugin or channel
 its latest on the registry (https://registry.npmjs.org, or MFW_REGISTRY).
+`;
+
+/** Each app command's help: its signature, then what it does. They all run
+ * from inside an app (any folder under the one holding mercury.config.ts). */
+const APP_HELP: Record<AppCommand, string> = {
+  start: `Usage: mfw start [--no-cache]
+
+Builds the app's image and starts the app and Qdrant in the background. Only
+what changed is rebuilt; --no-cache rebuilds everything from scratch.`,
+  stop: `Usage: mfw stop
+
+Stops the app and Qdrant and removes their containers. The volumes (memory,
+wiki, CLI credentials) stay.`,
+  restart: `Usage: mfw restart [--no-cache]
+
+Like mfw start, but recreates the containers even when nothing changed: what
+to run after editing .env. --no-cache rebuilds everything from scratch.`,
+  logs: `Usage: mfw logs [service]
+
+Follows the logs of every service, or only of [service] (mercury, qdrant).`,
+  repl: `Usage: mfw repl
+
+Opens the dev REPL, a terminal conversation with the assistant, in a one-off
+container. A running app isn't touched.`,
+  shell: `Usage: mfw shell
+
+Opens a shell in the app's container: the running one if the app is up,
+otherwise a one-off container.`,
+  vault: `Usage: mfw vault <command> [args]
+
+Maintains the wiki vault, in a one-off container on the vault's volume.
+
+  mfw vault list                                  every note
+  mfw vault read <path>                           a note
+  mfw vault grep <pattern>                        notes matching <pattern>
+  mfw vault write-curated <path> [--author NAME]  writes a curated note, body from stdin
+  mfw vault write-raw <path>                      writes raw material, body from stdin
+
+Paths are vault-relative, as mfw vault list prints them (curated/…, raw/…).`,
+  memory: `Usage: mfw memory <command> [args]
+
+Reads Layer-3 memory on Qdrant, in a one-off container. Read-only.
+
+  mfw memory list                          the collections and their points
+  mfw memory read <collection> [--limit N]  a collection's points, newest first (default 20)`,
+  reset: `Usage: mfw reset <memory|wiki>
+
+Deletes for good what the assistant remembers: memory is every Qdrant
+collection, wiki the whole vault. It asks you to type the app's name first
+(a wrong answer deletes nothing), then brings the service back up empty.`,
+};
+
+const USAGE = `mfw, the Mercury command-line tool.
+
+Usage: mfw <command> [args]
+
+Creating an app:
+  mfw create <folder> [options]   writes a new Mercury app
+
+Operating an app (from inside its folder):
+  mfw start [--no-cache]          builds and starts the app
+  mfw stop                        stops it
+  mfw restart [--no-cache]        rebuilds and restarts it
+  mfw logs [service]              follows the logs
+  mfw repl                        opens the dev REPL
+  mfw shell                       opens a shell in the app's container
+  mfw vault <command>             wiki vault maintenance
+  mfw memory <command>            reads Layer-3 memory
+  mfw reset <memory|wiki>         deletes memory or the wiki, after confirmation
+
+mfw <command> --help describes a command.
 `;
 
 /** The answers taken from the flags alone, defaults for the rest. */
@@ -91,8 +163,12 @@ Next:
 
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
  * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-agent`
- * both call it. */
-export async function main(argv: string[]): Promise<number> {
+ * both call it; the app commands look for the app from `cwd` and run docker
+ * through `deps`. */
+export async function main(
+  argv: string[],
+  { cwd = process.cwd(), deps }: { cwd?: string; deps?: AppDeps } = {},
+): Promise<number> {
   const [command, ...rest] = argv;
   if (command === "--help" || command === "-h") {
     console.log(USAGE);
@@ -102,16 +178,19 @@ export async function main(argv: string[]): Promise<number> {
     console.error(USAGE);
     return 1;
   }
-  if (command === "create" && rest.some((a) => a === "--help" || a === "-h")) {
-    console.log(USAGE);
-    return 0;
-  }
-  if (command !== "create") {
+  const wantsHelp = rest.some((a) => a === "--help" || a === "-h");
+  const appCommand = (APP_COMMANDS as readonly string[]).includes(command) ? (command as AppCommand) : undefined;
+  if (command !== "create" && appCommand === undefined) {
     console.error(`Unknown command "${command}"\n\n${USAGE}`);
     return 1;
   }
+  if (wantsHelp) {
+    console.log(appCommand === undefined ? CREATE_HELP : APP_HELP[appCommand]);
+    return 0;
+  }
   try {
-    return await create(rest);
+    if (appCommand === undefined) return await create(rest);
+    return await runAppCommand(appCommand, rest, findApp(cwd), deps ?? terminalDeps());
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;

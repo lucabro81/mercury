@@ -8,6 +8,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AppDeps } from "./app/commands.ts";
+import { main } from "./main.ts";
 import { renderApp } from "./render.ts";
 import { cliVersion } from "./versions.ts";
 
@@ -185,5 +187,68 @@ describe("mercury (usage)", () => {
     const result = await run("--help");
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("mfw create <folder>");
+  });
+});
+
+describe("app commands", () => {
+  /** An app in `base/my-agent`, and deps that record the docker calls. */
+  function setup() {
+    const dir = join(base, "my-agent");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "mercury.config.ts"), "");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "my-agent" }));
+    const runs: Array<{ argv: string[]; cwd: string }> = [];
+    const deps: AppDeps = {
+      run: async (argv, { cwd }) => {
+        runs.push({ argv, cwd });
+        return 0;
+      },
+      capture: async () => "",
+      ask: async () => "",
+      print: () => {},
+    };
+    return { dir, runs, deps };
+  }
+
+  test("run from a subfolder, they act on the app's folder", async () => {
+    const { dir, runs, deps } = setup();
+    expect(await main(["start"], { cwd: join(dir, "src"), deps })).toBe(0);
+    expect(runs).toEqual([{ argv: ["docker", "compose", "up", "-d", "--build"], cwd: dir }]);
+  });
+
+  test("outside an app they exit 1 without running anything", async () => {
+    const { runs, deps } = setup();
+    expect(await main(["start"], { cwd: base, deps })).toBe(1);
+    expect(runs).toEqual([]);
+  });
+
+  test("a bad argument exits 1 without running anything", async () => {
+    const { dir, runs, deps } = setup();
+    expect(await main(["reset", "everything"], { cwd: dir, deps })).toBe(1);
+    expect(runs).toEqual([]);
+  });
+
+  test.each(["start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "create"])(
+    "mfw %s --help describes the command and runs nothing",
+    async (command) => {
+      const { dir, runs, deps } = setup();
+      const out: string[] = [];
+      const log = console.log;
+      console.log = (line: string) => void out.push(line);
+      try {
+        expect(await main([command, "--help"], { cwd: dir, deps })).toBe(0);
+      } finally {
+        console.log = log;
+      }
+      expect(out.join("\n")).toContain(`mfw ${command}`);
+      expect(runs).toEqual([]);
+    },
+  );
+
+  test("the general usage lists every command", async () => {
+    const result = await run("--help");
+    for (const command of ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset"]) {
+      expect(result.stdout).toContain(`mfw ${command}`);
+    }
   });
 });
