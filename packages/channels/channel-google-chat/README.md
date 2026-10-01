@@ -16,8 +16,172 @@ channels: [googleChatChannel],
 |---|---|
 | `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` | `projects/<project>/subscriptions/<subscription>` the Chat app's events arrive on. Empty leaves the channel inert. |
 | `GOOGLE_CHAT_APP_CLIENT_EMAIL` | The service account the app authenticates as. |
-| `GOOGLE_CHAT_APP_PRIVATE_KEY` | That service account's private key. |
+| `GOOGLE_CHAT_APP_PRIVATE_KEY` | That service account's private key, on one line with literal `\n` (step 5 writes it that way). |
 
-Each instance needs a Chat app of its own (its own Google Cloud project, topic, subscription and service account): two instances on one subscription either both answer or split a conversation between them. The [reference instance's README](https://github.com/lucabro81/mercury-fw/tree/main/apps/mercury#setting-up-the-chat-apps-google-cloud-project) has the `gcloud` commands, and the one step Cloud Console only does by hand.
+## Table of contents
+
+- [Setting up the Chat app](#setting-up-the-chat-app)
+  - [1. Name things](#1-name-things)
+  - [2. Create the project](#2-create-the-project)
+  - [3. Create the topic, and let Google Chat publish on it](#3-create-the-topic-and-let-google-chat-publish-on-it)
+  - [4. Create the subscription](#4-create-the-subscription)
+  - [5. Create the service account and its key](#5-create-the-service-account-and-its-key)
+  - [6. Configure the consent screen (Cloud Console)](#6-configure-the-consent-screen-cloud-console)
+  - [7. Configure the Chat app (Cloud Console)](#7-configure-the-chat-app-cloud-console)
+  - [8. Start and try it](#8-start-and-try-it)
+- [When the subscription disappears](#when-the-subscription-disappears)
+
+## Setting up the Chat app
+
+Each Mercury instance needs a Chat app of its own: its own Google Cloud project, Pub/Sub topic, subscription and service account. Two instances on one subscription either both answer or split a conversation between them, each with no memory of the other's half.
+
+Everything goes through `gcloud` except two pages of Cloud Console (steps 6 and 7), which have no command or API. You need:
+
+- a Google Workspace Business or Enterprise account: Chat apps don't exist for personal Gmail accounts;
+- `gcloud` logged in with that account (`gcloud auth login <you@company.com>`), allowed to create projects and link a billing account;
+- `jq`, for step 5.
+
+### 1. Name things
+
+Every command below reads these variables, so set them once in the shell you'll run the steps from:
+
+```bash
+PROJECT_ID=<a new project id, globally unique>
+BILLING_ACCOUNT_ID=<from: gcloud billing accounts list>
+TOPIC=mercury-chat-events
+SUBSCRIPTION=mercury-chat-sub
+SA_NAME=mercury-bot
+SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+```
+
+### 2. Create the project
+
+Pub/Sub needs billing on the project even when its usage stays inside the free tier.
+
+```bash
+gcloud projects create "$PROJECT_ID" --name="Mercury"
+gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID"
+gcloud services enable chat.googleapis.com pubsub.googleapis.com iam.googleapis.com --project="$PROJECT_ID"
+```
+
+### 3. Create the topic, and let Google Chat publish on it
+
+Google Chat delivers the app's events by publishing them on this topic as its own service account, `chat-api-push@system.gserviceaccount.com`, which needs the publisher role there.
+
+```bash
+gcloud pubsub topics create "$TOPIC" --project="$PROJECT_ID"
+gcloud pubsub topics add-iam-policy-binding "$TOPIC" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:chat-api-push@system.gserviceaccount.com" \
+  --role="roles/pubsub.publisher"
+```
+
+### 4. Create the subscription
+
+`--expiration-period=never` matters: by default Pub/Sub deletes a subscription nobody has pulled from in 31 days, so an instance that stays off for a month would come back to a `NOT_FOUND` (see [When the subscription disappears](#when-the-subscription-disappears)).
+
+```bash
+gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --expiration-period=never --project="$PROJECT_ID"
+```
+
+### 5. Create the service account and its key
+
+The service account is who Mercury runs as: it reads the subscription and posts to Chat. It needs the subscriber role on the subscription and nothing on the project.
+
+```bash
+gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="Mercury bot"
+gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/pubsub.subscriber"
+gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
+```
+
+A service account takes a few seconds to become visible to the rest of Google Cloud: if the binding fails saying the account doesn't exist, wait a moment and run it again.
+
+Then, from the app's folder, write the three variables into its `.env` and delete the key file. An app made with `mfw create` already has the three lines in `.env`, empty, so the first command removes them (and any older value) before the others append the new ones; the private key goes on one line, its newlines written as `\n`:
+
+```bash
+perl -i -ne 'print unless /^GOOGLE_CHAT_(PUBSUB_SUBSCRIPTION|APP_CLIENT_EMAIL|APP_PRIVATE_KEY)=/' .env
+printf 'GOOGLE_CHAT_PUBSUB_SUBSCRIPTION=%s\n' "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}" >> .env
+printf 'GOOGLE_CHAT_APP_CLIENT_EMAIL=%s\n' "$(jq -r .client_email key.json)" >> .env
+printf 'GOOGLE_CHAT_APP_PRIVATE_KEY=%s\n' "$(jq -r .private_key key.json | awk '{printf "%s\\n", $0}')" >> .env
+rm key.json
+```
+
+### 6. Configure the consent screen (Cloud Console)
+
+Open [Google Auth Platform → Branding](https://console.cloud.google.com/auth/branding) with the project selected (the project picker is at the top of the page), click **Get Started**, then:
+
+1. **App name**: what users see, e.g. `Mercury`. **User support email**: your address. Click **Next**.
+2. **Audience**: pick **Internal**. Click **Next**.
+3. **Contact Information**: your address. Click **Next**.
+4. Check **I agree to the Google API Services: User Data Policy**, click **Continue**, then **Create**.
+
+No scopes to add: an internal app doesn't list them.
+
+### 7. Configure the Chat app (Cloud Console)
+
+Open the Chat API's configuration page for the project, `https://console.developers.google.com/apis/api/chat.googleapis.com/hangouts-chat?project=<PROJECT_ID>` (or **APIs & Services → Enabled APIs & Services → Google Chat API → Configuration**), and set:
+
+1. **Build this Chat app as a Google Workspace add-on**: unchecked (confirm in the dialog if it asks).
+2. **App name**: the name users search for in Chat (up to 25 characters). **Avatar URL**: an HTTPS link to a square image. **Description**: one line (up to 40 characters).
+3. **Interactive features**: enabled. Without them nobody can write to the app or click its confirmation buttons.
+4. **Functionality**: check **Join spaces and group conversations**.
+5. **Connection settings**: pick **Cloud Pub/Sub** and paste the topic's full name, `projects/<PROJECT_ID>/topics/<TOPIC>`.
+6. **Visibility**: check **Make this Google Chat app available to specific people and groups in <your domain>** and enter who can use it (people or a group).
+7. **Logs**: check **Log errors to Logging**, so a delivery error from Chat shows up in the project's logs.
+
+Click **Save**. The field names here come from Google's own Pub/Sub quickstart; Console moves things around now and then, so trust the meaning over the exact position.
+
+### 8. Start and try it
+
+Start the app (`bunx mfw start`) and check that the channel came up without errors:
+
+```bash
+bunx mfw logs mercury
+```
+
+`[channel] google-chat started` with no `pubsub stream error` after it means Mercury is pulling from the subscription. Then, in Google Chat, start a new chat and search the app's name (it shows up only for the people and groups in **Visibility**), or add it to a space; write to it and it answers.
+
+## When the subscription disappears
+
+A subscription created before `--expiration-period=never` was in step 4 still has the default policy, and Pub/Sub deletes it after 31 days without a pull. The channel then logs `NOT_FOUND` on the subscription, while the topic, the service account and the Chat app's configuration are all still there.
+
+Set the variables again first, taking them from the app's `.env`: `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` is `projects/<PROJECT_ID>/subscriptions/<SUBSCRIPTION>`, and `SA_EMAIL` is `GOOGLE_CHAT_APP_CLIENT_EMAIL`. The topic isn't written anywhere in the app: `gcloud pubsub topics list --project="$PROJECT_ID"` shows it (a project made with these steps has only that one).
+
+```bash
+PROJECT_ID=<the part after projects/>
+SUBSCRIPTION=<the part after subscriptions/>
+SA_EMAIL=<GOOGLE_CHAT_APP_CLIENT_EMAIL>
+TOPIC=<the last part of the name the topics list prints>
+```
+
+To tell which piece is missing:
+
+```bash
+gcloud pubsub topics list --project="$PROJECT_ID"
+gcloud pubsub subscriptions list --project="$PROJECT_ID"
+```
+
+If only the subscription is gone, recreate it on the same topic and with the same name, so `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` doesn't change, then give the service account its subscriber role back (it went away with the subscription):
+
+```bash
+gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --expiration-period=never --project="$PROJECT_ID"
+gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
+  --project="$PROJECT_ID" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/pubsub.subscriber"
+```
+
+Then restart the app (`bunx mfw restart`). The messages sent while the subscription was missing are lost, though: Pub/Sub keeps messages only for a subscription that exists.
+
+If the topic is gone too, redo steps 3 to 5 and, in step 7, paste the new topic in **Connection settings**.
+
+To keep a subscription that's still there from expiring:
+
+```bash
+gcloud pubsub subscriptions update "$SUBSCRIPTION" --expiration-period=never --project="$PROJECT_ID"
+```
 
 MIT
