@@ -1,5 +1,15 @@
 # @mercury-fw/core
 
+## 0.27.1
+
+### Patch Changes
+
+- 2c0e020: The REPL no longer prints the answer a second time, under "risposta corretta rispetto a quanto già mostrato sopra", after a turn that reasoned or called a tool.
+  - @mercury-fw/plugin-types@0.27.1
+  - @mercury-fw/channel-types@0.27.1
+  - @mercury-fw/cli-engine@0.27.1
+  - @mercury-fw/confirm-engine@0.27.1
+
 ## 0.27.0
 
 ### Patch Changes
