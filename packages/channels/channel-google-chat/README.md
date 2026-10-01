@@ -39,7 +39,7 @@ Everything goes through `gcloud` except two pages of Cloud Console (steps 6 and 
 
 - a Google Workspace Business or Enterprise account: Chat apps don't exist for personal Gmail accounts;
 - `gcloud` logged in with that account (`gcloud auth login <you@company.com>`), allowed to create projects and link a billing account;
-- `jq`, for step 5.
+- the app with its dependencies installed (`bun install`), for `bunx mfw` in step 5.
 
 ### 1. Name things
 
@@ -99,13 +99,10 @@ gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
 
 A service account takes a few seconds to become visible to the rest of Google Cloud: if the binding fails saying the account doesn't exist, wait a moment and run it again.
 
-Then, from the app's folder, write the three variables into its `.env` and delete the key file. An app made with `mfw create` already has the three lines in `.env`, empty, so the first command removes them (and any older value) before the others append the new ones; the private key goes on one line, its newlines written as `\n`:
+Then, from the app's folder, write the key and the subscription into its `.env` with the app's own CLI, and delete the key file. The command replaces the lines `mfw create` left empty (or an older key), puts the private key on one line the way the channel reads it, and never prints it:
 
 ```bash
-sed -i.bak -E '/^GOOGLE_CHAT_(PUBSUB_SUBSCRIPTION|APP_CLIENT_EMAIL|APP_PRIVATE_KEY)=/d' .env && rm .env.bak
-printf 'GOOGLE_CHAT_PUBSUB_SUBSCRIPTION=%s\n' "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}" >> .env
-printf 'GOOGLE_CHAT_APP_CLIENT_EMAIL=%s\n' "$(jq -r .client_email key.json)" >> .env
-printf 'GOOGLE_CHAT_APP_PRIVATE_KEY=%s\n' "$(jq -r .private_key key.json | awk '{printf "%s\\n", $0}')" >> .env
+bunx mfw google-chat set-key key.json --subscription "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}"
 rm key.json
 ```
 
