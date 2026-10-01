@@ -231,3 +231,115 @@ describe("app commands", () => {
     expect(runs).toEqual([]);
   });
 });
+
+// #96: `bun create mercury-agent` can run a stale CLI out of Bun's bunx cache
+// (a release behind), which writes an old template. The CLI asks the registry
+// first and, when it's behind, hands the whole command to the newer one.
+describe("mfw create with a newer CLI on the registry", () => {
+  const NEWER = "999.0.0";
+  let newerRegistry: ReturnType<typeof Bun.serve>;
+  const saved = { registry: process.env.MFW_REGISTRY, updated: process.env.MFW_SELF_UPDATED };
+  beforeAll(() => {
+    newerRegistry = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const name = decodeURIComponent(new URL(req.url).pathname.slice(1).replace(/\/latest$/, ""));
+        return Response.json({ name, version: name === "@mercury-fw/cli" ? NEWER : PLUGIN_VERSION });
+      },
+    });
+  });
+  afterAll(() => {
+    newerRegistry.stop(true);
+  });
+  beforeEach(() => {
+    process.env.MFW_REGISTRY = newerRegistry.url.origin;
+    delete process.env.MFW_SELF_UPDATED;
+  });
+  afterEach(() => {
+    for (const [key, value] of [["MFW_REGISTRY", saved.registry], ["MFW_SELF_UPDATED", saved.updated]] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  /** A relaunch that records what it was asked to run and answers `code`. */
+  function fakeRelaunch(code = 0) {
+    const calls: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      calls.push({ argv, env });
+      return code;
+    };
+    return { calls, relaunch };
+  }
+
+  /** A relaunch that records what it was asked to run: `bunx … --version`
+   * (installing the newer CLI) answers `install`, `create` answers `create`;
+   * `install: "throw"` is bunx failing to start at all. */
+  function scriptedRelaunch({ install = 0 as number | "throw", create = 0 } = {}) {
+    const calls: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      calls.push({ argv, env });
+      if (argv.includes("--version")) {
+        if (install === "throw") throw new Error("Executable not found in $PATH: \"bunx\"");
+        return install;
+      }
+      return create;
+    };
+    return { calls, relaunch };
+  }
+
+  test("installs the newer one, runs it with the same arguments, writes nothing itself, exits with its code", async () => {
+    const dir = join(base, "demo");
+    const { calls, relaunch } = scriptedRelaunch({ create: 7 });
+    expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+    const env = { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin };
+    expect(calls).toEqual([
+      { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "--version"], env },
+      { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"], env },
+    ]);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  // The newer CLI's own failure (a wizard cancelled, a bad folder) is its
+  // answer: no second round here, which would ask the questions again.
+  test("a newer CLI that ran and failed: its exit code, nothing created here", async () => {
+    const dir = join(base, "demo");
+    const { relaunch } = scriptedRelaunch({ create: 1 });
+    expect(await main(["create", dir, "--yes"], { relaunch })).toBe(1);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("a newer CLI that can't be installed (or bunx that can't start): a warning, and this CLI creates the app", async () => {
+    for (const install of [1, "throw"] as const) {
+      const dir = join(base, `demo-${install}`);
+      const { calls, relaunch } = scriptedRelaunch({ install });
+      expect(await main(["create", dir, "--yes"], { relaunch })).toBe(0);
+      expect(calls.map((c) => c.argv.at(-1))).toEqual(["--version"]);
+      expect(existsSync(join(dir, "package.json"))).toBe(true);
+    }
+  });
+
+  test("the registry handed to the newer CLI has no trailing slash", async () => {
+    process.env.MFW_REGISTRY = `${newerRegistry.url.origin}/`;
+    const { calls, relaunch } = scriptedRelaunch();
+    await main(["create", join(base, "demo"), "--yes"], { relaunch });
+    expect(calls.map((c) => c.env.NPM_CONFIG_REGISTRY)).toEqual([newerRegistry.url.origin, newerRegistry.url.origin]);
+  });
+
+  test("once relaunched (MFW_SELF_UPDATED set), it doesn't relaunch again: it creates the app", async () => {
+    process.env.MFW_SELF_UPDATED = NEWER;
+    const dir = join(base, "demo");
+    const { calls, relaunch } = fakeRelaunch();
+    expect(await main(["create", dir, "--yes"], { relaunch })).toBe(0);
+    expect(calls).toEqual([]);
+    expect(existsSync(join(dir, "package.json"))).toBe(true);
+  });
+
+  test("an unreachable registry is only a warning: an app with no plugins is still created", async () => {
+    const dir = join(base, "demo");
+    const result = await runWith("http://127.0.0.1:9", "create", dir, "--yes");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("couldn't check for a newer mfw: Can't reach http://127.0.0.1:9");
+    expect(existsSync(join(dir, "package.json"))).toBe(true);
+  });
+});
