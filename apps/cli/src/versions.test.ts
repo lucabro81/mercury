@@ -127,6 +127,22 @@ describe("newerCli", () => {
     expect(await newerCli({ registry: "https://registry.test", fetchFn, current: "0.9.9" })).toBe("0.10.0");
   });
 
+  test("a registry that doesn't answer in time is an error too, instead of a hung create", async () => {
+    // Guards against a blackholed network hanging `create` before its warning.
+    const silent = ((_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch;
+    await expect(newerCli({ registry: "https://registry.test", fetchFn: silent, timeoutMs: 50 })).rejects.toThrow(
+      "Can't reach https://registry.test",
+    );
+  });
+
+  test("an answer without a version is an error naming the package", async () => {
+    const fetchFn = (async () => Response.json({ name: "@mercury-fw/cli" })) as unknown as typeof fetch;
+    await expect(newerCli({ registry: "https://registry.test", fetchFn })).rejects.toThrow("gave no version for @mercury-fw/cli");
+  });
+
   test("an unreachable registry or an unusable answer is an error, for the caller to turn into a warning", async () => {
     const down = (async () => {
       throw new TypeError("fetch failed");

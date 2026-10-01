@@ -39,13 +39,15 @@ const spawnRelaunch: Relaunch = async (argv, env) => {
 };
 
 /** When the registry has a newer `@mercury-fw/cli` than this one (a stale copy
- * out of Bun's bunx cache), runs `create` again through that version, with the
- * same arguments as typed, and returns its exit code; `undefined` means carry
- * on here. Skipped inside a relaunch (`MFW_SELF_UPDATED`). A registry that
- * can't answer is only a warning. */
+ * out of Bun's bunx cache), installs it (`bunx … --version`), then runs
+ * `create` again through it with the same arguments as typed and returns its
+ * exit code, whatever it is (a cancelled wizard included). `undefined` means
+ * carry on here: no newer CLI, a check skipped inside a relaunch
+ * (`MFW_SELF_UPDATED`), a registry that can't answer, or a newer CLI that
+ * can't be installed; the last two with a warning. */
 async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<number | undefined> {
   if (process.env.MFW_SELF_UPDATED) return undefined;
-  const registry = registryFrom(process.env.MFW_REGISTRY);
+  const registry = registryFrom(process.env.MFW_REGISTRY).replace(/\/+$/, "");
   let newer: string | undefined;
   try {
     newer = await newerCli({ registry });
@@ -54,11 +56,20 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<n
     return undefined;
   }
   if (newer === undefined) return undefined;
+  const cli = `@mercury-fw/cli@${newer}`;
+  const env = { MFW_SELF_UPDATED: newer, NPM_CONFIG_REGISTRY: registry };
+  let installed: number;
+  try {
+    installed = await relaunch(["bunx", cli, "--version"], env);
+  } catch {
+    installed = -1;
+  }
+  if (installed !== 0) {
+    console.error(`mfw ${cliVersion()} is behind the registry's ${newer}, which couldn't be installed: creating with ${cliVersion()}.`);
+    return undefined;
+  }
   console.error(`mfw ${cliVersion()} is behind the registry's ${newer}: running ${newer} instead.`);
-  return relaunch(["bunx", `@mercury-fw/cli@${newer}`, "create", ...rawArgs], {
-    MFW_SELF_UPDATED: newer,
-    NPM_CONFIG_REGISTRY: registry,
-  });
+  return relaunch(["bunx", cli, "create", ...rawArgs], env);
 }
 
 /** `mfw create`: returns the exit code. `rawArgs` are the arguments after

@@ -272,17 +272,58 @@ describe("mfw create with a newer CLI on the registry", () => {
     return { calls, relaunch };
   }
 
-  test("runs the newer one with the same arguments, writes nothing itself, exits with its code", async () => {
+  /** A relaunch that records what it was asked to run: `bunx … --version`
+   * (installing the newer CLI) answers `install`, `create` answers `create`;
+   * `install: "throw"` is bunx failing to start at all. */
+  function scriptedRelaunch({ install = 0 as number | "throw", create = 0 } = {}) {
+    const calls: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      calls.push({ argv, env });
+      if (argv.includes("--version")) {
+        if (install === "throw") throw new Error("Executable not found in $PATH: \"bunx\"");
+        return install;
+      }
+      return create;
+    };
+    return { calls, relaunch };
+  }
+
+  test("installs the newer one, runs it with the same arguments, writes nothing itself, exits with its code", async () => {
     const dir = join(base, "demo");
-    const { calls, relaunch } = fakeRelaunch(7);
+    const { calls, relaunch } = scriptedRelaunch({ create: 7 });
     expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+    const env = { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin };
     expect(calls).toEqual([
-      {
-        argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"],
-        env: { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin },
-      },
+      { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "--version"], env },
+      { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"], env },
     ]);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  // The newer CLI's own failure (a wizard cancelled, a bad folder) is its
+  // answer: no second round here, which would ask the questions again.
+  test("a newer CLI that ran and failed: its exit code, nothing created here", async () => {
+    const dir = join(base, "demo");
+    const { relaunch } = scriptedRelaunch({ create: 1 });
+    expect(await main(["create", dir, "--yes"], { relaunch })).toBe(1);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("a newer CLI that can't be installed (or bunx that can't start): a warning, and this CLI creates the app", async () => {
+    for (const install of [1, "throw"] as const) {
+      const dir = join(base, `demo-${install}`);
+      const { calls, relaunch } = scriptedRelaunch({ install });
+      expect(await main(["create", dir, "--yes"], { relaunch })).toBe(0);
+      expect(calls.map((c) => c.argv.at(-1))).toEqual(["--version"]);
+      expect(existsSync(join(dir, "package.json"))).toBe(true);
+    }
+  });
+
+  test("the registry handed to the newer CLI has no trailing slash", async () => {
+    process.env.MFW_REGISTRY = `${newerRegistry.url.origin}/`;
+    const { calls, relaunch } = scriptedRelaunch();
+    await main(["create", join(base, "demo"), "--yes"], { relaunch });
+    expect(calls.map((c) => c.env.NPM_CONFIG_REGISTRY)).toEqual([newerRegistry.url.origin, newerRegistry.url.origin]);
   });
 
   test("once relaunched (MFW_SELF_UPDATED set), it doesn't relaunch again: it creates the app", async () => {

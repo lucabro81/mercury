@@ -24,13 +24,18 @@ export function cliVersion(): string {
 }
 
 /** The registry's `latest` version of `name`. Rejects naming the package the
- * registry doesn't have, or saying the registry can't be reached. */
-async function latestVersion(name: string, opts: { registry: string; fetchFn?: typeof fetch }): Promise<string> {
+ * registry doesn't have, or saying the registry can't be reached (also when
+ * it hasn't answered within `timeoutMs`, if given). */
+async function latestVersion(
+  name: string,
+  opts: { registry: string; fetchFn?: typeof fetch; timeoutMs?: number },
+): Promise<string> {
   const registry = opts.registry.replace(/\/+$/, "");
   const fetchFn = opts.fetchFn ?? fetch;
   let res: Response;
   try {
-    res = await fetchFn(`${registry}/${name.replace("/", "%2F")}/latest`);
+    const signal = opts.timeoutMs === undefined ? undefined : AbortSignal.timeout(opts.timeoutMs);
+    res = await fetchFn(`${registry}/${name.replace("/", "%2F")}/latest`, { signal });
   } catch {
     throw new Error(`Can't reach ${registry} to look up ${name}`);
   }
@@ -62,12 +67,14 @@ export async function appVersions(
 /** The registry's `latest` `@mercury-fw/cli` when it's newer than `current`
  * (this CLI's version by default), nothing otherwise: a CLI run from Bun's
  * bunx cache can be behind the release it was meant to be. Rejects like
- * `appVersions` when the registry can't answer. */
+ * `appVersions` when the registry can't answer, within `timeoutMs` (5s by
+ * default: this check runs on every create, also one needing no network). */
 export async function newerCli(opts: {
   registry: string;
   fetchFn?: typeof fetch;
   current?: string;
+  timeoutMs?: number;
 }): Promise<string | undefined> {
-  const latest = await latestVersion("@mercury-fw/cli", opts);
+  const latest = await latestVersion("@mercury-fw/cli", { ...opts, timeoutMs: opts.timeoutMs ?? 5000 });
   return Bun.semver.order(latest, opts.current ?? cliVersion()) === 1 ? latest : undefined;
 }
