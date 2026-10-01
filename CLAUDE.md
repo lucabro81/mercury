@@ -80,8 +80,10 @@ the first-party channels and tool plugins, with the framework at the CLI's own
 version and each chosen plugin at its latest on the registry; installing is
 left to the user (`bun install`). Every other command operates an app from
 inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
-`vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`), as `docker compose` calls (or env-file writes); an app gets the CLI as
-a devDependency and runs it as `bunx mfw`. No "plumbing" commands mirroring
+`vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`), as `docker compose` calls (or env-file writes); `mfw` is installed
+globally (`bun add -g @mercury-fw/cli`, `mfw upgrade`); an app also gets the CLI as a
+devDependency at the framework's version, and inside an app a global `mfw` at another
+version hands the command over to it (`MFW_DEFERRED`), so the app's commands match its framework. No "plumbing" commands mirroring
 compose: whoever wants that uses compose directly. The command line is declared
 with commander (`program.ts`): arguments are validated and help is generated at
 every level, so a new command is a `program.command(...)` plus its function in
@@ -187,7 +189,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets); every package
 
 ## Operational notes
 
-- **Develop via Docker, not on the host**: `bunx mfw start` (`docker compose up -d --build`) is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `bunx mfw repl`
+- **Develop via Docker, not on the host**: `mfw start` (`docker compose up -d --build`) is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `mfw repl`
 - Full install/run/deploy commands live in [README.md](README.md), not duplicated here — this file covers stack and conventions only
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
 - Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime. `bun run test` from the repo root runs every workspace's suite through Turborepo; each package's tests live next to its code (a plugin's tests in its own package), so `bun test` inside one package runs just that package's
@@ -197,7 +199,7 @@ SemVer via [Changesets](https://github.com/changesets/changesets); every package
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
-- **Wiki vault and memory maintenance**: `bunx mfw vault <command>` and `bunx mfw memory <list|read>`. The vault and Qdrant's data are Docker named volumes, not host paths, so both run in a one-off `docker compose run --rm -T mercury` container, executing the core's own CLIs by path (`bun node_modules/@mercury-fw/core/src/wiki/vault-cli.ts`, `…/src/memory/memory-cli.ts`), not as package bins: the monorepo image runs `bun install` before copying the sources, and Bun doesn't link a bin whose file isn't there yet. Vault commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]`, `write-raw <raw/...path.md>` (body read from stdin). Thin routing only, reusing `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee. `mfw memory` is read-only.
+- **Wiki vault and memory maintenance**: `mfw vault <command>` and `mfw memory <list|read>`. The vault and Qdrant's data are Docker named volumes, not host paths, so both run in a one-off `docker compose run --rm -T mercury` container, executing the core's own CLIs by path (`bun node_modules/@mercury-fw/core/src/wiki/vault-cli.ts`, `…/src/memory/memory-cli.ts`), not as package bins: the monorepo image runs `bun install` before copying the sources, and Bun doesn't link a bin whose file isn't there yet. Vault commands: `list`, `read <path>`, `grep <pattern>` (paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]`, `write-raw <raw/...path.md>` (body read from stdin). Thin routing only, reusing `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee. `mfw memory` is read-only.
 
 ## Hard-won conventions
 
