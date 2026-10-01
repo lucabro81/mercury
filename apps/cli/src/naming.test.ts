@@ -12,7 +12,7 @@ describe("kebabCase", () => {
     ["MyApp", "my-app"],
     ["myHTTPApp", "my-http-app"],
     ["my_app", "my-app"],
-    ["comperio.mercury", "comperio-mercury"],
+    ["acme.mercury", "acme-mercury"],
     ["  spaced   out  ", "spaced-out"],
     ["--edge--", "edge"],
     ["Città Nuova", "citta-nuova"],

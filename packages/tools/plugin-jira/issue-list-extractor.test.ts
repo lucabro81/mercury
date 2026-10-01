@@ -10,7 +10,7 @@ import type { CliResult } from "@mercury-fw/cli-engine";
  * its own tests in @mercury-fw/core). These assertions cover extraction and its
  * defensive shape handling, plus the plugin-owned config schema.
  */
-const SITE_URL = "https://webcomperio.atlassian.net";
+const SITE_URL = "https://example.atlassian.net";
 const PARSED = { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] };
 
 describe("createJiraIssueListExtractor", () => {
@@ -128,7 +128,7 @@ describe("createJiraIssueListExtractor", () => {
             key: "MER-20",
             status: "Da fare",
             summary: "Ticket di test creato da Mercury",
-            url: "https://webcomperio.atlassian.net/browse/MER-20",
+            url: "https://example.atlassian.net/browse/MER-20",
           },
         ],
       },
@@ -145,7 +145,7 @@ describe("createJiraIssueListExtractor", () => {
     if (extracted.ok) {
       expect(extracted.display).toEqual({
         type: "issue-list",
-        items: [{ key: "MER-20", status: null, summary: "Ticket di test", url: "https://webcomperio.atlassian.net/browse/MER-20" }],
+        items: [{ key: "MER-20", status: null, summary: "Ticket di test", url: "https://example.atlassian.net/browse/MER-20" }],
       });
     }
   });
@@ -166,22 +166,22 @@ describe("createJiraIssueListExtractor", () => {
       expect(extracted.display).toEqual({
         type: "issue-list",
         items: [
-          { key: "MER-1", status: null, summary: "First", url: "https://webcomperio.atlassian.net/browse/MER-1" },
-          { key: "MER-2", status: null, summary: "Second", url: "https://webcomperio.atlassian.net/browse/MER-2" },
+          { key: "MER-1", status: null, summary: "First", url: "https://example.atlassian.net/browse/MER-1" },
+          { key: "MER-2", status: null, summary: "Second", url: "https://example.atlassian.net/browse/MER-2" },
         ],
       });
     }
   });
 
   it("strips a trailing slash on siteUrl before building the link", () => {
-    const withTrailingSlash = createJiraIssueListExtractor({ siteUrl: "https://webcomperio.atlassian.net/" });
+    const withTrailingSlash = createJiraIssueListExtractor({ siteUrl: "https://example.atlassian.net/" });
     const result: CliResult = { ok: true, data: { issues: [{ key: "MER-1", fields: { summary: "x" } }] } };
     const extracted = withTrailingSlash(PARSED, result);
     expect(extracted.ok).toBe(true);
     if (extracted.ok) {
       expect(extracted.display).toEqual({
         type: "issue-list",
-        items: [{ key: "MER-1", status: null, summary: "x", url: "https://webcomperio.atlassian.net/browse/MER-1" }],
+        items: [{ key: "MER-1", status: null, summary: "x", url: "https://example.atlassian.net/browse/MER-1" }],
       });
     }
   });

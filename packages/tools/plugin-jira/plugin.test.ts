@@ -42,7 +42,7 @@ describe("jiraPlugin", () => {
   });
 
   it("contributes the issue-list extractor as its post-processor when JIRA_SITE_URL is set", () => {
-    const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "https://webcomperio.atlassian.net" }, log: noLog });
+    const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "https://example.atlassian.net" }, log: noLog });
     expect(typeof c.postProcess).toBe("function");
     const searched = c.postProcess!(
       { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] },
