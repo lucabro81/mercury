@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Starts the service, first materializing each tool plugin's CLI credentials
+# onto the cli-credentials volume: its variable in the env file is the CLI's
+# config folder as a base64 tar.gz (bunx mfw credentials set <plugin> writes
+# it). Only when that CLI's folder isn't on the volume yet: what a CLI writes
+# back while running, like a refreshed token, stays there across redeploys,
+# and an older value in the env file never overwrites it. bunx mfw credentials
+# reset <plugin> clears one folder so its variable is materialized again.
+set -euo pipefail
+
+materialize() {
+  local folder="$1"
+  local variable="$2"
+  local value="${!variable:-}"
+  if [[ -n "$value" && ! -d "/home/mercury/.config/$folder" ]]; then
+    echo "$value" | base64 -d | tar xzf - -C /home/mercury/.config
+  fi
+}
+
+materialize jira-cli JIRA_CLI_CONFIG_TAR_B64
+materialize bitbucket-cli BITBUCKET_CLI_CONFIG_TAR_B64
+materialize atlassian-admin-cli ATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64
+
+exec bun src/index.ts

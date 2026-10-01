@@ -208,6 +208,7 @@ describe("app commands", () => {
       capture: async () => "",
       ask: async () => "",
       print: () => {},
+      home: "/nonexistent-home",
     };
     return { dir, runs, deps };
   }

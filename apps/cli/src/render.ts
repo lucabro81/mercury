@@ -8,7 +8,7 @@
  * written in catalog order, whatever order they were chosen in.
  */
 import { DEFAULT_PERSONA_TONE } from "@mercury-fw/core";
-import { CATALOG, type CatalogEntry, type EnvVar } from "./catalog.ts";
+import { CATALOG, type CatalogEntry, type CliCredentials, type EnvVar } from "./catalog.ts";
 import indexTs from "../template/src/index.ts.tpl" with { type: "text" };
 import replTs from "../template/src/repl.ts.tpl" with { type: "text" };
 import markdownDts from "../template/markdown.d.ts.tpl" with { type: "text" };
@@ -68,7 +68,7 @@ export function renderApp(input: RenderInput): Map<string, string> {
     [".dockerignore", dockerignore],
     [".env.example", renderEnv(channels, tools)],
     [".gitignore", gitignore],
-    ["Dockerfile", dockerfile],
+    ["Dockerfile", renderDockerfile(tools)],
     ["README.md", renderReadme(input.name, channels, tools)],
     ["docker-compose.yml", renderCompose(input.name, tools.length > 0)],
     ["markdown.d.ts", markdownDts],
@@ -81,7 +81,58 @@ export function renderApp(input: RenderInput): Map<string, string> {
     ["src/index.ts", indexTs],
     ["src/repl.ts", replTs],
     ["tsconfig.json", tsconfigJson],
+    ...(withCredentials(tools).length > 0
+      ? [["docker-entrypoint.sh", renderEntrypoint(withCredentials(tools))] as [string, string]]
+      : []),
   ]);
+}
+
+/** The chosen tool plugins whose CLI needs credentials, with them. */
+function withCredentials(tools: CatalogEntry[]): Array<CatalogEntry & { credentials: CliCredentials }> {
+  return tools.filter((t): t is CatalogEntry & { credentials: CliCredentials } => t.credentials !== undefined);
+}
+
+/** The template's Dockerfile; with CLI credentials to materialize, the service
+ * starts through `docker-entrypoint.sh` instead of directly. */
+function renderDockerfile(tools: CatalogEntry[]): string {
+  if (withCredentials(tools).length === 0) return dockerfile;
+  const cmd = 'CMD ["bun", "src/index.ts"]\n';
+  if (!dockerfile.endsWith(cmd)) throw new Error("Dockerfile.tpl no longer ends with the service's CMD");
+  return `${dockerfile.slice(0, -cmd.length)}# Materializes the tool plugins' CLI credentials on the first start, then
+# starts the service.
+COPY --chown=mercury:mercury --chmod=755 docker-entrypoint.sh ./
+CMD ["./docker-entrypoint.sh"]
+`;
+}
+
+/** \`docker-entrypoint.sh\`: each plugin's credentials variable materialized
+ * into its CLI's folder on the volume, only while that folder isn't there,
+ * then the service. */
+function renderEntrypoint(tools: Array<CatalogEntry & { credentials: CliCredentials }>): string {
+  const lines = tools.map((t) => `materialize ${t.credentials.folder} ${t.credentials.variable}`).join("\n");
+  return `#!/usr/bin/env bash
+# Starts the service, first materializing each tool plugin's CLI credentials
+# onto the cli-credentials volume: its variable in the env file is the CLI's
+# config folder as a base64 tar.gz (bunx mfw credentials set <plugin> writes
+# it). Only when that CLI's folder isn't on the volume yet: what a CLI writes
+# back while running, like a refreshed token, stays there across redeploys,
+# and an older value in the env file never overwrites it. bunx mfw credentials
+# reset <plugin> clears one folder so its variable is materialized again.
+set -euo pipefail
+
+materialize() {
+  local folder="$1"
+  local variable="$2"
+  local value="\${!variable:-}"
+  if [[ -n "$value" && ! -d "/home/mercury/.config/$folder" ]]; then
+    echo "$value" | base64 -d | tar xzf - -C /home/mercury/.config
+  fi
+}
+
+${lines}
+
+exec bun src/index.ts
+`;
 }
 
 /** Why `name` can't be an app name, or undefined when it can. Shared with the
@@ -251,8 +302,15 @@ function renderEnv(channels: CatalogEntry[], tools: CatalogEntry[]): string {
     );
   }
   for (const entry of [...channels, ...tools]) {
-    if (entry.env.length > 0) {
-      sections.push(`# --- ${entry.id}\n${block(entry.env)}`);
+    const vars = [...entry.env];
+    if (entry.credentials !== undefined) {
+      vars.push({
+        name: entry.credentials.variable,
+        comment: `${entry.credentials.folder}'s config folder, packed: bunx mfw credentials set ${entry.id} writes it; materialized on the credentials volume at the first start without that folder`,
+      });
+    }
+    if (vars.length > 0) {
+      sections.push(`# --- ${entry.id}\n${block(vars)}`);
     }
   }
   return `${sections.join("\n\n")}\n`;
@@ -264,7 +322,7 @@ function renderCompose(name: string, hasTools: boolean): string {
   const credentialsMount = hasTools
     ? [
         "      # The tool plugins' CLI credentials, on a volume so what a CLI writes back",
-        "      # (refreshed tokens) survives a redeploy. It starts empty: see README.md.",
+        "      # (refreshed tokens) survives a redeploy. docker-entrypoint.sh fills it: see README.md.",
         "      - cli-credentials:/home/mercury/.config",
       ]
     : [];
@@ -328,12 +386,30 @@ bunx mfw repl
 \`\`\`
 
 \`bun install\` here gives your editor, \`bun run typecheck\` and \`mfw\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds. \`bunx mfw start\` builds the image and starts the app with Qdrant in the background, \`bunx mfw repl\` opens a terminal conversation with the assistant. \`bunx mfw --help\` lists the rest: stopping and restarting, logs, a shell in the container, the wiki and the memory, and resetting them.
-${tools.length > 0 ? CREDENTIALS_SECTION : ""}`;
+${renderCredentialsSection(withCredentials(tools))}`;
 }
 
-/** The README section on CLI credentials, for an app with tool plugins. */
-const CREDENTIALS_SECTION = `
+/** The README section on CLI credentials, for an app with tool plugins;
+ * nothing without one. */
+function renderCredentialsSection(tools: Array<CatalogEntry & { credentials: CliCredentials }>): string {
+  if (tools.length === 0) return "";
+  const first = tools[0] as CatalogEntry & { credentials: CliCredentials };
+  const list = tools.map((t) => `\`${t.id}\` (\`~/.config/${t.credentials.folder}\`)`).join(", ");
+  return `
 ## CLI credentials
 
-Each tool plugin runs its own CLI, and each CLI keeps its login under \`/home/mercury/.config\` in the container, on the \`cli-credentials\` volume. The volume starts empty: nothing in this app provisions it yet, so authenticate each CLI once inside the container (\`docker compose run --rm mercury <cli> --help\` lists its auth commands) or copy its config folder into the volume. What the CLIs write back afterwards, like refreshed tokens, stays on the volume across redeploys.
+Each tool plugin runs its own CLI, and each CLI keeps its login in a folder of its own: ${list}. Log in with the CLI on your machine first (its own README says how), then hand that folder to the app:
+
+\`\`\`bash
+bunx mfw credentials set ${first.id}
+\`\`\`
+
+It packs the folder into its variable in \`.env\` (\`--from <folder>\` if it isn't where the CLI usually keeps it, \`--print\` to get the line to paste on another host instead). When the container starts, \`docker-entrypoint.sh\` unpacks it onto the \`cli-credentials\` volume, but only if that CLI's folder isn't there yet: what the CLI writes back afterwards, like a refreshed token, stays on the volume across redeploys, and the older value in \`.env\` never overwrites it.
+
+That same rule means a corrected variable does nothing while the old folder is on the volume. Clear it, and the next start unpacks the variable again:
+
+\`\`\`bash
+bunx mfw credentials reset ${first.id}
+\`\`\`
 `;
+}

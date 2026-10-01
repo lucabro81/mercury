@@ -32,6 +32,7 @@ function fake({
       return answer;
     },
     print: (line) => void printed.push(line),
+    home: "/nonexistent-home",
   };
   return { deps, calls, asked, printed, runs: () => calls.filter((c) => c.kind === "run").map((c) => c.argv) };
 }

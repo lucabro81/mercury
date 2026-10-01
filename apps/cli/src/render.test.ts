@@ -56,9 +56,11 @@ const ALWAYS = [
 ];
 
 describe("renderApp: files", () => {
-  test("writes the same set of files whatever was chosen", () => {
-    for (const choice of [EMPTY, HTTP_JIRA, FULL]) {
-      expect([...renderApp(choice).keys()].sort()).toEqual(ALWAYS);
+  test("the same set of files whatever was chosen, plus the entrypoint with a tool plugin", () => {
+    expect([...renderApp(EMPTY).keys()].sort()).toEqual(ALWAYS);
+    expect([...renderApp(input({ channels: ["http"] })).keys()].sort()).toEqual(ALWAYS);
+    for (const choice of [HTTP_JIRA, FULL]) {
+      expect([...renderApp(choice).keys()].sort()).toEqual([...ALWAYS, "docker-entrypoint.sh"].sort());
     }
   });
 
@@ -67,6 +69,28 @@ describe("renderApp: files", () => {
       expect(content.endsWith("\n"), path).toBe(true);
       expect(content.endsWith("\n\n"), path).toBe(false);
     }
+  });
+});
+
+describe("renderApp: CLI credentials", () => {
+  test("the entrypoint materializes each chosen tool plugin's credentials, then starts the service", () => {
+    expect(renderApp(FULL).get("docker-entrypoint.sh")).toBe(golden("full.docker-entrypoint.sh"));
+  });
+
+  test("only the chosen plugins get a line", () => {
+    const entrypoint = renderApp(HTTP_JIRA).get("docker-entrypoint.sh") ?? "";
+    expect(entrypoint).toContain("materialize jira-cli JIRA_CLI_CONFIG_TAR_B64\n");
+    expect(entrypoint).not.toContain("bitbucket");
+  });
+
+  test("with a tool plugin the Dockerfile starts through the entrypoint", () => {
+    expect(renderApp(HTTP_JIRA).get("Dockerfile")).toBe(golden("http-jira.Dockerfile"));
+  });
+
+  test("without one it's the template as it is, starting the service directly", () => {
+    const dockerfile = renderApp(input({ channels: ["http"] })).get("Dockerfile") ?? "";
+    expect(dockerfile.endsWith('CMD ["bun", "src/index.ts"]\n')).toBe(true);
+    expect(dockerfile).not.toContain("docker-entrypoint.sh");
   });
 });
 
@@ -137,12 +161,12 @@ describe("renderApp: .env.example", () => {
     expect(env).not.toContain("# ---");
   });
 
-  test("MERCURY_CLIS lists every chosen tool plugin; entries without vars get no section", () => {
+  test("MERCURY_CLIS lists every chosen tool plugin; each tool plugin's section carries its credentials variable", () => {
     const env = renderApp(FULL).get(".env.example") ?? "";
     expect(env).toContain("MERCURY_CLIS=jira,bitbucket,atlassian-admin\n");
     expect(env).toContain("# --- google-chat\n");
-    expect(env).not.toContain("# --- bitbucket");
-    expect(env).not.toContain("# --- atlassian-admin");
+    expect(env).toMatch(/# --- bitbucket\n# bitbucket-cli's config folder, packed: bunx mfw credentials set bitbucket [^\n]*\nBITBUCKET_CLI_CONFIG_TAR_B64=\n/);
+    expect(env).toMatch(/# --- atlassian-admin\n# [^\n]*\nATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64=\n/);
   });
 });
 
@@ -209,12 +233,12 @@ describe("renderApp: README.md", () => {
     expect(readme).not.toContain("docker compose run --rm mercury bun run repl");
   });
 
-  // The template doesn't provision CLI credentials yet: the README must say the
-  // volume starts empty instead of letting the compose file imply otherwise.
-  test("with a tool plugin it says the CLI credentials volume starts empty; without, nothing", () => {
+  test("with a tool plugin it explains how its CLI gets credentials; without, nothing", () => {
     const withTools = renderApp(HTTP_JIRA).get("README.md") ?? "";
     expect(withTools).toContain("## CLI credentials");
-    expect(withTools).toContain("starts empty");
+    expect(withTools).toContain("bunx mfw credentials set jira");
+    expect(withTools).toContain("bunx mfw credentials reset jira");
+    expect(withTools).not.toContain("starts empty");
     expect(renderApp(input({ channels: ["http"] })).get("README.md")).not.toContain("CLI credentials");
   });
 
