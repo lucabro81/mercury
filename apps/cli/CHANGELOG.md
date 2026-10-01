@@ -1,5 +1,15 @@
 # @mercury-fw/cli
 
+## 0.28.0
+
+### Minor Changes
+
+- 51bd439: `mfw google-chat set-key <key-file> [--subscription <name>]` writes the Google Chat channel's service account key (and its subscription) into the app's env file, the key on one line the way the channel reads it and never printed. The channel's setup uses it in place of the hand-written `sed`/`printf` step.
+
+### Patch Changes
+
+- @mercury-fw/core@0.28.0
+
 ## 0.27.1
 
 ### Patch Changes
