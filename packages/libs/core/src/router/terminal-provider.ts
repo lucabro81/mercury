@@ -80,7 +80,10 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
           // seeing its result), each burst getting its own header/close
           // rather than being mistaken for a continuation of the first.
           const reasoningIdsStarted = new Set<string>();
-          const dim = (label: string) => onChunk(`\x1b[2m\x1b[3m${label}\x1b[0m\n`);
+          // Everything but the answer text is an aside: printed as it comes,
+          // but not part of the answer the REPL compares with the result.
+          const aside = (chunk: string) => onChunk(chunk, { aside: true });
+          const dim = (label: string) => aside(`\x1b[2m\x1b[3m${label}\x1b[0m\n`);
           const sink: TurnSink = {
             onToolStart: dim,
             // PENDING_CONFIRMATION_NOTE is dropped here: onStep (below)
@@ -99,10 +102,10 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
                 reasoningIdsStarted.add(id);
                 dim("Sto pensando…");
               }
-              onChunk(`\x1b[2m\x1b[3m${chunk}\x1b[0m`);
+              aside(`\x1b[2m\x1b[3m${chunk}\x1b[0m`);
             },
             onReasoningEnd: (id) => {
-              if (reasoningIdsStarted.has(id)) onChunk("\n");
+              if (reasoningIdsStarted.has(id)) aside("\n");
             },
             onStep: (step) => {
               lastSteps.push(step);
@@ -111,7 +114,7 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
               // say it itself, from the structured step data.
               const pending = detectPendingConfirmation(step);
               if (pending) {
-                onChunk(`Azione in sospeso: \`${pending.summary}\` — scrivi: ${pending.token}\n`);
+                aside(`Azione in sospeso: \`${pending.summary}\` — scrivi: ${pending.token}\n`);
               }
             },
             onUsage: (tokens) => {
@@ -140,7 +143,11 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
           if (contextLength === null) {
             contextLength = await getLoadedContextLengthFn(deps.ollamaHost, deps.ollamaModel);
           }
-          return finalText;
+          // The note's chunk was dropped above, so it isn't returned either,
+          // also when a surfaced display follows it.
+          return finalText.startsWith(PENDING_CONFIRMATION_NOTE)
+            ? finalText.slice(PENDING_CONFIRMATION_NOTE.length).replace(/^\n\n/, "")
+            : finalText;
         },
         undefined,
         { promptSuffix: () => formatContextUsage(lastInputTokens, contextLength) },

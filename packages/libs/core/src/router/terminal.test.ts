@@ -156,12 +156,11 @@ describe("startTerminalRepl", () => {
     ]);
   });
 
-  // Regression: turn-runner.ts's issue-list correction can REPLACE the model's
-  // text (a corrector rewrite, or the fixed fallback), not just append to it —
-  // the result no longer extends what was already streamed, so the old
-  // "streamed ⇒ always slice off streamedText.length" assumption produced a
-  // meaningless slice. The already-streamed text can't be un-printed, so the
-  // real final answer must be shown in full instead, clearly marked.
+  // A plugin's post-turn guard (turn-runner.ts) can REPLACE the model's text
+  // after it was streamed, not just append to it: the result no longer
+  // extends what was already streamed, so slicing off streamedText.length
+  // would be meaningless. The already-streamed text can't be un-printed, so
+  // the real final answer is shown in full instead, clearly marked.
   it("writes the full result with a correction marker, when it no longer extends what was streamed", async () => {
     const output = fakeOutput();
     const handleInput = async (_input: string, onChunk: (chunk: string) => void) => {
@@ -180,6 +179,62 @@ describe("startTerminalRepl", () => {
         text: "\n\n[risposta corretta rispetto a quanto già mostrato sopra]\n\nEcco i risultati.\n\nMER-1\nhttps://x",
         newline: true,
       },
+      { text: PROMPT, newline: false },
+    ]);
+  });
+
+  // Regression (#61): reasoning, tool labels and the pending-confirmation
+  // line were counted as streamed answer text, so the result (the answer
+  // alone) never extended it and every turn that reasoned or called a tool
+  // reprinted the whole answer under the correction marker.
+  it("leaves aside chunks out of the comparison: a streamed answer after reasoning is printed once, with no marker", async () => {
+    const output = fakeOutput();
+    const handleInput = async (
+      _input: string,
+      onChunk: (chunk: string, opts?: { aside?: boolean }) => void,
+    ) => {
+      onChunk("Sto pensando…\n", { aside: true });
+      onChunk("the user wants a greeting", { aside: true });
+      onChunk("Hel");
+      onChunk("cerca issue\n", { aside: true });
+      onChunk("lo");
+      return "Hello";
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.calls).toEqual([
+      { text: PROMPT, newline: false },
+      { text: "Sto pensando…\n", newline: false },
+      { text: "the user wants a greeting", newline: false },
+      { text: "Hel", newline: false },
+      { text: "cerca issue\n", newline: false },
+      { text: "lo", newline: false },
+      { text: "", newline: true },
+      { text: PROMPT, newline: false },
+    ]);
+  });
+
+  // Same bug (#61), the append case: a `present` display after an answer
+  // that followed reasoning must come out as the suffix alone.
+  it("writes only the unstreamed suffix when aside chunks preceded the answer", async () => {
+    const output = fakeOutput();
+    const handleInput = async (
+      _input: string,
+      onChunk: (chunk: string, opts?: { aside?: boolean }) => void,
+    ) => {
+      onChunk("thinking", { aside: true });
+      onChunk("Hello");
+      return "Hello\n\nMER-1";
+    };
+
+    await startTerminalRepl(handleInput, { input: oneLine("hi"), output });
+
+    expect(output.calls).toEqual([
+      { text: PROMPT, newline: false },
+      { text: "thinking", newline: false },
+      { text: "Hello", newline: false },
+      { text: "\n\nMER-1", newline: true },
       { text: PROMPT, newline: false },
     ]);
   });

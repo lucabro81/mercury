@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { createTerminalProvider } from "./terminal-provider.ts";
+import { startTerminalRepl } from "./terminal.ts";
 import type { HandleTurn, InboundTurn } from "./provider.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 
-type CapturedHandleInput = (input: string, onChunk: (chunk: string) => void) => Promise<string>;
+type CapturedHandleInput = (
+  input: string,
+  onChunk: (chunk: string, opts?: { aside?: boolean }) => void,
+) => Promise<string>;
 
 function fakeConfirmDeps() {
   return {
@@ -214,6 +218,140 @@ describe("createTerminalProvider", () => {
     const chunks: string[] = [];
     await capturedHandleInput("elimina KAN-1", (chunk) => chunks.push(chunk));
     expect(chunks).toEqual([]);
+  });
+
+  // Regression (#61): everything the terminal printed counted as streamed
+  // answer text, so the answer alone (the returned string) never extended it
+  // and the REPL reprinted it under its correction marker. Only the answer
+  // text may go through onChunk without `aside`.
+  test("reasoning, tool labels and the confirmation line are aside chunks, the answer text isn't", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("penso", "block-1");
+      sink.onReasoningEnd?.("block-1", false);
+      sink.onToolStart("Sto leggendo dati con jira…");
+      sink.onStep?.({
+        toolCalls: [{ toolCallId: "1", toolName: "runCommand", input: { command: "jira issue delete KAN-1 --confirm" } }],
+        toolResults: [{ toolCallId: "1", toolName: "runCommand", output: { ok: false, pendingConfirmation: true, token: "TOK1", summary: "jira issue delete KAN-1 --confirm" } }],
+        content: [],
+      });
+      sink.onTextChunk?.("Ecco ");
+      sink.onTextChunk?.("fatto.");
+      await sink.finalize("Ecco fatto.");
+    };
+    await provider.start(handleTurn);
+
+    const chunks: Array<{ chunk: string; aside: boolean }> = [];
+    const result = await capturedHandleInput("hi", (chunk, opts) => chunks.push({ chunk, aside: opts?.aside === true }));
+    expect(chunks).toEqual([
+      { chunk: "\x1b[2m\x1b[3mSto pensando…\x1b[0m\n", aside: true },
+      { chunk: "\x1b[2m\x1b[3mpenso\x1b[0m", aside: true },
+      { chunk: "\n", aside: true },
+      { chunk: "\x1b[2m\x1b[3mSto leggendo dati con jira…\x1b[0m\n", aside: true },
+      { chunk: "Azione in sospeso: `jira issue delete KAN-1 --confirm` — scrivi: TOK1\n", aside: true },
+      { chunk: "Ecco ", aside: false },
+      { chunk: "fatto.", aside: false },
+    ]);
+    expect(result).toBe("Ecco fatto.");
+  });
+
+  // Same bug (#61), the empty-text case: a turn that stops on a staged
+  // command with no text of its own finalizes PENDING_CONFIRMATION_NOTE,
+  // whose chunk is dropped above. Returning it would now print it as the
+  // unstreamed suffix, right after the specific instruction it repeats.
+  test("returns an empty answer when the turn's text is only PENDING_CONFIRMATION_NOTE", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onTextChunk?.(PENDING_CONFIRMATION_NOTE);
+      await sink.finalize(PENDING_CONFIRMATION_NOTE);
+    };
+    await provider.start(handleTurn);
+
+    expect(await capturedHandleInput("elimina KAN-1", () => {})).toBe("");
+  });
+
+  // Same bug (#61), with a display the model surfaced via `present`: the
+  // turn-runner appends it after the note (`note\n\ndisplay`), so the note
+  // must go from the front of the answer, not only when it's all of it.
+  test("drops PENDING_CONFIRMATION_NOTE from the front of the answer when a surfaced display follows it", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onTextChunk?.(PENDING_CONFIRMATION_NOTE);
+      await sink.finalize(`${PENDING_CONFIRMATION_NOTE}\n\nMER-1 · In corso · Titolo`);
+    };
+    await provider.start(handleTurn);
+
+    expect(await capturedHandleInput("elimina KAN-1", () => {})).toBe("MER-1 · In corso · Titolo");
+  });
+
+  // Regression (#61), end to end: the provider wired into the real REPL loop.
+  // A turn that reasons and calls a tool before answering used to print the
+  // answer a second time under the correction marker.
+  test("in the real REPL, a turn with reasoning and a tool call prints its answer once, with no marker", async () => {
+    const written: string[] = [];
+    async function* oneLine() {
+      yield "hi";
+    }
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: (handleInput, _io, opts) =>
+        startTerminalRepl(handleInput, { input: oneLine(), output: { write: (s) => written.push(s) } }, opts),
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("penso", "block-1");
+      sink.onReasoningEnd?.("block-1", false);
+      sink.onToolStart("Sto leggendo dati con jira…");
+      sink.onTextChunk?.("Template DVD ");
+      sink.onTextChunk?.("non si apre");
+      await sink.finalize("Template DVD non si apre");
+    };
+    await provider.start(handleTurn);
+
+    const out = written.join("");
+    expect(out).not.toContain("risposta corretta");
+    expect(out.split("Template DVD non si apre").length - 1).toBe(1);
   });
 
   test("the first onReasoningChunk prints a dim 'Sto pensando…' header before the chunk itself", async () => {

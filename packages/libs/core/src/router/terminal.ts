@@ -53,7 +53,10 @@ export const PROMPT = "> ";
  *   resolve. If `onChunk` is never called, the function's returned
  *   string is written instead once `handleInput` resolves, exactly as
  *   before streaming existed — this is what keeps the `/dump` command
- *   and any other non-streaming reply working unchanged.
+ *   and any other non-streaming reply working unchanged. A chunk passed
+ *   with `{ aside: true }` (reasoning, a tool label, a confirmation line)
+ *   is written the same way but isn't part of the answer, so it's left out
+ *   when the returned string is compared with what was streamed.
  * @param io - Test seam. Defaults to real stdin/stdout when omitted.
  * @param opts.promptSuffix - Optional, called fresh right before every
  *   prompt (including the very first one) and written ahead of it — e.g.
@@ -62,7 +65,7 @@ export const PROMPT = "> ";
  *   turn to turn.
  */
 export async function startTerminalRepl(
-  handleInput: (input: string, onChunk: (chunk: string) => void) => Promise<string>,
+  handleInput: (input: string, onChunk: (chunk: string, opts?: { aside?: boolean }) => void) => Promise<string>,
   io?: {
     input?: AsyncIterable<string>;
     output?: { write(s: string, opts?: { newline?: boolean }): void };
@@ -115,9 +118,9 @@ export async function startTerminalRepl(
   for await (const line of input) {
     let streamed = false;
     let streamedText = "";
-    const onChunk = (chunk: string) => {
+    const onChunk = (chunk: string, chunkOpts?: { aside?: boolean }) => {
       streamed = true;
-      streamedText += chunk;
+      if (!chunkOpts?.aside) streamedText += chunk;
       output.write(chunk, { newline: false });
     };
     try {
@@ -132,9 +135,9 @@ export async function startTerminalRepl(
         // needs writing.
         output.write(result.slice(streamedText.length));
       } else {
-        // The final result no longer extends what was already streamed —
-        // e.g. turn-runner.ts's issue-list correction replaced the text
-        // with a rewrite or the fixed fallback. What's already printed
+        // The final result no longer extends what was already streamed:
+        // a plugin's post-turn guard (turn-runner.ts) rewrote the text
+        // after it was streamed. What's already printed
         // can't be un-printed, so show the real final answer in full
         // instead of a slice computed against text that isn't there
         // anymore.
