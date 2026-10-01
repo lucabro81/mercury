@@ -64,10 +64,9 @@ describe("createJiraIssueListExtractor", () => {
     }
   });
 
-  // Not an error — the raw data is
-  // still valid and returned untouched, just with a note explaining why no
-  // list could be built, so the model can retry if it turns out the user
-  // actually wanted a rendered list.
+  // Not an error — the raw data is still valid and returned untouched, just
+  // with a note explaining why no list could be built, so the model can retry
+  // if it turns out the user actually wanted a rendered list.
   it("adds a formattedListNote, without erroring, when issues are missing key (e.g. reshaped by --select)", () => {
     // Real shape confirmed live: `--select issues.fields.summary,issues.fields.status.name`
     // prunes "key" off each issue entirely, still under the issues[] wrapper.
@@ -110,18 +109,25 @@ describe("createJiraIssueListExtractor", () => {
     const original = { issues: [{ key: "MER-20" }, { key: "MER-21" }], nextPageToken: "abc" };
     const extracted = extract(PARSED, { ok: true, data: original });
 
-    expect(extracted.ok).toBe(true);
-    if (extracted.ok) {
-      expect(extracted.data).toMatchObject(original);
-      expect((extracted.data as { formattedListNote: string }).formattedListNote).toContain("--select");
-      expect(extracted.display).toBeUndefined();
-    }
+    expect(extracted).toEqual({
+      ok: true,
+      data: { ...original, issueCount: 2, formattedListNote: expect.stringContaining("--select") },
+    });
+    expect(original).toEqual({ issues: [{ key: "MER-20" }, { key: "MER-21" }], nextPageToken: "abc" });
+  });
+
+  it("adds the note, not a list, when only some issues lack summary", () => {
+    const original = { issues: [{ key: "MER-1", fields: { summary: "s" } }, { key: "MER-2" }] };
+    expect(extract(PARSED, { ok: true, data: original })).toEqual({
+      ok: true,
+      data: { ...original, issueCount: 2, formattedListNote: expect.stringContaining("--select") },
+    });
   });
 
   // #83: the note used to say "retry without --select" or "with --fields",
   // both of which the CLI refuses. It must name the one select that yields a list.
   it("tells the model the exact list select, never to drop --select or use --fields", () => {
-    for (const data of [{}, { issues: [{ fields: { summary: "s" } }] }, { issues: [{ key: "MER-1" }] }]) {
+    for (const data of [{}, { issues: ["not an issue"] }, { issues: [{ fields: { summary: "s" } }] }, { issues: [{ key: "MER-1" }] }]) {
       const extracted = extract(PARSED, { ok: true, data });
       expect(extracted.ok).toBe(true);
       if (extracted.ok) {

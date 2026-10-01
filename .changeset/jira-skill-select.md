@@ -1,5 +1,5 @@
 ---
-"@mercury-fw/plugin-jira": patch
+"@mercury-fw/plugin-jira": minor
 ---
 
 - The Jira skill gives a working `--select` for every read command: the list select for `issue search`, one for `issue get` and `issue transitions`, and how to count and paginate.

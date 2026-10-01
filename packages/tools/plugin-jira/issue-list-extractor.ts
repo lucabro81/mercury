@@ -14,9 +14,9 @@
  * it classifies defensively: a non-object payload passes through untouched; a
  * payload with no `issues` array, or issues pruned of `key` or `summary`, keeps
  * its data and gets a model-facing `formattedListNote` (no display). Every
- * result with an `issues` array also gets `issueCount`, that page's length. `siteUrl` (the team's browsable Jira host) isn't
- * derivable from any CLI output, so it's a deployment constant carried in the
- * plugin's config.
+ * result with an `issues` array also gets `issueCount`, that page's length.
+ * `siteUrl` (the team's browsable Jira host) isn't derivable from any CLI
+ * output, so it's a deployment constant carried in the plugin's config.
  *
  * `CliResult`/`CliPostProcessor` come from `@mercury-fw/plugin-types`, the shared
  * contract both the core and the plugins import.
