@@ -1,5 +1,12 @@
 # @mercury-fw/cli
 
+## 0.28.4
+
+### Patch Changes
+
+- 65e78fe: `mfw create` (and `bun create mercury-agent`) checks the registry for a newer `@mercury-fw/cli` first, and when it's behind, as a copy left in Bun's bunx cache can be, it runs the same command through the newer version instead of writing an outdated app.
+  - @mercury-fw/core@0.28.4
+
 ## 0.28.3
 
 ### Patch Changes
