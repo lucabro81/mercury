@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { PLUGIN_API_VERSION, type SessionToolContext } from "@mercury-fw/plugin-types";
-import { jiraPlugin } from "./index.ts";
+import { jiraPlugin, JIRA_ISSUE_LIST_SELECT } from "./index.ts";
 
 /**
  * The Jira plugin's assembled module object — its static declaration (name,
@@ -27,6 +27,29 @@ describe("jiraPlugin", () => {
     expect(skill.description.length).toBeGreaterThan(0);
     expect(skill.body).toContain("jiraCommand");
     expect(skill.body).toContain("--jql");
+  });
+
+  // #83: the skill told the model to use --fields and to retry without
+  // --select, both refused by the jira CLI (--select is mandatory on search,
+  // get and transitions), and pointed to a note in one instance's vault. The
+  // model burned four or five attempts on a single lookup.
+  describe("skill agrees with the jira CLI", () => {
+    const body = jiraPlugin.skills![0]!.body;
+
+    it("gives the exact list select the extractor builds a list from", () => {
+      expect(body).toContain(`--select ${JIRA_ISSUE_LIST_SELECT}`);
+    });
+
+    it("never says to drop --select, and points to no instance vault note", () => {
+      expect(body).not.toContain("without --select");
+      expect(body).not.toContain("curated/standards");
+    });
+
+    it("puts --select on every example of a command that requires it", () => {
+      const examples = [...body.matchAll(/`(jira issue (?:search|get|transitions)\b[^`]*)`/g)].map((m) => m[1]!);
+      expect(examples.length).toBeGreaterThanOrEqual(3);
+      for (const example of examples) expect(example).toContain("--select ");
+    });
   });
 
   it("builds a jiraCommand tool and its status describer", () => {
