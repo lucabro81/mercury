@@ -228,6 +228,30 @@ Examples:
     .argument("<plugin>", "a tool plugin of the app")
     .action(async (plugin: string) => inApp((app) => app.credentialsReset(plugin))());
 
+  const googleChat = program
+    .command("google-chat")
+    .summary("the Google Chat channel's setup")
+    .description("Sets up the Google Chat channel of an app that has it.")
+    .helpCommand(false)
+    .addHelpText("after", INSIDE_AN_APP);
+  googleChat
+    .command("set-key")
+    .summary("writes the Chat app's key into the env file")
+    .description(
+      "Reads the service account key file gcloud iam service-accounts keys create writes, and sets GOOGLE_CHAT_APP_CLIENT_EMAIL and GOOGLE_CHAT_APP_PRIVATE_KEY in the app's env file (the key on one line), plus GOOGLE_CHAT_PUBSUB_SUBSCRIPTION with --subscription. Older values are replaced, the key is never printed. Delete the key file afterwards.",
+    )
+    .argument("<key-file>", "the service account's JSON key")
+    .option("--subscription <name>", "projects/<project>/subscriptions/<name>, the subscription the Chat app's events arrive on")
+    .addHelpText(
+      "after",
+      "\nExample:\n  mfw google-chat set-key key.json --subscription projects/my-project/subscriptions/mercury-chat-sub",
+    )
+    .action(async (keyFile: string, opts: { subscription?: string }) =>
+      inApp((app) =>
+        app.googleChatSetKey(keyFile, opts.subscription === undefined ? {} : { subscription: opts.subscription }),
+      )(),
+    );
+
   return program;
 }
 
