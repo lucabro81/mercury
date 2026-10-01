@@ -1,5 +1,16 @@
 # @mercury-fw/core
 
+## 0.29.1
+
+### Patch Changes
+
+- 60916cb: - The wiki vault's automated commits are authored as `Mercury <mercury@mercury.local>`. Commits written before keep their old address; `git log --author=Mercury` matches both.
+  - The Jira issue-list extractor's docs use a generic example site.
+  - @mercury-fw/plugin-types@0.29.1
+  - @mercury-fw/channel-types@0.29.1
+  - @mercury-fw/cli-engine@0.29.1
+  - @mercury-fw/confirm-engine@0.29.1
+
 ## 0.29.0
 
 ### Patch Changes
