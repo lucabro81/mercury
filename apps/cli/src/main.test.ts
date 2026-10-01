@@ -293,8 +293,8 @@ describe("mfw create with a newer CLI on the registry", () => {
     const { calls, relaunch } = scriptedRelaunch({ create: 7 });
     const errors = spyOn(console, "error").mockImplementation(() => {});
     try {
-      expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
-      // #104: a stale (global) CLI also says how to stop being stale.
+      expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch, globalInstall: true })).toBe(7);
+      // #104: a stale global CLI also says how to stop being stale.
       expect(errors.mock.calls.map((c) => c[0])).toEqual([
         `mfw ${cliVersion()} is behind the registry's ${NEWER}: running ${NEWER} instead.`,
         "update your mfw: mfw upgrade",
@@ -308,6 +308,30 @@ describe("mfw create with a newer CLI on the registry", () => {
       { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"], env },
     ]);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  // #104: run through `bun create` or `bunx`, there's no global mfw to upgrade.
+  test("not a global install: no mfw upgrade hint", async () => {
+    const { relaunch } = scriptedRelaunch();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await main(["create", join(base, "demo"), "--yes"], { relaunch, globalInstall: false });
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([
+        `mfw ${cliVersion()} is behind the registry's ${NEWER}: running ${NEWER} instead.`,
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  test("the install check runs quietly: only the newer CLI's own run talks", async () => {
+    const quiet: Array<boolean | undefined> = [];
+    const relaunch = async (_argv: string[], _env: Record<string, string>, opts?: { quiet?: boolean }) => {
+      quiet.push(opts?.quiet);
+      return 0;
+    };
+    await main(["create", join(base, "demo"), "--yes"], { relaunch });
+    expect(quiet).toEqual([true, undefined]);
   });
 
   // The newer CLI's own failure (a wizard cancelled, a bad folder) is its
@@ -343,11 +367,30 @@ describe("mfw create with a newer CLI on the registry", () => {
     }
   });
 
-  test("mfw upgrade with this CLI already the latest: installs nothing, exit 0", async () => {
+  test("mfw upgrade with this CLI already the latest: installs nothing, exit 0, says so", async () => {
     process.env.MFW_REGISTRY = registry.url.origin; // answers an older version for everything
     const { calls, relaunch } = fakeRelaunch();
-    expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(0);
+    const logs = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(0);
+      expect(logs.mock.calls.map((c) => c[0])).toEqual([`mfw ${cliVersion()} is the latest.`]);
+    } finally {
+      logs.mockRestore();
+    }
     expect(calls).toEqual([]);
+  });
+
+  test("mfw upgrade says what it upgraded, only when the install worked", async () => {
+    for (const [code, said] of [[0, [`mfw upgraded from ${cliVersion()} to ${NEWER}.`]], [3, []]] as const) {
+      const { relaunch } = fakeRelaunch(code);
+      const logs = spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await main(["upgrade"], { cwd: base, relaunch });
+        expect(logs.mock.calls.map((c) => c[0])).toEqual([...said]);
+      } finally {
+        logs.mockRestore();
+      }
+    }
   });
 
   test("mfw upgrade with an unreachable registry: exit 1, installs nothing", async () => {
@@ -435,6 +478,41 @@ describe("a global mfw inside an app with its own CLI", () => {
       },
     ]);
     expect(runs).toEqual([]);
+  });
+
+  test("says which CLI runs; a newer app CLI is handed over too", async () => {
+    const { dir, deps, relaunches, relaunch } = setup("999.0.0");
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await main(["stop"], { cwd: dir, deps, relaunch });
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([`mfw ${cliVersion()}: running the app's 999.0.0`]);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(relaunches.length).toBe(1);
+  });
+
+  test("an unreadable or versionless app CLI manifest, or an app CLI that won't start: a warning, runs here", async () => {
+    for (const manifest of ["", "{not json", JSON.stringify({ name: "x" })]) {
+      const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+      writeFileSync(join(dir, "node_modules", "@mercury-fw", "cli", "package.json"), manifest);
+      expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+      expect(relaunches).toEqual([]);
+      expect(runs.length).toBe(1);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const { dir, runs, deps } = setup("0.1.0");
+    const broken = async () => {
+      throw new Error("Executable not found in $PATH: \"bun\"");
+    };
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await main(["start"], { cwd: dir, deps, relaunch: broken })).toBe(0);
+      expect(errors.mock.calls.at(-1)?.[0]).toContain("couldn't run the app's mfw");
+    } finally {
+      errors.mockRestore();
+    }
+    expect(runs.length).toBe(1);
   });
 
   test("the app's CLI at this same version: runs here", async () => {

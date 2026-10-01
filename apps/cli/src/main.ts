@@ -31,13 +31,29 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
 
 /** Runs `argv` with stdio inherited and `env` on top of this process's
  * environment; returns its exit code. */
-export type Relaunch = (argv: string[], env: Record<string, string>) => Promise<number>;
+export type Relaunch = (argv: string[], env: Record<string, string>, opts?: { quiet?: boolean }) => Promise<number>;
 
-/** The real relaunch: a child process on the user's terminal. */
-const spawnRelaunch: Relaunch = async (argv, env) => {
-  const proc = Bun.spawn(argv, { stdin: "inherit", stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } });
-  return await proc.exited;
+/** The real relaunch: a child process on the user's terminal (its output
+ * dropped with `quiet`). While it runs, Ctrl+C is the child's to handle: this
+ * process ignores SIGINT, so it doesn't exit ahead of the child and lose its
+ * exit code. */
+const spawnRelaunch: Relaunch = async (argv, env, opts) => {
+  const output = opts?.quiet ? "ignore" : "inherit";
+  const proc = Bun.spawn(argv, { stdin: "inherit", stdout: output, stderr: output, env: { ...process.env, ...env } });
+  const ignore = () => {};
+  process.on("SIGINT", ignore);
+  try {
+    return await proc.exited;
+  } finally {
+    process.off("SIGINT", ignore);
+  }
 };
+
+/** Whether this CLI runs from Bun's global install (`bun add -g`), the one
+ * `mfw upgrade` updates, rather than from `bunx`'s cache or an app. */
+function isGlobalInstall(): boolean {
+  return /[\\/]install[\\/]global[\\/]node_modules[\\/]/.test(import.meta.dir);
+}
 
 /** When the registry has a newer `@mercury-fw/cli` than this one (a stale copy
  * out of Bun's bunx cache), installs it (`bunx … --version`), then runs
@@ -46,7 +62,7 @@ const spawnRelaunch: Relaunch = async (argv, env) => {
  * carry on here: no newer CLI, a check skipped inside a relaunch
  * (`MFW_SELF_UPDATED`), a registry that can't answer, or a newer CLI that
  * can't be installed; the last two with a warning. */
-async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<number | undefined> {
+async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch, globalInstall: boolean): Promise<number | undefined> {
   if (process.env.MFW_SELF_UPDATED) return undefined;
   const registry = registryFrom(process.env.MFW_REGISTRY).replace(/\/+$/, "");
   let newer: string | undefined;
@@ -61,7 +77,7 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<n
   const env = { MFW_SELF_UPDATED: newer, NPM_CONFIG_REGISTRY: registry };
   let installed: number;
   try {
-    installed = await relaunch(["bunx", cli, "--version"], env);
+    installed = await relaunch(["bunx", cli, "--version"], env, { quiet: true });
   } catch {
     installed = -1;
   }
@@ -70,14 +86,14 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<n
     return undefined;
   }
   console.error(`mfw ${cliVersion()} is behind the registry's ${newer}: running ${newer} instead.`);
-  console.error("update your mfw: mfw upgrade");
+  if (globalInstall) console.error("update your mfw: mfw upgrade");
   return relaunch(["bunx", cli, "create", ...rawArgs], env);
 }
 
 /** `mfw create`: returns the exit code. `rawArgs` are the arguments after
  * `create` as typed, for a relaunch. */
-async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch): Promise<number> {
-  const relaunched = await relaunchIfStale(rawArgs, relaunch);
+async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, globalInstall: boolean): Promise<number> {
+  const relaunched = await relaunchIfStale(rawArgs, relaunch, globalInstall);
   if (relaunched !== undefined) return relaunched;
   // The folder is created in kebab case, only its own name: the parent path is
   // taken as typed. Its name is also the app name's default.
@@ -156,10 +172,21 @@ async function handOverToAppCli(argv: string[], cwd: string, relaunch: Relaunch)
   const local = join(app.dir, "node_modules", "@mercury-fw", "cli");
   const manifest = join(local, "package.json");
   if (!existsSync(manifest)) return undefined;
-  const version = (JSON.parse(readFileSync(manifest, "utf-8")) as { version?: unknown }).version;
+  let version: unknown;
+  try {
+    version = (JSON.parse(readFileSync(manifest, "utf-8")) as { version?: unknown } | null)?.version;
+  } catch (err) {
+    console.error(`couldn't read the app's mfw (${manifest}): ${err instanceof Error ? err.message : String(err)}; running mfw ${cliVersion()}`);
+    return undefined;
+  }
   if (typeof version !== "string" || version === cliVersion()) return undefined;
   console.error(`mfw ${cliVersion()}: running the app's ${version}`);
-  return relaunch(["bun", join(local, "src", "bin.ts"), ...argv], { MFW_DEFERRED: "1" });
+  try {
+    return await relaunch(["bun", join(local, "src", "bin.ts"), ...argv], { MFW_DEFERRED: "1" });
+  } catch (err) {
+    console.error(`couldn't run the app's mfw: ${err instanceof Error ? err.message : String(err)}; running mfw ${cliVersion()}`);
+    return undefined;
+  }
 }
 
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
@@ -168,13 +195,18 @@ async function handOverToAppCli(argv: string[], cwd: string, relaunch: Relaunch)
  * through `deps`; `relaunch` is how `create` hands over to a newer CLI. */
 export async function main(
   argv: string[],
-  { cwd = process.cwd(), deps, relaunch = spawnRelaunch }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch } = {},
+  {
+    cwd = process.cwd(),
+    deps,
+    relaunch = spawnRelaunch,
+    globalInstall = isGlobalInstall(),
+  }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch; globalInstall?: boolean } = {},
 ): Promise<number> {
   const handedOver = await handOverToAppCli(argv, cwd, relaunch);
   if (handedOver !== undefined) return handedOver;
   const rawCreateArgs = argv.slice(argv.indexOf("create") + 1);
   return runProgram(argv, {
-    create: (args) => create(args, rawCreateArgs, relaunch),
+    create: (args) => create(args, rawCreateArgs, relaunch, globalInstall),
     upgrade: () => upgrade(relaunch),
     app: () => appCommands(findApp(cwd), deps ?? terminalDeps()),
   });
