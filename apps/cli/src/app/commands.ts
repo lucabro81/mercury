@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { CATALOG, type CliCredentials } from "../catalog.ts";
-import { packCredentials, setEnvVar } from "./credentials.ts";
+import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
 
 export type AppDeps = {
@@ -26,6 +26,9 @@ export type AppDeps = {
 };
 
 const COMPOSE = ["docker", "compose"];
+
+/** The Google Chat channel's package, which `google-chat` commands require. */
+const GOOGLE_CHAT_PACKAGE = "@mercury-fw/channel-google-chat";
 
 /** The app's service, the one the image builds. */
 const SERVICE = "mercury";
@@ -142,6 +145,34 @@ export function appCommands(app: App, deps: AppDeps) {
         return 1;
       }
       return stopped(SERVICE, [[...COMPOSE, "run", "--rm", "--no-deps", "-T", SERVICE, "rm", "-rf", `/home/mercury/.config/${folder}`]]);
+    },
+    /** Writes the Google Chat channel's service account key (the JSON file
+     * at `keyFile`) into the app's env file, and the Pub/Sub subscription when
+     * given. Everything is checked before anything is written; the key is
+     * never printed. */
+    googleChatSetKey: async (keyFile: string, { subscription }: { subscription?: string }) => {
+      const manifest = JSON.parse(readFileSync(join(app.dir, "package.json"), "utf-8")) as {
+        dependencies?: Record<string, string>;
+      };
+      if (manifest.dependencies?.[GOOGLE_CHAT_PACKAGE] === undefined) {
+        throw new Error(`${app.name} doesn't have the Google Chat channel (${GOOGLE_CHAT_PACKAGE}) among its dependencies.`);
+      }
+      if (subscription !== undefined && !/^projects\/[^/]+\/subscriptions\/[^/]+$/.test(subscription)) {
+        throw new Error(`--subscription takes projects/<project>/subscriptions/<name> (got "${subscription}").`);
+      }
+      const source = resolve(keyFile);
+      const { clientEmail, privateKey } = readServiceAccountKey(source);
+      const envFile = join(app.dir, ".env");
+      setEnvVar(envFile, "GOOGLE_CHAT_APP_CLIENT_EMAIL", clientEmail);
+      setEnvVar(envFile, "GOOGLE_CHAT_APP_PRIVATE_KEY", privateKey);
+      if (subscription !== undefined) setEnvVar(envFile, "GOOGLE_CHAT_PUBSUB_SUBSCRIPTION", subscription);
+      const written =
+        subscription === undefined
+          ? "GOOGLE_CHAT_APP_CLIENT_EMAIL and GOOGLE_CHAT_APP_PRIVATE_KEY"
+          : "GOOGLE_CHAT_APP_CLIENT_EMAIL, GOOGLE_CHAT_APP_PRIVATE_KEY and GOOGLE_CHAT_PUBSUB_SUBSCRIPTION";
+      deps.print(`${written} set in ${envFile}, from ${source}.`);
+      deps.print(`Delete ${source} now, the env file holds the key. bunx mfw start applies it to a running app.`);
+      return 0;
     },
   };
 
