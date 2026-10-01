@@ -106,7 +106,7 @@ The framework packages share one version and are released together, so an app pi
 
 ## Developing in this repo
 
-A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and [`apps/mercury`](apps/mercury), Comperio's instance, which runs from the workspaces and is where changes get tried end to end.
+A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and [`apps/mercury`](apps/mercury), the reference instance, which runs from the workspaces and is where changes get tried end to end.
 
 ```bash
 bun install
