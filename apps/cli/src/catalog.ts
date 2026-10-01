@@ -20,6 +20,9 @@ export type CatalogEntry = {
   env: EnvVar[];
   formatter?: FormatterExample;
   credentials?: CliCredentials;
+  /** Dependencies whose install scripts Bun must run for this entry (Bun runs
+   * none it isn't told to trust), on top of a tool plugin's own package. */
+  trusts?: string[];
 };
 
 /** Where a tool plugin's CLI keeps its login: `folder` under the CLI user's
@@ -41,6 +44,9 @@ export const CATALOG: CatalogEntry[] = [
     kind: "channel",
     package: "@mercury-fw/channel-google-chat",
     exportName: "googleChatChannel",
+    // Pulled in by @google-cloud/pubsub; its postinstall only checks how
+    // dependents spell its version range.
+    trusts: ["protobufjs"],
     env: [
       {
         name: "GOOGLE_CHAT_PUBSUB_SUBSCRIPTION",

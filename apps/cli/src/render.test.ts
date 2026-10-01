@@ -134,13 +134,22 @@ describe("renderApp: package.json", () => {
     expect(pkg.trustedDependencies).toBeUndefined();
   });
 
-  test("every tool plugin is trusted (it downloads its CLI at install), channels are not", () => {
+  // Regression (#94): a Google Chat app's install reported protobufjs's
+  // postinstall (pulled in by @google-cloud/pubsub) as blocked, since only
+  // the tool plugins were trusted.
+  test("every tool plugin is trusted (it downloads its CLI at install), plus what a chosen entry needs: protobufjs for Google Chat", () => {
     const pkg = JSON.parse(renderApp(FULL).get("package.json") ?? "");
     expect(pkg.trustedDependencies).toEqual([
       "@mercury-fw/plugin-atlassian-admin",
       "@mercury-fw/plugin-bitbucket",
       "@mercury-fw/plugin-jira",
+      "protobufjs",
     ]);
+  });
+
+  test("Google Chat with no tool plugin still trusts protobufjs, and nothing else", () => {
+    const pkg = JSON.parse(renderApp(input({ channels: ["google-chat"] })).get("package.json") ?? "");
+    expect(pkg.trustedDependencies).toEqual(["protobufjs"]);
   });
 
   test("a package with no known version fails instead of writing a broken range", () => {
