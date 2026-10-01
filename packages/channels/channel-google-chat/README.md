@@ -102,7 +102,7 @@ A service account takes a few seconds to become visible to the rest of Google Cl
 Then, from the app's folder, write the three variables into its `.env` and delete the key file. An app made with `mfw create` already has the three lines in `.env`, empty, so the first command removes them (and any older value) before the others append the new ones; the private key goes on one line, its newlines written as `\n`:
 
 ```bash
-perl -i -ne 'print unless /^GOOGLE_CHAT_(PUBSUB_SUBSCRIPTION|APP_CLIENT_EMAIL|APP_PRIVATE_KEY)=/' .env
+sed -i.bak -E '/^GOOGLE_CHAT_(PUBSUB_SUBSCRIPTION|APP_CLIENT_EMAIL|APP_PRIVATE_KEY)=/d' .env && rm .env.bak
 printf 'GOOGLE_CHAT_PUBSUB_SUBSCRIPTION=%s\n' "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}" >> .env
 printf 'GOOGLE_CHAT_APP_CLIENT_EMAIL=%s\n' "$(jq -r .client_email key.json)" >> .env
 printf 'GOOGLE_CHAT_APP_PRIVATE_KEY=%s\n' "$(jq -r .private_key key.json | awk '{printf "%s\\n", $0}')" >> .env
