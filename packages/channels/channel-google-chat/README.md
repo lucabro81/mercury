@@ -6,6 +6,12 @@ Puts a [Mercury](https://github.com/lucabro81/mercury-fw) agent on Google Chat a
 bun add @mercury-fw/channel-google-chat
 ```
 
+An app made with `mfw create` has the next part already. Added by hand, the channel brings in `protobufjs` (through Google's Pub/Sub client), whose install script Bun blocks unless the app trusts it, so add it to `trustedDependencies` in the app's `package.json`:
+
+```json
+"trustedDependencies": ["protobufjs"]
+```
+
 ```ts
 import { googleChatChannel } from "@mercury-fw/channel-google-chat";
 
