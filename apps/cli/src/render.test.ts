@@ -189,6 +189,20 @@ describe("renderApp: docker-compose.yml", () => {
     expect(compose).not.toContain("cli-credentials");
     expect(compose).toContain("name: demo_wiki-vault");
   });
+
+  // Regression (#105): the HTTP surface listened inside the container only,
+  // nothing published its port, so it was unreachable from outside.
+  test("HTTP channel: the service publishes HTTP_SURFACE_PORT (4100 when unset) on the host", () => {
+    const compose = renderApp(input({ channels: ["http"] })).get("docker-compose.yml") ?? "";
+    expect(compose).toContain(
+      ['    ports:', '      - "${HTTP_SURFACE_PORT:-4100}:${HTTP_SURFACE_PORT:-4100}"'].join("\n"),
+    );
+  });
+
+  test("no HTTP channel: no port published", () => {
+    const compose = renderApp(input({ channels: ["google-chat"] })).get("docker-compose.yml") ?? "";
+    expect(compose).not.toContain("ports:");
+  });
 });
 
 describe("renderApp: persona", () => {
@@ -225,6 +239,18 @@ describe("renderApp: persona", () => {
 });
 
 describe("renderApp: README.md", () => {
+  test("HTTP channel: says where the surface listens on the host, and that it has no authentication", () => {
+    const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
+    expect(readme).toContain("## HTTP surface");
+    expect(readme).toContain("`http://<host>:4100`");
+    expect(readme).toContain("`HTTP_SURFACE_PORT`");
+    expect(readme).toContain("no authentication");
+  });
+
+  test("no HTTP channel: no HTTP surface section", () => {
+    expect(renderApp(input({ channels: ["google-chat"] })).get("README.md") ?? "").not.toContain("## HTTP surface");
+  });
+
   test("names the app and what it was scaffolded with, and starts from installing it", () => {
     const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
     expect(readme.startsWith("# demo\n")).toBe(true);
