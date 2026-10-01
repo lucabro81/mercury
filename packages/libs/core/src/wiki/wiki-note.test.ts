@@ -94,6 +94,16 @@ describe("writeCuratedNote", () => {
     expect(await gitStatusPorcelain(vaultPath)).toBe("");
   });
 
+  it("commits as Mercury's own git identity, with a generic address", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "standards/jira-fields.md", { author: "luca" }, "body");
+
+    const proc = Bun.spawn(["git", "log", "-1", "--format=%an <%ae>"], { cwd: vaultPath, stdout: "pipe" });
+    const author = (await new Response(proc.stdout).text()).trim();
+    await proc.exited;
+    expect(author).toBe("Mercury <mercury@mercury.local>");
+  });
+
   // Found by hand via the maintenance CLI: writing byte-identical content
   // twice made `git commit` fail with "nothing to commit" (a legitimate git
   // outcome, since there's no diff to record) — but that surfaced as a

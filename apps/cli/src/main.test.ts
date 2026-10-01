@@ -128,10 +128,10 @@ describe("mfw create --yes", () => {
   });
 
   test("--name is kept as given, the folder is still kebab case", async () => {
-    const result = await run("create", join(base, "Bot Folder"), "--name", "comperio.bot", "--yes");
+    const result = await run("create", join(base, "Bot Folder"), "--name", "acme.bot", "--yes");
     expect(result.code).toBe(0);
     const pkg = JSON.parse(readFileSync(join(base, "bot-folder", "package.json"), "utf-8"));
-    expect(pkg.name).toBe("comperio.bot");
+    expect(pkg.name).toBe("acme.bot");
   });
 
   test("a folder name with nothing usable in it exits 1, writing nothing", async () => {

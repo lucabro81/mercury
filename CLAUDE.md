@@ -33,7 +33,7 @@ regression test that fails before the fix and passes after.
 
 ## What it is
 
-Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`). `apps/mercury` is Comperio's instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
+Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`). `apps/mercury` is the production instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
 
 ## Stack
 
@@ -69,9 +69,9 @@ itself lives in core. Everything instance-specific (Dockerfile, compose files,
 scripts) lives inside `apps/mercury/`, because that instance happens to be the
 one with containers.
 
-The end state (see #48) is a repo of **core + plugins only**, with Comperio's
-Mercury leaving as the first scaffolding consumer; `apps/mercury` stays as the
-interim reference/production instance until Comperio's app is scaffolded into
+The end state (see #48) is a repo of **core + plugins only**, with the production
+instance leaving as the first scaffolding consumer; `apps/mercury` stays as the
+interim reference/production instance until the production app is scaffolded into
 its own repo and deployed.
 
 `apps/cli` is the Mercury CLI (`@mercury-fw/cli`, bin `mfw`): `mfw create

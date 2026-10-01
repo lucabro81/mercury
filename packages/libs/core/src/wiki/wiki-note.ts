@@ -73,7 +73,7 @@ async function pathExists(path: string): Promise<boolean> {
 // separate Mercury's automated writes from a maintainer's — the actual
 // provenance mechanism the vault's audit trail already relies on, not
 // a schema-level flag.
-const MERCURY_GIT_AUTHOR = { email: "mercury@comperio.local", name: "Mercury" };
+const MERCURY_GIT_AUTHOR = { email: "mercury@mercury.local", name: "Mercury" };
 
 async function runGit(cwd: string, args: string[]): Promise<void> {
   const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });

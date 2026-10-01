@@ -14,7 +14,7 @@
  * it classifies defensively: a non-object payload passes through untouched; a
  * payload with no `issues` array, or issues pruned of `key`, gets a
  * model-facing `formattedListNote` (no display); a missing `summary` is a hard,
- * self-correctable error. `siteUrl` (Comperio's browsable Jira host) isn't
+ * self-correctable error. `siteUrl` (the team's browsable Jira host) isn't
  * derivable from any CLI output, so it's a deployment constant carried in the
  * plugin's config.
  *
@@ -23,8 +23,8 @@
  */
 import type { CliResult, CliPostProcessor } from "@mercury-fw/plugin-types";
 
-/** The extractor's configuration: just `siteUrl`, Comperio's browsable Jira
- * site (e.g. `https://webcomperio.atlassian.net`), used to build each issue's
+/** The extractor's configuration: just `siteUrl`, the team's browsable Jira
+ * site (e.g. `https://example.atlassian.net`), used to build each issue's
  * browse link. It is the extractor's only input — rendering config
  * (`itemTemplate`) moved to the render handler. The single caller (`plugin.ts`)
  * only reaches here when `JIRA_SITE_URL` is a non-empty string, so no schema

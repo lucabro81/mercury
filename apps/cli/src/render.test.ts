@@ -298,7 +298,7 @@ describe("renderApp: validation", () => {
     },
   );
 
-  test.each(["demo", "my-app", "app2", "comperio.mercury", "a_b"])("accepts the app name %p", (name) => {
+  test.each(["demo", "my-app", "app2", "acme.mercury", "a_b"])("accepts the app name %p", (name) => {
     expect(() => renderApp(input({ name }))).not.toThrow();
   });
 
