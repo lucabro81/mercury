@@ -1,5 +1,12 @@
 # @mercury-fw/cli
 
+## 0.28.1
+
+### Patch Changes
+
+- ab52977: An app created with the Google Chat channel trusts `protobufjs` in `trustedDependencies`, so its install no longer reports that package's postinstall as blocked. The channel's README says to do the same when adding it by hand.
+  - @mercury-fw/core@0.28.1
+
 ## 0.28.0
 
 ### Minor Changes

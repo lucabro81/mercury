@@ -1,5 +1,11 @@
 # @mercury-fw/channel-google-chat
 
+## 0.1.2
+
+### Patch Changes
+
+- ab52977: An app created with the Google Chat channel trusts `protobufjs` in `trustedDependencies`, so its install no longer reports that package's postinstall as blocked. The channel's README says to do the same when adding it by hand.
+
 ## 0.1.1
 
 ### Patch Changes
