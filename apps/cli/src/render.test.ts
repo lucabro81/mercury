@@ -21,6 +21,8 @@ const versions: Record<string, string> = {
   "@mercury-fw/plugin-jira": "0.1.0",
   "@mercury-fw/plugin-bitbucket": "0.1.0",
   "@mercury-fw/plugin-atlassian-admin": "0.1.0",
+  typescript: "7.0.2",
+  "@types/bun": "1.4.2",
 };
 
 const input = (over: Partial<RenderInput> = {}): RenderInput => ({
@@ -150,6 +152,16 @@ describe("renderApp: package.json", () => {
   test("Google Chat with no tool plugin still trusts protobufjs, and nothing else", () => {
     const pkg = JSON.parse(renderApp(input({ channels: ["google-chat"] })).get("package.json") ?? "");
     expect(pkg.trustedDependencies).toEqual(["protobufjs"]);
+  });
+
+  test("the app's TypeScript and Bun types are the versions it was given (the registry's latest), not fixed text", () => {
+    const pkg = JSON.parse(renderApp(HTTP_JIRA).get("package.json") ?? "");
+    expect(pkg.devDependencies).toEqual({ "@mercury-fw/cli": "^0.1.0", "@types/bun": "^1.4.2", typescript: "^7.0.2" });
+  });
+
+  test("no known version for typescript fails instead of writing a broken range", () => {
+    const { typescript: _dropped, ...partial } = versions;
+    expect(() => renderApp(input({ versions: partial }))).toThrow("typescript");
   });
 
   test("a package with no known version fails instead of writing a broken range", () => {
