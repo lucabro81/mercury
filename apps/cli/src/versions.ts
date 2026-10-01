@@ -2,16 +2,12 @@
  * The version each package of a new app is written against. The framework
  * packages move in lockstep with this CLI, so they take its own version; a
  * plugin or channel is versioned on its own, so it takes the registry's
- * `latest` (asked only for the ones chosen), and so do the dev tools.
+ * `latest` (asked only for the ones chosen).
  */
 import pkg from "../package.json";
 
 /** The framework packages a new app can depend on: always at the CLI's version. */
 export const FRAMEWORK_PACKAGES = ["@mercury-fw/cli", "@mercury-fw/core", "@mercury-fw/formatter"];
-
-/** The dev tools every new app gets, at the registry's `latest` like the
- * plugins and channels. */
-export const DEV_PACKAGES = ["@types/bun", "typescript"];
 
 /** The registry asked when `MFW_REGISTRY` doesn't name another. */
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";

@@ -15,7 +15,7 @@ import { cliVersion } from "./versions.ts";
 
 const CLI = new URL("./bin.ts", import.meta.url).pathname;
 
-/** The version the fake registry reports as `latest` for every package it's asked about. */
+/** The version the fake registry reports as `latest` for every plugin and channel. */
 const PLUGIN_VERSION = "0.7.3";
 
 /** A fake registry for the whole file: `latest` of any package is PLUGIN_VERSION. */
@@ -67,16 +67,13 @@ async function runWith(registryUrl: string, ...args: string[]): Promise<{ code: 
 }
 
 /** The versions the command writes: the framework at the CLI's version, the
- * chosen plugins and channels, TypeScript and Bun's types at what the registry
- * reports. */
+ * chosen plugins and channels at what the registry reports. */
 const versions: Record<string, string> = {
   "@mercury-fw/cli": cliVersion(),
   "@mercury-fw/core": cliVersion(),
   "@mercury-fw/formatter": cliVersion(),
   "@mercury-fw/channel-http": PLUGIN_VERSION,
   "@mercury-fw/plugin-jira": PLUGIN_VERSION,
-  typescript: PLUGIN_VERSION,
-  "@types/bun": PLUGIN_VERSION,
 };
 
 describe("mfw create --yes", () => {

@@ -9,7 +9,6 @@
  */
 import { DEFAULT_PERSONA_TONE } from "@mercury-fw/core";
 import { CATALOG, type CatalogEntry, type CliCredentials, type EnvVar } from "./catalog.ts";
-import { DEV_PACKAGES } from "./versions.ts";
 import indexTs from "../template/src/index.ts.tpl" with { type: "text" };
 import replTs from "../template/src/repl.ts.tpl" with { type: "text" };
 import markdownDts from "../template/markdown.d.ts.tpl" with { type: "text" };
@@ -265,13 +264,9 @@ function renderPackageJson(
     }
     dependencies[pkg] = `^${version}`;
   }
-  const devDependencies: Record<string, string> = {};
-  for (const pkg of ["@mercury-fw/cli", ...DEV_PACKAGES]) {
-    const version = versions[pkg];
-    if (version === undefined) {
-      throw new Error(`No version known for ${pkg}`);
-    }
-    devDependencies[pkg] = `^${version}`;
+  const cli = versions["@mercury-fw/cli"];
+  if (cli === undefined) {
+    throw new Error("No version known for @mercury-fw/cli");
   }
   const manifest: Record<string, unknown> = {
     name,
@@ -281,9 +276,8 @@ function renderPackageJson(
     scripts: { start: "bun src/index.ts", repl: "bun src/repl.ts", typecheck: "tsc --noEmit" },
     dependencies,
     // The CLI in the app itself, so `bunx mfw` runs the version that matches
-    // the framework the app depends on; TypeScript and Bun's types at the
-    // registry's latest.
-    devDependencies,
+    // the framework the app depends on.
+    devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.0", typescript: "^6.0.3" },
   };
   const trusted = [...new Set([...tools.map((t) => t.package), ...[...channels, ...tools].flatMap((e) => e.trusts ?? [])])];
   if (trusted.length > 0) {
