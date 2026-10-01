@@ -174,7 +174,7 @@ describe("renderApp: .env.example", () => {
     const env = renderApp(FULL).get(".env.example") ?? "";
     expect(env).toContain("MERCURY_CLIS=jira,bitbucket,atlassian-admin\n");
     expect(env).toContain("# --- google-chat\n");
-    expect(env).toMatch(/# --- bitbucket\n# bitbucket-cli's config folder, packed: bunx mfw credentials set bitbucket [^\n]*\nBITBUCKET_CLI_CONFIG_TAR_B64=\n/);
+    expect(env).toMatch(/# --- bitbucket\n# bitbucket-cli's config folder, packed: mfw credentials set bitbucket [^\n]*\nBITBUCKET_CLI_CONFIG_TAR_B64=\n/);
     expect(env).toMatch(/# --- atlassian-admin\n# [^\n]*\nATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64=\n/);
   });
 });
@@ -239,6 +239,12 @@ describe("renderApp: persona", () => {
 });
 
 describe("renderApp: README.md", () => {
+  test("says how to get mfw once, globally, and how to do without", () => {
+    const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
+    expect(readme).toContain("bun add -g @mercury-fw/cli");
+    expect(readme).toContain("`bunx mfw start`");
+  });
+
   test("HTTP channel: says where the surface listens on the host, and that it has no authentication", () => {
     const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
     expect(readme).toContain("## HTTP surface");
@@ -262,8 +268,8 @@ describe("renderApp: README.md", () => {
 
   test("runs the app through mfw, not raw docker commands", () => {
     const readme = renderApp(HTTP_JIRA).get("README.md") ?? "";
-    expect(readme).toContain("bun install\ncp .env.example .env\nbunx mfw start\nbunx mfw repl\n");
-    expect(readme).toContain("bunx mfw --help");
+    expect(readme).toContain("bun install\ncp .env.example .env\nmfw start\nmfw repl\n");
+    expect(readme).toContain("mfw --help");
     expect(readme).not.toContain("docker compose up");
     expect(readme).not.toContain("docker compose run --rm mercury bun run repl");
   });
@@ -271,8 +277,8 @@ describe("renderApp: README.md", () => {
   test("with a tool plugin it explains how its CLI gets credentials; without, nothing", () => {
     const withTools = renderApp(HTTP_JIRA).get("README.md") ?? "";
     expect(withTools).toContain("## CLI credentials");
-    expect(withTools).toContain("bunx mfw credentials set jira");
-    expect(withTools).toContain("bunx mfw credentials reset jira");
+    expect(withTools).toContain("mfw credentials set jira");
+    expect(withTools).toContain("mfw credentials reset jira");
     expect(withTools).not.toContain("starts empty");
     expect(renderApp(input({ channels: ["http"] })).get("README.md")).not.toContain("CLI credentials");
   });

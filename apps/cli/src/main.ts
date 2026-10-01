@@ -108,7 +108,7 @@ Next:
   cd ${dir}
   bun install
   cp .env.example .env    # then fill it in
-  bunx mfw start`);
+  mfw start`);
   return 0;
 }
 

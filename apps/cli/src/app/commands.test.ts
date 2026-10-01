@@ -197,7 +197,7 @@ describe("reset", () => {
     const f = fake({ captured: { [CONFIG]: compose }, answer: "my-agent", codes: [0, 0, 1] });
     expect(await appCommands(APP, f.deps).reset("memory")).toBe(1);
     expect(f.runs()).toHaveLength(3);
-    expect(f.printed).toEqual(["The qdrant service was stopped and not restarted: bunx mfw start brings it back."]);
+    expect(f.printed).toEqual(["The qdrant service was stopped and not restarted: mfw start brings it back."]);
   });
 
   test("a failed stop leaves nothing to say: nothing was stopped", async () => {

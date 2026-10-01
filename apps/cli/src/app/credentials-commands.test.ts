@@ -61,7 +61,7 @@ describe("credentials set", () => {
     expect(f.printed.join("\n")).not.toContain(value);
     expect(f.printed).toEqual([
       `JIRA_CLI_CONFIG_TAR_B64 set in ${envFile}, from ${join(base, "home", ".config", "jira-cli")}.`,
-      "The app unpacks it at its next start, if the volume has no jira-cli folder yet; if it has one, run bunx mfw credentials reset jira first.",
+      "The app unpacks it at its next start, if the volume has no jira-cli folder yet; if it has one, run mfw credentials reset jira first.",
     ]);
     expect(f.runs).toEqual([]);
   });
@@ -119,7 +119,7 @@ describe("credentials reset", () => {
     const f = fake({ answer: "jira", codes: [0, 1] });
     expect(await appCommands(app, f.deps).credentialsReset("jira")).toBe(1);
     expect(f.runs).toEqual(STEPS.slice(0, 2));
-    expect(f.printed).toEqual(["The mercury service was stopped and not restarted: bunx mfw start brings it back."]);
+    expect(f.printed).toEqual(["The mercury service was stopped and not restarted: mfw start brings it back."]);
   });
 
   test("a plugin the app doesn't have is refused before any question", async () => {

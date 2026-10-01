@@ -113,10 +113,10 @@ function renderEntrypoint(tools: Array<CatalogEntry & { credentials: CliCredenti
   return `#!/usr/bin/env bash
 # Starts the service, first materializing each tool plugin's CLI credentials
 # onto the cli-credentials volume: its variable in the env file is the CLI's
-# config folder as a base64 tar.gz (bunx mfw credentials set <plugin> writes
+# config folder as a base64 tar.gz (mfw credentials set <plugin> writes
 # it). Only when that CLI's folder isn't on the volume yet: what a CLI writes
 # back while running, like a refreshed token, stays there across redeploys,
-# and an older value in the env file never overwrites it. bunx mfw credentials
+# and an older value in the env file never overwrites it. mfw credentials
 # reset <plugin> clears one folder so its variable is materialized again.
 set -euo pipefail
 
@@ -275,8 +275,8 @@ function renderPackageJson(
     private: true,
     scripts: { start: "bun src/index.ts", repl: "bun src/repl.ts", typecheck: "tsc --noEmit" },
     dependencies,
-    // The CLI in the app itself, so `bunx mfw` runs the version that matches
-    // the framework the app depends on.
+    // The CLI in the app itself, at the framework's version: a global `mfw`
+    // hands the app's commands over to it.
     devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.2", typescript: "^6.0.3" },
   };
   const trusted = [...new Set([...tools.map((t) => t.package), ...[...channels, ...tools].flatMap((e) => e.trusts ?? [])])];
@@ -307,7 +307,7 @@ function renderEnv(channels: CatalogEntry[], tools: CatalogEntry[]): string {
     if (entry.credentials !== undefined) {
       vars.push({
         name: entry.credentials.variable,
-        comment: `${entry.credentials.folder}'s config folder, packed: bunx mfw credentials set ${entry.id} writes it; materialized on the credentials volume at the first start without that folder`,
+        comment: `${entry.credentials.folder}'s config folder, packed: mfw credentials set ${entry.id} writes it; materialized on the credentials volume at the first start without that folder`,
       });
     }
     if (vars.length > 0) {
@@ -388,14 +388,22 @@ A Mercury app, scaffolded by \`mfw create\`.
 
 ## Running it
 
+\`mfw\` is Mercury's command-line tool. Install it once, globally (\`mfw upgrade\` keeps it current), or put \`bunx\` in front of every command instead (\`bunx mfw start\`):
+
+\`\`\`bash
+bun add -g @mercury-fw/cli
+\`\`\`
+
+Then, in the app:
+
 \`\`\`bash
 bun install
 cp .env.example .env
-bunx mfw start
-bunx mfw repl
+mfw start
+mfw repl
 \`\`\`
 
-\`bun install\` here gives your editor, \`bun run typecheck\` and \`mfw\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds. \`bunx mfw start\` builds the image and starts the app with Qdrant in the background, \`bunx mfw repl\` opens a terminal conversation with the assistant. \`bunx mfw --help\` lists the rest: stopping and restarting, logs, a shell in the container, the wiki and the memory, and resetting them.
+\`bun install\` here gives your editor, \`bun run typecheck\` and the app's own \`mfw\` (the one a global \`mfw\` runs inside the app) the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds. \`mfw start\` builds the image and starts the app with Qdrant in the background, \`mfw repl\` opens a terminal conversation with the assistant. \`mfw --help\` lists the rest: stopping and restarting, logs, a shell in the container, the wiki and the memory, and resetting them.
 ${renderHttpSection(channels)}${renderCredentialsSection(withCredentials(tools))}`;
 }
 
@@ -422,7 +430,7 @@ function renderCredentialsSection(tools: Array<CatalogEntry & { credentials: Cli
 Each tool plugin runs its own CLI, and each CLI keeps its login in a folder of its own: ${list}. Log in with the CLI on your machine first (its own README says how), then hand that folder to the app:
 
 \`\`\`bash
-bunx mfw credentials set ${first.id}
+mfw credentials set ${first.id}
 \`\`\`
 
 It packs the folder into its variable in \`.env\` (\`--from <folder>\` if it isn't where the CLI usually keeps it, \`--print\` to get the line to paste on another host instead). When the container starts, \`docker-entrypoint.sh\` unpacks it onto the \`cli-credentials\` volume, but only if that CLI's folder isn't there yet: what the CLI writes back afterwards, like a refreshed token, stays on the volume across redeploys, and the older value in \`.env\` never overwrites it.
@@ -430,7 +438,7 @@ It packs the folder into its variable in \`.env\` (\`--from <folder>\` if it isn
 That same rule means a corrected variable does nothing while the old folder is on the volume. Clear it, and the next start unpacks the variable again:
 
 \`\`\`bash
-bunx mfw credentials reset ${first.id}
+mfw credentials reset ${first.id}
 \`\`\`
 `;
 }
