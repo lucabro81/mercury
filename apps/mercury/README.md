@@ -161,7 +161,8 @@ gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_I
 gcloud services enable chat.googleapis.com pubsub.googleapis.com iam.googleapis.com --project="$PROJECT_ID"
 
 gcloud pubsub topics create "$TOPIC" --project="$PROJECT_ID"
-gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --project="$PROJECT_ID"
+# --expiration-period=never: by default Pub/Sub deletes a subscription after 31 idle days
+gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --expiration-period=never --project="$PROJECT_ID"
 
 # Google's own Chat-publishing service account needs publish rights on the topic
 gcloud pubsub topics add-iam-policy-binding "$TOPIC" \
