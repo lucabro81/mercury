@@ -1,5 +1,12 @@
 # @mercury-fw/cli
 
+## 0.28.3
+
+### Patch Changes
+
+- 5175e10: An app created with the HTTP channel publishes the surface's port on the host (`HTTP_SURFACE_PORT`, 4100 when unset), so it's reachable from outside the container; its README says where it listens and that it has no authentication.
+  - @mercury-fw/core@0.28.3
+
 ## 0.28.2
 
 ### Patch Changes
