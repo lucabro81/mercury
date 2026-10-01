@@ -4,7 +4,7 @@
  * same answers, and a command line that can't work exits non-zero with a
  * message saying why, writing nothing.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -291,7 +291,17 @@ describe("mfw create with a newer CLI on the registry", () => {
   test("installs the newer one, runs it with the same arguments, writes nothing itself, exits with its code", async () => {
     const dir = join(base, "demo");
     const { calls, relaunch } = scriptedRelaunch({ create: 7 });
-    expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+      // #104: a stale (global) CLI also says how to stop being stale.
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([
+        `mfw ${cliVersion()} is behind the registry's ${NEWER}: running ${NEWER} instead.`,
+        "update your mfw: mfw upgrade",
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
     const env = { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin };
     expect(calls).toEqual([
       { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "--version"], env },

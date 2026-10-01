@@ -70,6 +70,7 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<n
     return undefined;
   }
   console.error(`mfw ${cliVersion()} is behind the registry's ${newer}: running ${newer} instead.`);
+  console.error("update your mfw: mfw upgrade");
   return relaunch(["bunx", cli, "create", ...rawArgs], env);
 }
 
