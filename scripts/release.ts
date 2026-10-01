@@ -6,7 +6,7 @@
  *   they share one version: when it changes, the release is tagged
  *   `v<version>`, the version people refer to.
  * - Plugins and channels are versioned on their own: each package released
- *   gets its own `<name>@<version>` tag (`changeset git-tag`).
+ *   gets its own `<name>@<version>` tag (`changeset tag`).
  *
  * Publishing is a separate step (`scripts/publish.ts`).
  */
@@ -50,7 +50,7 @@ if (import.meta.main) {
   run("git", "add", "-A", ".changeset", "bun.lock", "--", ":(glob)**/package.json", ":(glob)**/CHANGELOG.md");
   const message = after !== before ? `Release v${after}` : "Release plugins";
   run("git", "commit", "-m", message);
-  run("bunx", "changeset", "git-tag");
+  run("bunx", "changeset", "tag");
   if (after !== before) {
     run("git", "tag", `v${after}`);
   }
