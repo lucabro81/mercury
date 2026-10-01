@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { createJiraIssueListExtractor } from "./index.ts";
+import { createJiraIssueListExtractor, JIRA_ISSUE_LIST_SELECT } from "./index.ts";
 import type { CliResult } from "@mercury-fw/cli-engine";
 
 /**
@@ -64,7 +64,7 @@ describe("createJiraIssueListExtractor", () => {
     }
   });
 
-  // Not a hard error like the missing-summary case below — the raw data is
+  // Not an error — the raw data is
   // still valid and returned untouched, just with a note explaining why no
   // list could be built, so the model can retry if it turns out the user
   // actually wanted a rendered list.
@@ -99,17 +99,38 @@ describe("createJiraIssueListExtractor", () => {
     expect(extract(PARSED, result)).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
   });
 
-  it("returns a self-correctable error when an issue is missing summary", () => {
-    const result: CliResult = {
-      ok: true,
-      data: { issues: [{ key: "MER-20", fields: { status: { name: "Da fare" } } }] },
-    };
-    const extracted = extract(PARSED, result);
-    expect(extracted.ok).toBe(false);
-    if (!extracted.ok) {
-      expect(extracted.error).toContain("summary");
-      expect(extracted.error).toContain("--fields");
+  // #83: `--select` is mandatory, so a search selecting only keys (a count, an
+  // existence check) is a legitimate answer. Turning it into an error threw
+  // the keys away and sent the model on a retry it didn't need.
+  it("returns the data untouched with a formattedListNote, not an error, when issues lack summary", () => {
+    const original = { issues: [{ key: "MER-20" }, { key: "MER-21" }], nextPageToken: "abc" };
+    const extracted = extract(PARSED, { ok: true, data: original });
+
+    expect(extracted.ok).toBe(true);
+    if (extracted.ok) {
+      expect(extracted.data).toMatchObject(original);
+      expect((extracted.data as { formattedListNote: string }).formattedListNote).toContain("--select");
+      expect(extracted.display).toBeUndefined();
     }
+  });
+
+  // #83: the note used to say "retry without --select" or "with --fields",
+  // both of which the CLI refuses. It must name the one select that yields a list.
+  it("tells the model the exact list select, never to drop --select or use --fields", () => {
+    for (const data of [{}, { issues: [{ fields: { summary: "s" } }] }, { issues: [{ key: "MER-1" }] }]) {
+      const extracted = extract(PARSED, { ok: true, data });
+      expect(extracted.ok).toBe(true);
+      if (extracted.ok) {
+        const note = (extracted.data as { formattedListNote: string }).formattedListNote;
+        expect(note).toContain(`--select ${JIRA_ISSUE_LIST_SELECT}`);
+        expect(note).not.toContain("without --select");
+        expect(note).not.toContain("--fields");
+      }
+    }
+  });
+
+  it("names the select that both the CLI and the extractor accept for a list", () => {
+    expect(JIRA_ISSUE_LIST_SELECT).toBe("issues.key,issues.fields.summary,issues.fields.status.name,nextPageToken");
   });
 
   it("emits a structured record with status and a browse link built from siteUrl + key", () => {
