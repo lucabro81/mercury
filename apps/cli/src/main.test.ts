@@ -343,3 +343,96 @@ describe("mfw create with a newer CLI on the registry", () => {
     expect(existsSync(join(dir, "package.json"))).toBe(true);
   });
 });
+
+// #104: a global `mfw` runs inside apps made with other framework versions;
+// the app's own CLI (its devDependency) is the one that matches, so the
+// global one hands the command over to it when the versions differ.
+describe("a global mfw inside an app with its own CLI", () => {
+  const saved = process.env.MFW_DEFERRED;
+  beforeEach(() => {
+    delete process.env.MFW_DEFERRED;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MFW_DEFERRED;
+    else process.env.MFW_DEFERRED = saved;
+  });
+
+  /** An app in `base/my-agent`, its CLI installed at `local` (none when
+   * undefined), plus deps and a relaunch that record what they're asked. */
+  function setup(local: string | undefined) {
+    const dir = join(base, "my-agent");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "mercury.config.ts"), "");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "my-agent" }));
+    if (local !== undefined) {
+      mkdirSync(join(dir, "node_modules", "@mercury-fw", "cli"), { recursive: true });
+      writeFileSync(join(dir, "node_modules", "@mercury-fw", "cli", "package.json"), JSON.stringify({ version: local }));
+    }
+    const runs: string[][] = [];
+    const deps: AppDeps = {
+      run: async (argv) => {
+        runs.push(argv);
+        return 0;
+      },
+      capture: async () => "",
+      ask: async () => "",
+      print: () => {},
+      home: "/nonexistent-home",
+    };
+    const relaunches: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      relaunches.push({ argv, env });
+      return 5;
+    };
+    return { dir, runs, deps, relaunches, relaunch };
+  }
+
+  test("the app's CLI at another version: runs that one with the same arguments, from a subfolder too", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+    expect(await main(["logs", "mercury"], { cwd: join(dir, "src"), deps, relaunch })).toBe(5);
+    expect(relaunches).toEqual([
+      {
+        argv: ["bun", join(dir, "node_modules", "@mercury-fw", "cli", "src", "bin.ts"), "logs", "mercury"],
+        env: { MFW_DEFERRED: "1" },
+      },
+    ]);
+    expect(runs).toEqual([]);
+  });
+
+  test("the app's CLI at this same version: runs here", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup(cliVersion());
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs).toEqual([["docker", "compose", "up", "-d", "--build"]]);
+  });
+
+  test("an app not installed yet (no node_modules): runs here", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup(undefined);
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs.length).toBe(1);
+  });
+
+  test("already handed over (MFW_DEFERRED): runs here, no loop", async () => {
+    process.env.MFW_DEFERRED = "1";
+    const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs.length).toBe(1);
+  });
+
+  test("create and upgrade are the global CLI's own: never handed over", async () => {
+    const { dir, relaunches, relaunch } = setup("0.1.0");
+    // No registry check in this test (#96's relaunch): it isn't what's tested.
+    const updated = process.env.MFW_SELF_UPDATED;
+    process.env.MFW_SELF_UPDATED = cliVersion();
+    try {
+      await main(["create", join(dir, "nested"), "--yes"], { cwd: dir, relaunch });
+      await main(["upgrade", "--help"], { cwd: dir, relaunch });
+    } finally {
+      if (updated === undefined) delete process.env.MFW_SELF_UPDATED;
+      else process.env.MFW_SELF_UPDATED = updated;
+    }
+    expect(relaunches).toEqual([]);
+  });
+});

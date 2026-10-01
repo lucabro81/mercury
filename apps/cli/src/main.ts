@@ -5,6 +5,7 @@
  * commands operate an existing app from inside its folder (see
  * `app/commands.ts`). The command line itself is declared in `program.ts`.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import type { CreateArgs } from "./args.ts";
 import { CATALOG } from "./catalog.ts";
@@ -13,7 +14,7 @@ import { runProgram } from "./program.ts";
 import { renderApp, selectionError } from "./render.ts";
 import { appVersions, cliVersion, newerCli, registryFrom } from "./versions.ts";
 import { appCommands, terminalDeps, type AppDeps } from "./app/commands.ts";
-import { findApp } from "./app/find-app.ts";
+import { findApp, type App } from "./app/find-app.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
 import { targetError, writeApp } from "./write.ts";
 
@@ -110,6 +111,35 @@ Next:
   return 0;
 }
 
+/** The commands that belong to the CLI itself, wherever it runs: never
+ * handed over to an app's CLI. */
+const OWN_COMMANDS = new Set(["create", "upgrade"]);
+
+/** Inside an app whose own CLI (its devDependency) is installed at another
+ * version than this one, as a global `mfw` can be, runs `argv` through that
+ * CLI and returns its exit code: the app's commands then always match the
+ * framework the app runs. `undefined` means run here: not an app command, not
+ * inside an app, the app not installed yet, the same version, or already
+ * handed over (`MFW_DEFERRED`). */
+async function handOverToAppCli(argv: string[], cwd: string, relaunch: Relaunch): Promise<number | undefined> {
+  const command = argv[0];
+  if (command === undefined || command.startsWith("-") || OWN_COMMANDS.has(command)) return undefined;
+  if (process.env.MFW_DEFERRED) return undefined;
+  let app: App;
+  try {
+    app = findApp(cwd);
+  } catch {
+    return undefined;
+  }
+  const local = join(app.dir, "node_modules", "@mercury-fw", "cli");
+  const manifest = join(local, "package.json");
+  if (!existsSync(manifest)) return undefined;
+  const version = (JSON.parse(readFileSync(manifest, "utf-8")) as { version?: unknown }).version;
+  if (typeof version !== "string" || version === cliVersion()) return undefined;
+  console.error(`mfw ${cliVersion()}: running the app's ${version}`);
+  return relaunch(["bun", join(local, "src", "bin.ts"), ...argv], { MFW_DEFERRED: "1" });
+}
+
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
  * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-agent`
  * both call it; the app commands look for the app from `cwd` and run docker
@@ -118,6 +148,8 @@ export async function main(
   argv: string[],
   { cwd = process.cwd(), deps, relaunch = spawnRelaunch }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch } = {},
 ): Promise<number> {
+  const handedOver = await handOverToAppCli(argv, cwd, relaunch);
+  if (handedOver !== undefined) return handedOver;
   const rawCreateArgs = argv.slice(argv.indexOf("create") + 1);
   return runProgram(argv, {
     create: (args) => create(args, rawCreateArgs, relaunch),
