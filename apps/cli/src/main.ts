@@ -111,6 +111,27 @@ Next:
   return 0;
 }
 
+/** `mfw upgrade`: installs the registry's latest `@mercury-fw/cli` globally
+ * when it's newer than this one; returns the install's exit code, 0 when
+ * there's nothing newer, 1 when the registry can't answer. */
+async function upgrade(relaunch: Relaunch): Promise<number> {
+  const registry = registryFrom(process.env.MFW_REGISTRY).replace(/\/+$/, "");
+  let newer: string | undefined;
+  try {
+    newer = await newerCli({ registry });
+  } catch (err) {
+    console.error(`couldn't check for a newer mfw: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
+  if (newer === undefined) {
+    console.log(`mfw ${cliVersion()} is the latest.`);
+    return 0;
+  }
+  const code = await relaunch(["bun", "add", "-g", `@mercury-fw/cli@${newer}`], { NPM_CONFIG_REGISTRY: registry });
+  if (code === 0) console.log(`mfw upgraded from ${cliVersion()} to ${newer}.`);
+  return code;
+}
+
 /** The commands that belong to the CLI itself, wherever it runs: never
  * handed over to an app's CLI. */
 const OWN_COMMANDS = new Set(["create", "upgrade"]);
@@ -153,6 +174,7 @@ export async function main(
   const rawCreateArgs = argv.slice(argv.indexOf("create") + 1);
   return runProgram(argv, {
     create: (args) => create(args, rawCreateArgs, relaunch),
+    upgrade: () => upgrade(relaunch),
     app: () => appCommands(findApp(cwd), deps ?? terminalDeps()),
   });
 }

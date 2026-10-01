@@ -319,6 +319,34 @@ describe("mfw create with a newer CLI on the registry", () => {
     }
   });
 
+  // #104: `mfw upgrade` updates the global install to the registry's latest.
+  test("mfw upgrade installs the registry's newer CLI globally, exiting with the install's code", async () => {
+    for (const code of [0, 3]) {
+      const { calls, relaunch } = fakeRelaunch(code);
+      expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(code);
+      expect(calls).toEqual([
+        {
+          argv: ["bun", "add", "-g", `@mercury-fw/cli@${NEWER}`],
+          env: { NPM_CONFIG_REGISTRY: newerRegistry.url.origin },
+        },
+      ]);
+    }
+  });
+
+  test("mfw upgrade with this CLI already the latest: installs nothing, exit 0", async () => {
+    process.env.MFW_REGISTRY = registry.url.origin; // answers an older version for everything
+    const { calls, relaunch } = fakeRelaunch();
+    expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  test("mfw upgrade with an unreachable registry: exit 1, installs nothing", async () => {
+    process.env.MFW_REGISTRY = "http://127.0.0.1:9";
+    const { calls, relaunch } = fakeRelaunch();
+    expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(1);
+    expect(calls).toEqual([]);
+  });
+
   test("the registry handed to the newer CLI has no trailing slash", async () => {
     process.env.MFW_REGISTRY = `${newerRegistry.url.origin}/`;
     const { calls, relaunch } = scriptedRelaunch();

@@ -40,6 +40,10 @@ function harness({ code = 0, appError }: { code?: number; appError?: string } = 
           calls.push(["create", args]);
           return code;
         },
+        upgrade: async () => {
+          calls.push(["upgrade"]);
+          return code;
+        },
         app: () => {
           if (appError !== undefined) throw new Error(appError);
           return app;
@@ -216,7 +220,7 @@ describe("refused before anything runs", () => {
 });
 
 describe("help", () => {
-  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials", "google-chat"];
+  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials", "google-chat", "upgrade"];
 
   test("--help lists every command, exit 0", async () => {
     const h = harness();
@@ -233,4 +237,19 @@ describe("help", () => {
       expect(h.calls).toEqual([]);
     },
   );
+});
+
+describe("upgrade", () => {
+  test("mfw upgrade runs the upgrade, outside an app too", async () => {
+    const h = harness({ appError: "Not inside a Mercury app" });
+    expect(await h.run("upgrade")).toBe(0);
+    expect(h.calls).toEqual([["upgrade"]]);
+  });
+
+  test("takes no arguments", async () => {
+    const h = harness();
+    expect(await h.run("upgrade", "0.30.0")).toBe(1);
+    expect(h.err()).toContain("too many arguments");
+    expect(h.calls).toEqual([]);
+  });
 });
