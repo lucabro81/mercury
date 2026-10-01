@@ -97,16 +97,17 @@ gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
 gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
 ```
 
-Then, from the app's folder, append the three variables to its `.env` (the private key on one line, its newlines written as `\n`) and delete the key file:
+A service account takes a few seconds to become visible to the rest of Google Cloud: if the binding fails saying the account doesn't exist, wait a moment and run it again.
+
+Then, from the app's folder, write the three variables into its `.env` and delete the key file. An app made with `mfw create` already has the three lines in `.env`, empty, so the first command removes them (and any older value) before the others append the new ones; the private key goes on one line, its newlines written as `\n`:
 
 ```bash
+perl -i -ne 'print unless /^GOOGLE_CHAT_(PUBSUB_SUBSCRIPTION|APP_CLIENT_EMAIL|APP_PRIVATE_KEY)=/' .env
 printf 'GOOGLE_CHAT_PUBSUB_SUBSCRIPTION=%s\n' "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}" >> .env
 printf 'GOOGLE_CHAT_APP_CLIENT_EMAIL=%s\n' "$(jq -r .client_email key.json)" >> .env
 printf 'GOOGLE_CHAT_APP_PRIVATE_KEY=%s\n' "$(jq -r .private_key key.json | awk '{printf "%s\\n", $0}')" >> .env
 rm key.json
 ```
-
-If `.env` already has any of the three, remove the old lines first: these commands only append.
 
 ### 6. Configure the consent screen (Cloud Console)
 
@@ -147,6 +148,15 @@ bunx mfw logs mercury
 
 A subscription created before `--expiration-period=never` was in step 4 still has the default policy, and Pub/Sub deletes it after 31 days without a pull. The channel then logs `NOT_FOUND` on the subscription, while the topic, the service account and the Chat app's configuration are all still there.
 
+Set the variables again first, taking them from the app's `.env`: `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` is `projects/<PROJECT_ID>/subscriptions/<SUBSCRIPTION>`, and `SA_EMAIL` is `GOOGLE_CHAT_APP_CLIENT_EMAIL`. The topic isn't written anywhere in the app: `gcloud pubsub topics list --project="$PROJECT_ID"` shows it (a project made with these steps has only that one).
+
+```bash
+PROJECT_ID=<the part after projects/>
+SUBSCRIPTION=<the part after subscriptions/>
+SA_EMAIL=<GOOGLE_CHAT_APP_CLIENT_EMAIL>
+TOPIC=<the last part of the name the topics list prints>
+```
+
 To tell which piece is missing:
 
 ```bash
@@ -154,7 +164,7 @@ gcloud pubsub topics list --project="$PROJECT_ID"
 gcloud pubsub subscriptions list --project="$PROJECT_ID"
 ```
 
-If only the subscription is gone, recreate it on the same topic and with the same name, so `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` doesn't change, then give the service account its subscriber role back (it went away with the subscription). `SUBSCRIPTION` is the last part of `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION`, `SA_EMAIL` the value of `GOOGLE_CHAT_APP_CLIENT_EMAIL`:
+If only the subscription is gone, recreate it on the same topic and with the same name, so `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` doesn't change, then give the service account its subscriber role back (it went away with the subscription):
 
 ```bash
 gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --expiration-period=never --project="$PROJECT_ID"
