@@ -231,3 +231,74 @@ describe("app commands", () => {
     expect(runs).toEqual([]);
   });
 });
+
+// #96: `bun create mercury-agent` can run a stale CLI out of Bun's bunx cache
+// (a release behind), which writes an old template. The CLI asks the registry
+// first and, when it's behind, hands the whole command to the newer one.
+describe("mfw create with a newer CLI on the registry", () => {
+  const NEWER = "999.0.0";
+  let newerRegistry: ReturnType<typeof Bun.serve>;
+  const saved = { registry: process.env.MFW_REGISTRY, updated: process.env.MFW_SELF_UPDATED };
+  beforeAll(() => {
+    newerRegistry = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const name = decodeURIComponent(new URL(req.url).pathname.slice(1).replace(/\/latest$/, ""));
+        return Response.json({ name, version: name === "@mercury-fw/cli" ? NEWER : PLUGIN_VERSION });
+      },
+    });
+  });
+  afterAll(() => {
+    newerRegistry.stop(true);
+  });
+  beforeEach(() => {
+    process.env.MFW_REGISTRY = newerRegistry.url.origin;
+    delete process.env.MFW_SELF_UPDATED;
+  });
+  afterEach(() => {
+    for (const [key, value] of [["MFW_REGISTRY", saved.registry], ["MFW_SELF_UPDATED", saved.updated]] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  /** A relaunch that records what it was asked to run and answers `code`. */
+  function fakeRelaunch(code = 0) {
+    const calls: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      calls.push({ argv, env });
+      return code;
+    };
+    return { calls, relaunch };
+  }
+
+  test("runs the newer one with the same arguments, writes nothing itself, exits with its code", async () => {
+    const dir = join(base, "demo");
+    const { calls, relaunch } = fakeRelaunch(7);
+    expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+    expect(calls).toEqual([
+      {
+        argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"],
+        env: { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin },
+      },
+    ]);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("once relaunched (MFW_SELF_UPDATED set), it doesn't relaunch again: it creates the app", async () => {
+    process.env.MFW_SELF_UPDATED = NEWER;
+    const dir = join(base, "demo");
+    const { calls, relaunch } = fakeRelaunch();
+    expect(await main(["create", dir, "--yes"], { relaunch })).toBe(0);
+    expect(calls).toEqual([]);
+    expect(existsSync(join(dir, "package.json"))).toBe(true);
+  });
+
+  test("an unreachable registry is only a warning: an app with no plugins is still created", async () => {
+    const dir = join(base, "demo");
+    const result = await runWith("http://127.0.0.1:9", "create", dir, "--yes");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("couldn't check for a newer mfw: Can't reach http://127.0.0.1:9");
+    expect(existsSync(join(dir, "package.json"))).toBe(true);
+  });
+});

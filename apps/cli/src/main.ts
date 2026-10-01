@@ -11,7 +11,7 @@ import { CATALOG } from "./catalog.ts";
 import { kebabCase } from "./naming.ts";
 import { runProgram } from "./program.ts";
 import { renderApp, selectionError } from "./render.ts";
-import { appVersions, registryFrom } from "./versions.ts";
+import { appVersions, cliVersion, newerCli, registryFrom } from "./versions.ts";
 import { appCommands, terminalDeps, type AppDeps } from "./app/commands.ts";
 import { findApp } from "./app/find-app.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
@@ -28,8 +28,44 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
   };
 }
 
-/** `mfw create`: returns the exit code. */
-async function create(args: CreateArgs): Promise<number> {
+/** Runs `argv` with stdio inherited and `env` on top of this process's
+ * environment; returns its exit code. */
+export type Relaunch = (argv: string[], env: Record<string, string>) => Promise<number>;
+
+/** The real relaunch: a child process on the user's terminal. */
+const spawnRelaunch: Relaunch = async (argv, env) => {
+  const proc = Bun.spawn(argv, { stdin: "inherit", stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } });
+  return await proc.exited;
+};
+
+/** When the registry has a newer `@mercury-fw/cli` than this one (a stale copy
+ * out of Bun's bunx cache), runs `create` again through that version, with the
+ * same arguments as typed, and returns its exit code; `undefined` means carry
+ * on here. Skipped inside a relaunch (`MFW_SELF_UPDATED`). A registry that
+ * can't answer is only a warning. */
+async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch): Promise<number | undefined> {
+  if (process.env.MFW_SELF_UPDATED) return undefined;
+  const registry = registryFrom(process.env.MFW_REGISTRY);
+  let newer: string | undefined;
+  try {
+    newer = await newerCli({ registry });
+  } catch (err) {
+    console.error(`couldn't check for a newer mfw: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+  if (newer === undefined) return undefined;
+  console.error(`mfw ${cliVersion()} is behind the registry's ${newer}: running ${newer} instead.`);
+  return relaunch(["bunx", `@mercury-fw/cli@${newer}`, "create", ...rawArgs], {
+    MFW_SELF_UPDATED: newer,
+    NPM_CONFIG_REGISTRY: registry,
+  });
+}
+
+/** `mfw create`: returns the exit code. `rawArgs` are the arguments after
+ * `create` as typed, for a relaunch. */
+async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch): Promise<number> {
+  const relaunched = await relaunchIfStale(rawArgs, relaunch);
+  if (relaunched !== undefined) return relaunched;
   // The folder is created in kebab case, only its own name: the parent path is
   // taken as typed. Its name is also the app name's default.
   const typed = resolve(args.dir);
@@ -66,13 +102,14 @@ Next:
 /** Runs `mfw` with `argv` (the arguments after the command name) and returns
  * the exit code, printing to stdout/stderr. `bin.ts` and `create-mercury-agent`
  * both call it; the app commands look for the app from `cwd` and run docker
- * through `deps`. */
+ * through `deps`; `relaunch` is how `create` hands over to a newer CLI. */
 export async function main(
   argv: string[],
-  { cwd = process.cwd(), deps }: { cwd?: string; deps?: AppDeps } = {},
+  { cwd = process.cwd(), deps, relaunch = spawnRelaunch }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch } = {},
 ): Promise<number> {
+  const rawCreateArgs = argv.slice(argv.indexOf("create") + 1);
   return runProgram(argv, {
-    create,
+    create: (args) => create(args, rawCreateArgs, relaunch),
     app: () => appCommands(findApp(cwd), deps ?? terminalDeps()),
   });
 }
