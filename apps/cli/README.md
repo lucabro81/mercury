@@ -19,6 +19,7 @@
   - [`mfw reset <memory|wiki>`](#mfw-reset-memorywiki)
   - [`mfw credentials set <plugin> [--from <dir>] [--print]`](#mfw-credentials-set-plugin---from-dir---print)
   - [`mfw credentials reset <plugin>`](#mfw-credentials-reset-plugin)
+  - [`mfw google-chat set-key <key-file> [--subscription <name>]`](#mfw-google-chat-set-key-key-file---subscription-name)
 - [Help](#help)
 
 ## Getting it
@@ -186,6 +187,17 @@ Deletes the plugin's CLI folder from the credentials volume, so the variable in 
 
 ```bash
 bunx mfw credentials reset jira
+```
+
+### `mfw google-chat set-key <key-file> [--subscription <name>]`
+
+Writes the Google Chat channel's credentials into the app's `.env`, from the service account's JSON key (the file `gcloud iam service-accounts keys create` writes): `GOOGLE_CHAT_APP_CLIENT_EMAIL`, and `GOOGLE_CHAT_APP_PRIVATE_KEY` on one line with literal `\n`, the way the channel reads it. With `--subscription` (`projects/<project>/subscriptions/<name>`) it sets `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION` too; without it, that line stays as it is, which is what you want when only the key changes. Older values and the empty lines `mfw create` leaves are replaced, the other lines stay alone, and the key is never printed.
+
+It checks everything before writing: the app has to depend on `@mercury-fw/channel-google-chat`, the file has to be a service account key and the subscription has to have that shape, otherwise it exits 1 saying why and `.env` stays as it was. Delete the key file afterwards; `bunx mfw start` applies the change to a running app. The whole setup of the Chat app is in the [channel's README](https://github.com/lucabro81/mercury-fw/tree/main/packages/channels/channel-google-chat#setting-up-the-chat-app).
+
+```bash
+bunx mfw google-chat set-key key.json --subscription projects/my-project/subscriptions/mercury-chat-sub
+bunx mfw google-chat set-key new-key.json
 ```
 
 ## Help

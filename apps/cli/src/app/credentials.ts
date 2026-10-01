@@ -2,7 +2,8 @@
  * The two halves of `mfw credentials set`: packing a CLI's config folder into
  * its credentials variable (a base64 tar.gz with the folder at its root, what
  * the app's `docker-entrypoint.sh` unpacks into `~/.config` on the volume), and
- * writing that variable into the app's env file.
+ * writing that variable into the app's env file. Also reading a service
+ * account key file, for `mfw google-chat set-key`.
  */
 import {
   chmodSync,
@@ -79,4 +80,24 @@ export function setEnvVar(file: string, name: string, value: string): void {
   // The umask may have narrowed `mode` on creation.
   chmodSync(temporary, mode);
   renameSync(temporary, file);
+}
+
+/** The two values of a Google Cloud service account key file (the JSON
+ * `gcloud iam service-accounts keys create` writes) that an app needs: its
+ * email, and its private key on one line with literal `\n`, the form an env
+ * file holds and the Google Chat channel unescapes. Throws naming `file` when
+ * it's missing or isn't such a key. */
+export function readServiceAccountKey(file: string): { clientEmail: string; privateKey: string } {
+  const invalid = () => new Error(`${file} isn't a service account key: it needs "type": "service_account", "client_email" and "private_key".`);
+  let key: { type?: unknown; client_email?: unknown; private_key?: unknown };
+  try {
+    key = JSON.parse(readFileSync(file, "utf-8"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`${file} doesn't exist.`);
+    throw invalid();
+  }
+  if (key?.type !== "service_account" || typeof key.client_email !== "string" || typeof key.private_key !== "string") {
+    throw invalid();
+  }
+  return { clientEmail: key.client_email, privateKey: key.private_key.replace(/\n/g, "\\n") };
 }

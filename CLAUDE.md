@@ -80,7 +80,7 @@ the first-party channels and tool plugins, with the framework at the CLI's own
 version and each chosen plugin at its latest on the registry; installing is
 left to the user (`bun install`). Every other command operates an app from
 inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
-`vault`, `memory`, `reset`, `credentials set|reset`), as `docker compose` calls; an app gets the CLI as
+`vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`), as `docker compose` calls (or env-file writes); an app gets the CLI as
 a devDependency and runs it as `bunx mfw`. No "plumbing" commands mirroring
 compose: whoever wants that uses compose directly. The command line is declared
 with commander (`program.ts`): arguments are validated and help is generated at

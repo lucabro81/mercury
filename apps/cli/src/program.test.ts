@@ -28,6 +28,7 @@ function harness({ code = 0, appError }: { code?: number; appError?: string } = 
     reset: record("reset"),
     credentialsSet: record("credentialsSet"),
     credentialsReset: record("credentialsReset"),
+    googleChatSetKey: record("googleChatSetKey"),
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -142,6 +143,11 @@ describe("app commands reach the app with their arguments", () => {
     [["credentials", "set", "jira"], ["credentialsSet", "jira", { print: false }]],
     [["credentials", "set", "jira", "--from", "/x/login", "--print"], ["credentialsSet", "jira", { from: "/x/login", print: true }]],
     [["credentials", "reset", "jira"], ["credentialsReset", "jira"]],
+    [["google-chat", "set-key", "key.json"], ["googleChatSetKey", "key.json", {}]],
+    [
+      ["google-chat", "set-key", "key.json", "--subscription", "projects/p/subscriptions/s"],
+      ["googleChatSetKey", "key.json", { subscription: "projects/p/subscriptions/s" }],
+    ],
   ])("mfw %p", async (argv, call) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(0);
@@ -186,6 +192,9 @@ describe("refused before anything runs", () => {
     [["credentials", "set", "jira", "--form", "/x"], "unknown option '--form'"],
     [["credentials", "reset", "jira", "bitbucket"], "too many arguments"],
     [["credentials", "copy", "jira"], "unknown command 'copy'"],
+    [["google-chat", "set-key"], "missing required argument 'key-file'"],
+    [["google-chat", "set-key", "key.json", "--subscription"], "option '--subscription <name>' argument missing"],
+    [["google-chat", "set-key", "a.json", "b.json"], "too many arguments"],
   ])("mfw %p: %s", async (argv, message) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(1);
@@ -207,7 +216,7 @@ describe("refused before anything runs", () => {
 });
 
 describe("help", () => {
-  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials"];
+  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials", "google-chat"];
 
   test("--help lists every command, exit 0", async () => {
     const h = harness();
@@ -215,7 +224,7 @@ describe("help", () => {
     for (const c of COMMANDS) expect(h.out()).toContain(`  ${c}`);
   });
 
-  test.each([...COMMANDS.map((c) => [c]), ["vault", "write-curated"], ["memory", "read"], ["credentials", "set"], ["credentials", "reset"]])(
+  test.each([...COMMANDS.map((c) => [c]), ["vault", "write-curated"], ["memory", "read"], ["credentials", "set"], ["credentials", "reset"], ["google-chat", "set-key"]])(
     "mfw %s … --help describes it and runs nothing",
     async (...path) => {
       const h = harness();

@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { packCredentials, setEnvVar } from "./credentials.ts";
+import { createPrivateKey, generateKeyPairSync } from "node:crypto";
+import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 
 let base: string;
 beforeEach(() => {
@@ -114,5 +115,56 @@ describe("setEnvVar", () => {
     setEnvVar(file, "JIRA_CLI_CONFIG_TAR_B64", "new");
     expect(readFileSync(file, "utf-8")).toBe("JIRA_CLI_CONFIG_TAR_B64=new\n");
     expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("readServiceAccountKey", () => {
+  /** A key file shaped like the one `gcloud iam service-accounts keys create`
+   * writes, around a key generated here (never a real one). */
+  function keyFile(overrides: Record<string, unknown> = {}): { file: string; pem: string } {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const file = join(base, "key.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        type: "service_account",
+        project_id: "proj",
+        private_key_id: "abc",
+        private_key: pem,
+        client_email: "bot@proj.iam.gserviceaccount.com",
+        ...overrides,
+      }),
+    );
+    return { file, pem };
+  }
+
+  test("returns the client email, and the private key on one line with literal \\n", () => {
+    const { file, pem } = keyFile();
+    const key = readServiceAccountKey(file);
+    expect(key.clientEmail).toBe("bot@proj.iam.gserviceaccount.com");
+    expect(key.privateKey).not.toContain("\n");
+    expect(key.privateKey).toStartWith("-----BEGIN PRIVATE KEY-----\\n");
+    expect(key.privateKey).toEndWith("-----END PRIVATE KEY-----\\n");
+    // What the Google Chat channel does with the variable before using it.
+    const unescaped = key.privateKey.replace(/\\n/g, "\n");
+    expect(unescaped).toBe(pem);
+    expect(createPrivateKey(unescaped).asymmetricKeyType).toBe("rsa");
+  });
+
+  test("a missing file is an error naming it", () => {
+    expect(() => readServiceAccountKey(join(base, "nope.json"))).toThrow(join(base, "nope.json"));
+  });
+
+  test("a file that isn't JSON is an error naming it", () => {
+    writeFileSync(join(base, "key.json"), "not json");
+    expect(() => readServiceAccountKey(join(base, "key.json"))).toThrow(`${join(base, "key.json")} isn't a service account key`);
+  });
+
+  test("JSON that isn't a service account key is an error naming it", () => {
+    for (const overrides of [{ type: "authorized_user" }, { client_email: undefined }, { private_key: 42 }]) {
+      const { file } = keyFile(overrides);
+      expect(() => readServiceAccountKey(file)).toThrow(`${file} isn't a service account key`);
+    }
   });
 });
