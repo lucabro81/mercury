@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createTerminalProvider } from "./terminal-provider.ts";
+import { startTerminalRepl } from "./terminal.ts";
 import type { HandleTurn, InboundTurn } from "./provider.ts";
 import { PENDING_CONFIRMATION_NOTE } from "../session/agent-turn.ts";
 
@@ -317,6 +318,40 @@ describe("createTerminalProvider", () => {
     await provider.start(handleTurn);
 
     expect(await capturedHandleInput("elimina KAN-1", () => {})).toBe("MER-1 · In corso · Titolo");
+  });
+
+  // Regression (#61), end to end: the provider wired into the real REPL loop.
+  // A turn that reasons and calls a tool before answering used to print the
+  // answer a second time under the correction marker.
+  test("in the real REPL, a turn with reasoning and a tool call prints its answer once, with no marker", async () => {
+    const written: string[] = [];
+    async function* oneLine() {
+      yield "hi";
+    }
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: (handleInput, _io, opts) =>
+        startTerminalRepl(handleInput, { input: oneLine(), output: { write: (s) => written.push(s) } }, opts),
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onReasoningChunk?.("penso", "block-1");
+      sink.onReasoningEnd?.("block-1", false);
+      sink.onToolStart("Sto leggendo dati con jira…");
+      sink.onTextChunk?.("Template DVD ");
+      sink.onTextChunk?.("non si apre");
+      await sink.finalize("Template DVD non si apre");
+    };
+    await provider.start(handleTurn);
+
+    const out = written.join("");
+    expect(out).not.toContain("risposta corretta");
+    expect(out.split("Template DVD non si apre").length - 1).toBe(1);
   });
 
   test("the first onReasoningChunk prints a dim 'Sto pensando…' header before the chunk itself", async () => {
