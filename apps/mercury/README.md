@@ -209,7 +209,7 @@ Add `--no-cache` to also refetch the CLI binaries. Without Bun on the host: `git
 
 ### CLI credentials without a host installation
 
-The four CLIs (Jira, Bitbucket, Google Chat, atlassian-admin) normally read their auth from `~/.config/<cli-name>` on whatever machine runs them, which is fine in dev where you already use them outside Mercury too. A remote host usually has none of that. Instead, `.env` can carry each CLI's config as a base64-encoded tar (`JIRA_CLI_CONFIG_TAR_B64` and friends): `scripts/docker-entrypoint.sh` decodes it into a persistent volume the first time that CLI's own subdirectory is empty, then leaves it alone. A CLI refreshing its own token during a run writes back to that same volume, so the refresh survives a redeploy instead of reverting to the original blob every time.
+The tool plugins' CLIs (Jira, Bitbucket, atlassian-admin) normally read their auth from `~/.config/<cli-name>` on whatever machine runs them, which is fine in dev where you already use them outside Mercury too. A remote host usually has none of that. Instead, `.env` can carry each CLI's config as a base64-encoded tar (`JIRA_CLI_CONFIG_TAR_B64` and friends): `scripts/docker-entrypoint.sh` decodes it into a persistent volume the first time that CLI's own subdirectory is empty, then leaves it alone. A CLI refreshing its own token during a run writes back to that same volume, so the refresh survives a redeploy instead of reverting to the original blob every time.
 
 On a machine where the CLI is already logged in, `mfw` packs its config folder into that variable:
 

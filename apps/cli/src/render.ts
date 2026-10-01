@@ -322,7 +322,7 @@ function renderCompose(name: string, hasTools: boolean): string {
   const credentialsMount = hasTools
     ? [
         "      # The tool plugins' CLI credentials, on a volume so what a CLI writes back",
-        "      # (refreshed tokens) survives a redeploy. It starts empty: see README.md.",
+        "      # (refreshed tokens) survives a redeploy. docker-entrypoint.sh fills it: see README.md.",
         "      - cli-credentials:/home/mercury/.config",
       ]
     : [];
