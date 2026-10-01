@@ -277,7 +277,7 @@ function renderPackageJson(
     dependencies,
     // The CLI in the app itself, so `bunx mfw` runs the version that matches
     // the framework the app depends on.
-    devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.0", typescript: "^6.0.3" },
+    devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.2", typescript: "^6.0.3" },
   };
   const trusted = [...new Set([...tools.map((t) => t.package), ...[...channels, ...tools].flatMap((e) => e.trusts ?? [])])];
   if (trusted.length > 0) {
