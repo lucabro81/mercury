@@ -1,5 +1,18 @@
 # mercury
 
+## 0.24.8
+
+### Patch Changes
+
+- Updated dependencies [0c5bb5b]
+  - @mercury-fw/core@0.28.2
+  - @mercury-fw/plugin-jira@0.1.1
+  - @mercury-fw/formatter@0.28.2
+  - @mercury-fw/channel-http@0.1.0
+  - @mercury-fw/plugin-atlassian-admin@0.1.0
+  - @mercury-fw/plugin-bitbucket@0.1.0
+  - @mercury-fw/channel-google-chat@0.1.2
+
 ## 0.24.7
 
 ### Patch Changes
