@@ -143,8 +143,11 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
           if (contextLength === null) {
             contextLength = await getLoadedContextLengthFn(deps.ollamaHost, deps.ollamaModel);
           }
-          // The note's chunk was dropped above, so it isn't returned either.
-          return finalText === PENDING_CONFIRMATION_NOTE ? "" : finalText;
+          // The note's chunk was dropped above, so it isn't returned either,
+          // also when a surfaced display follows it.
+          return finalText.startsWith(PENDING_CONFIRMATION_NOTE)
+            ? finalText.slice(PENDING_CONFIRMATION_NOTE.length).replace(/^\n\n/, "")
+            : finalText;
         },
         undefined,
         { promptSuffix: () => formatContextUsage(lastInputTokens, contextLength) },

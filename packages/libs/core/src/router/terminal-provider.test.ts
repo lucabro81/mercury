@@ -293,6 +293,32 @@ describe("createTerminalProvider", () => {
     expect(await capturedHandleInput("elimina KAN-1", () => {})).toBe("");
   });
 
+  // Same bug (#61), with a display the model surfaced via `present`: the
+  // turn-runner appends it after the note (`note\n\ndisplay`), so the note
+  // must go from the front of the answer, not only when it's all of it.
+  test("drops PENDING_CONFIRMATION_NOTE from the front of the answer when a surfaced display follows it", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async () => null,
+    });
+
+    const handleTurn: HandleTurn = async (_turn, sink) => {
+      sink.onTextChunk?.(PENDING_CONFIRMATION_NOTE);
+      await sink.finalize(`${PENDING_CONFIRMATION_NOTE}\n\nMER-1 · In corso · Titolo`);
+    };
+    await provider.start(handleTurn);
+
+    expect(await capturedHandleInput("elimina KAN-1", () => {})).toBe("MER-1 · In corso · Titolo");
+  });
+
   test("the first onReasoningChunk prints a dim 'Sto pensando…' header before the chunk itself", async () => {
     let capturedHandleInput!: CapturedHandleInput;
 
