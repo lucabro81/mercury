@@ -4,7 +4,7 @@
  * never a real CLI's config.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packCredentials, setEnvVar } from "./credentials.ts";
@@ -48,6 +48,16 @@ describe("packCredentials", () => {
     expect(await unpack(value)).toEqual(["jira-cli/app.json", "jira-cli/profiles/default.json"]);
   });
 
+  // Regression: a config folder that is itself a symlink (dotfiles managed by
+  // stow or chezmoi) was packed as the bare link, which the container unpacked
+  // as a dangling symlink: the folder "existed" forever, the CLI never logged in.
+  test("a config folder that is a symlink packs what it points to", async () => {
+    fakeConfig(join(base, "dotfiles", "jira"));
+    symlinkSync(join(base, "dotfiles", "jira"), join(base, "jira-cli"));
+    const value = await packCredentials(join(base, "jira-cli"), "jira-cli");
+    expect(await unpack(value)).toEqual(["jira-cli/app.json", "jira-cli/profiles/default.json"]);
+  });
+
   test("a missing folder is an error that names it", async () => {
     await expect(packCredentials(join(base, "nope"), "jira-cli")).rejects.toThrow(`No folder at ${join(base, "nope")}`);
   });
@@ -73,6 +83,30 @@ describe("setEnvVar", () => {
     writeFileSync(file, "# JIRA_CLI_CONFIG_TAR_B64=x\nJIRA_CLI_CONFIG_TAR_B64_OLD=y\n");
     setEnvVar(file, "JIRA_CLI_CONFIG_TAR_B64", "new");
     expect(readFileSync(file, "utf-8")).toBe("# JIRA_CLI_CONFIG_TAR_B64=x\nJIRA_CLI_CONFIG_TAR_B64_OLD=y\nJIRA_CLI_CONFIG_TAR_B64=new\n");
+  });
+
+  // Regression: only the first assignment was replaced, and Compose takes the
+  // last one, so a pasted duplicate kept the stale credentials in effect.
+  test("every assignment of the variable becomes the one new line, `export` form included", () => {
+    const file = join(base, "env");
+    writeFileSync(file, "JIRA_CLI_CONFIG_TAR_B64=old1\nA=1\nexport JIRA_CLI_CONFIG_TAR_B64=old2\nB=2\nJIRA_CLI_CONFIG_TAR_B64 = old3\n");
+    setEnvVar(file, "JIRA_CLI_CONFIG_TAR_B64", "new");
+    expect(readFileSync(file, "utf-8")).toBe("JIRA_CLI_CONFIG_TAR_B64=new\nA=1\nB=2\n");
+  });
+
+  test("an existing file keeps its permissions", () => {
+    const file = join(base, "env");
+    writeFileSync(file, "A=1\n", { mode: 0o640 });
+    chmodSync(file, 0o640);
+    setEnvVar(file, "JIRA_CLI_CONFIG_TAR_B64", "new");
+    expect(statSync(file).mode & 0o777).toBe(0o640);
+  });
+
+  test("the file is replaced whole, through a temporary file next to it that doesn't stay behind", () => {
+    const file = join(base, "env");
+    writeFileSync(file, "A=1\n");
+    setEnvVar(file, "JIRA_CLI_CONFIG_TAR_B64", "new");
+    expect(readdirSync(base)).toEqual(["env"]);
   });
 
   test("a missing file is created, readable by its owner only", () => {
