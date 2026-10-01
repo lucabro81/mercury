@@ -1,5 +1,5 @@
 # Debian, not Alpine: the tool plugins' CLIs are glibc binaries.
-FROM oven/bun:latest
+FROM oven/bun:1
 
 # ca-certificates: the CLIs verify TLS against the OS trust store.
 # git: the wiki vault is a git repository Mercury initializes at startup.
