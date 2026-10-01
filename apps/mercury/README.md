@@ -145,47 +145,7 @@ in `.env` (Compose applies the override by default whenever the file is present,
 
 ### Setting up the Chat app's Google Cloud project
 
-A second (or third) instance needs its own Chat app identity, not a shared one: its own Google Cloud project, Pub/Sub topic and subscription, and service account. Sharing one across instances means either two processes both replying to the same message, or one conversation's events getting split between two processes with no memory of each other's half, depending on how the subscription's set up. Neither is what you want.
-
-Most of it is scriptable:
-
-```bash
-PROJECT_ID=<pick one>
-BILLING_ACCOUNT_ID=<gcloud billing accounts list>
-TOPIC=mercury-chat-events
-SUBSCRIPTION=mercury-chat-sub
-SA_NAME=mercury-bot
-
-gcloud projects create "$PROJECT_ID" --name="Mercury"
-gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID"
-gcloud services enable chat.googleapis.com pubsub.googleapis.com iam.googleapis.com --project="$PROJECT_ID"
-
-gcloud pubsub topics create "$TOPIC" --project="$PROJECT_ID"
-# --expiration-period=never: by default Pub/Sub deletes a subscription after 31 idle days
-gcloud pubsub subscriptions create "$SUBSCRIPTION" --topic="$TOPIC" --expiration-period=never --project="$PROJECT_ID"
-
-# Google's own Chat-publishing service account needs publish rights on the topic
-gcloud pubsub topics add-iam-policy-binding "$TOPIC" \
-  --project="$PROJECT_ID" \
-  --member="serviceAccount:chat-api-push@system.gserviceaccount.com" \
-  --role="roles/pubsub.publisher"
-
-gcloud iam service-accounts create "$SA_NAME" --project="$PROJECT_ID" --display-name="Mercury bot"
-SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
-
-gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
-  --project="$PROJECT_ID" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/pubsub.subscriber"
-
-gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
-```
-
-`key.json`'s `client_email`/`private_key` go into `GOOGLE_CHAT_APP_CLIENT_EMAIL`/`GOOGLE_CHAT_APP_PRIVATE_KEY`, and `projects/$PROJECT_ID/subscriptions/$SUBSCRIPTION` into `GOOGLE_CHAT_PUBSUB_SUBSCRIPTION`. Delete `key.json` once you've copied it in.
-
----
-
-One part has no `gcloud`/API equivalent and has to be done by hand in Cloud Console, at *APIs & Services → Enabled APIs & Services → Google Chat API → Configuration*: set an app name, avatar, and description, turn on interactive features, and under connection settings pick Cloud Pub/Sub with `$TOPIC`'s full name. Add the resulting bot to a space the same way you'd add any Chat app.
+Each instance needs a Chat app of its own; the channel's README has the whole setup, step by step: [`@mercury-fw/channel-google-chat`](../../packages/channels/channel-google-chat/README.md#setting-up-the-chat-app).
 
 ### First deploy
 
