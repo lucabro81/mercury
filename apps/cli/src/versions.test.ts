@@ -5,7 +5,7 @@
  * `latest`, asked for only the ones chosen.
  */
 import { describe, expect, test } from "bun:test";
-import { appVersions, cliVersion, DEFAULT_REGISTRY, FRAMEWORK_PACKAGES, registryFrom } from "./versions.ts";
+import { appVersions, cliVersion, DEFAULT_REGISTRY, FRAMEWORK_PACKAGES, newerCli, registryFrom } from "./versions.ts";
 import pkg from "../package.json";
 
 /** A fake registry answering `latest` from `versions`, recording what was asked. */
@@ -99,5 +99,39 @@ describe("appVersions", () => {
     await expect(
       appVersions(["@mercury-fw/plugin-jira"], { registry: "https://registry.test", fetchFn }),
     ).rejects.toThrow("Can't reach https://registry.test");
+  });
+});
+
+// #96: `bun create mercury-agent` can run a stale CLI out of Bun's bunx
+// cache; the CLI asks the registry whether it's behind before creating.
+describe("newerCli", () => {
+  const opts = (versions: Record<string, string>) => ({ registry: "https://registry.test", ...fakeRegistry(versions) });
+
+  test("the registry's latest @mercury-fw/cli, when it's newer than this CLI", async () => {
+    const o = opts({ "@mercury-fw/cli": "999.0.0" });
+    expect(await newerCli(o)).toBe("999.0.0");
+    expect(o.asked).toEqual(["https://registry.test/@mercury-fw%2Fcli/latest"]);
+  });
+
+  test("nothing when the registry has this CLI's version", async () => {
+    expect(await newerCli(opts({ "@mercury-fw/cli": pkg.version }))).toBeUndefined();
+  });
+
+  test("nothing when the registry is behind this CLI (run from source, or unreleased)", async () => {
+    expect(await newerCli(opts({ "@mercury-fw/cli": "0.0.1" }))).toBeUndefined();
+  });
+
+  test("compares as versions, not as text: 0.10.0 is newer than 0.9.9", async () => {
+    // Guards against a string comparison, where "0.10.0" < "0.9.9".
+    const { fetchFn } = fakeRegistry({ "@mercury-fw/cli": "0.10.0" });
+    expect(await newerCli({ registry: "https://registry.test", fetchFn, current: "0.9.9" })).toBe("0.10.0");
+  });
+
+  test("an unreachable registry or an unusable answer is an error, for the caller to turn into a warning", async () => {
+    const down = (async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch;
+    await expect(newerCli({ registry: "https://registry.test", fetchFn: down })).rejects.toThrow("Can't reach https://registry.test");
+    await expect(newerCli(opts({}))).rejects.toThrow("@mercury-fw/cli is not on https://registry.test");
   });
 });
