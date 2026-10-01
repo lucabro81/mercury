@@ -70,7 +70,7 @@ export function renderApp(input: RenderInput): Map<string, string> {
     [".gitignore", gitignore],
     ["Dockerfile", renderDockerfile(tools)],
     ["README.md", renderReadme(input.name, channels, tools)],
-    ["docker-compose.yml", renderCompose(input.name, tools.length > 0)],
+    ["docker-compose.yml", renderCompose(input.name, tools.length > 0, channels.some((c) => c.id === "http"))],
     ["markdown.d.ts", markdownDts],
     ["mercury.config.ts", renderConfig(channels, tools)],
     ["package.json", renderPackageJson(input.name, channels, tools, input.versions)],
@@ -318,13 +318,21 @@ function renderEnv(channels: CatalogEntry[], tools: CatalogEntry[]): string {
 }
 
 /** `docker-compose.yml`: the app and Qdrant, with named volumes prefixed by the
- * app's name; the CLI credentials volume only when a tool plugin was chosen. */
-function renderCompose(name: string, hasTools: boolean): string {
+ * app's name; the CLI credentials volume only when a tool plugin was chosen,
+ * the HTTP surface's port published on the host only with the HTTP channel. */
+function renderCompose(name: string, hasTools: boolean, hasHttp: boolean): string {
   const credentialsMount = hasTools
     ? [
         "      # The tool plugins' CLI credentials, on a volume so what a CLI writes back",
         "      # (refreshed tokens) survives a redeploy. docker-entrypoint.sh fills it: see README.md.",
         "      - cli-credentials:/home/mercury/.config",
+      ]
+    : [];
+  const httpPort = hasHttp
+    ? [
+        "    # The HTTP surface, on the host: no authentication, keep it off the public network.",
+        "    ports:",
+        '      - "${HTTP_SURFACE_PORT:-4100}:${HTTP_SURFACE_PORT:-4100}"',
       ]
     : [];
   const credentialsVolume = hasTools ? ["  cli-credentials:", `    name: ${name}_cli-credentials`] : [];
@@ -340,6 +348,7 @@ function renderCompose(name: string, hasTools: boolean): string {
     "    volumes:",
     "      - wiki-vault:/app/wiki-vault",
     ...credentialsMount,
+    ...httpPort,
     "    extra_hosts:",
     '      - "host.docker.internal:host-gateway"',
     "    depends_on:",
@@ -387,7 +396,18 @@ bunx mfw repl
 \`\`\`
 
 \`bun install\` here gives your editor, \`bun run typecheck\` and \`mfw\` the packages (tool plugins download their CLI binary as they install); the image installs its own copy when it builds. \`bunx mfw start\` builds the image and starts the app with Qdrant in the background, \`bunx mfw repl\` opens a terminal conversation with the assistant. \`bunx mfw --help\` lists the rest: stopping and restarting, logs, a shell in the container, the wiki and the memory, and resetting them.
-${renderCredentialsSection(withCredentials(tools))}`;
+${renderHttpSection(channels)}${renderCredentialsSection(withCredentials(tools))}`;
+}
+
+/** The README section on the HTTP surface, for an app with the HTTP channel;
+ * nothing without it. */
+function renderHttpSection(channels: CatalogEntry[]): string {
+  if (!channels.some((c) => c.id === "http")) return "";
+  return `
+## HTTP surface
+
+The HTTP channel listens on \`http://<host>:4100\`, the port in \`HTTP_SURFACE_PORT\` (the compose file publishes whatever port it holds on the host). It has no authentication: whoever reaches the port can talk to the assistant, so keep it on a network you trust.
+`;
 }
 
 /** The README section on CLI credentials, for an app with tool plugins;
