@@ -40,6 +40,10 @@ describe("jiraPlugin", () => {
       expect(body).toContain(`--select ${JIRA_ISSUE_LIST_SELECT}`);
     });
 
+    it("tells the model to read issueCount instead of counting keys itself", () => {
+      expect(body).toContain("issueCount");
+    });
+
     it("never says to drop --select, and points to no instance vault note", () => {
       expect(body).not.toContain("without --select");
       expect(body).not.toContain("curated/standards");
@@ -71,7 +75,7 @@ describe("jiraPlugin", () => {
       { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] },
       { ok: true, data: { issues: [] } },
     );
-    expect(searched).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
+    expect(searched).toEqual({ ok: true, data: { issues: [], issueCount: 0 }, display: { type: "issue-list", items: [] } });
   });
 
   it("contributes no post-processor when JIRA_SITE_URL is absent", () => {

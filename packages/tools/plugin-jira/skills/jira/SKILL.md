@@ -13,7 +13,7 @@ HOW THE CLI PRINTS (read this first):
   Extra fields go under `issues.fields.` (e.g. `issues.fields.assignee.displayName`, `issues.fields.duedate`, `issues.fields.priority.name`).
 - One issue: `jira issue get KAN-4 --select key,fields.summary,fields.status.name,fields.assignee.displayName,browse_url`
 - Transitions available for an issue: `jira issue transitions KAN-4 --select transitions.id,transitions.name`
-- Counting: `--max-results 100 --select issues.key,nextPageToken` and count the keys; if `nextPageToken` is present, there are more: repeat with `--page-token <that value>`.
+- Counting: `--max-results 100 --select issues.key,nextPageToken`. When the result carries `issueCount`, that is the number of issues on this page: use it, never count the keys yourself. If `nextPageToken` is present, there are more: repeat with `--page-token <that value>` and add up each page's `issueCount`.
 - `--select-all` prints everything and is refused above a size cap: use it only for a single small response, never for a search.
 - Some `--help` examples omit `--select`: they fail as written. Always add it.
 

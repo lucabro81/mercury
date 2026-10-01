@@ -96,7 +96,11 @@ describe("createJiraIssueListExtractor", () => {
 
   it("emits an empty issue-list display for an empty issues array, without erroring", () => {
     const result: CliResult = { ok: true, data: { issues: [] } };
-    expect(extract(PARSED, result)).toEqual({ ok: true, data: { issues: [] }, display: { type: "issue-list", items: [] } });
+    expect(extract(PARSED, result)).toEqual({
+      ok: true,
+      data: { issues: [], issueCount: 0 },
+      display: { type: "issue-list", items: [] },
+    });
   });
 
   // #83: `--select` is mandatory, so a search selecting only keys (a count, an
@@ -129,6 +133,32 @@ describe("createJiraIssueListExtractor", () => {
     }
   });
 
+  // #83: a small model asked "how many?" counted 61 keys as 63. The count
+  // comes from the data, so the model reads it instead of counting.
+  it("adds issueCount, the number of issues on this page, whenever the result has an issues array", () => {
+    const cases: [unknown, number][] = [
+      [{ issues: [] }, 0],
+      [{ issues: [{ key: "MER-1" }, { key: "MER-2" }, { key: "MER-3" }], nextPageToken: "t" }, 3],
+      [{ issues: [{ fields: { summary: "s" } }, { fields: { summary: "t" } }] }, 2],
+      [{ issues: ["not an issue"] }, 1],
+      [{ issues: [{ key: "MER-1", fields: { summary: "s" } }, { key: "MER-2", fields: { summary: "t" } }] }, 2],
+    ];
+    for (const [data, count] of cases) {
+      const extracted = extract(PARSED, { ok: true, data });
+      expect(extracted.ok).toBe(true);
+      if (extracted.ok) {
+        expect(extracted.data).toMatchObject(data as object);
+        expect((extracted.data as { issueCount: number }).issueCount).toBe(count);
+      }
+    }
+  });
+
+  it("adds no issueCount when the result has no issues array", () => {
+    const extracted = extract(PARSED, { ok: true, data: {} });
+    expect(extracted.ok).toBe(true);
+    if (extracted.ok) expect(extracted.data).not.toHaveProperty("issueCount");
+  });
+
   it("names the select that both the CLI and the extractor accept for a list", () => {
     expect(JIRA_ISSUE_LIST_SELECT).toBe("issues.key,issues.fields.summary,issues.fields.status.name,nextPageToken");
   });
@@ -141,7 +171,7 @@ describe("createJiraIssueListExtractor", () => {
     const extracted = extract(PARSED, result);
     expect(extracted).toEqual({
       ok: true,
-      data: { issues },
+      data: { issues, issueCount: 1 },
       display: {
         type: "issue-list",
         items: [

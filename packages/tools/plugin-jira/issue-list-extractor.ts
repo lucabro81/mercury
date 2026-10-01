@@ -13,7 +13,8 @@
  * every other result through untouched. `--select` can reshape the JSON into anything, so
  * it classifies defensively: a non-object payload passes through untouched; a
  * payload with no `issues` array, or issues pruned of `key` or `summary`, keeps
- * its data and gets a model-facing `formattedListNote` (no display). `siteUrl` (the team's browsable Jira host) isn't
+ * its data and gets a model-facing `formattedListNote` (no display). Every
+ * result with an `issues` array also gets `issueCount`, that page's length. `siteUrl` (the team's browsable Jira host) isn't
  * derivable from any CLI output, so it's a deployment constant carried in the
  * plugin's config.
  *
@@ -121,7 +122,10 @@ export function createJiraIssueListExtractor(config: IssueListConfig): CliPostPr
       return { ok: true, data: { ...shape.data, formattedListNote: CANNOT_FORMAT_NOTE } };
     }
 
-    const { data, issues } = shape;
+    // The count of this page's issues, so the model reads it instead of
+    // counting a long array itself.
+    const data = { ...shape.data, issueCount: shape.issues.length };
+    const { issues } = shape;
 
     if (issues.length === 0) {
       return { ok: true, data, display: { type: "issue-list", items: [] } };
@@ -137,8 +141,8 @@ export function createJiraIssueListExtractor(config: IssueListConfig): CliPostPr
     }
 
     // Structured records on the user-facing `display` channel; the render
-    // handler (composition) turns them into text. The raw `data` is left as the
-    // model channel, untouched.
+    // handler (composition) turns them into text. The raw `data` stays the
+    // model channel, with only `issueCount` added.
     const items = issues.map((issue) => extractOneIssue(issue, siteUrl));
     return { ok: true, data, display: { type: "issue-list", items } };
   };
