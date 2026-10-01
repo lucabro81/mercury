@@ -279,8 +279,9 @@ function renderPackageJson(
     // the framework the app depends on.
     devDependencies: { "@mercury-fw/cli": `^${cli}`, "@types/bun": "^1.4.0", typescript: "^6.0.3" },
   };
-  if (tools.length > 0) {
-    manifest.trustedDependencies = tools.map((t) => t.package).sort();
+  const trusted = [...new Set([...tools.map((t) => t.package), ...[...channels, ...tools].flatMap((e) => e.trusts ?? [])])];
+  if (trusted.length > 0) {
+    manifest.trustedDependencies = trusted.sort();
   }
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
