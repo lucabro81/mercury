@@ -42,12 +42,12 @@ Channels are enabled by declaring them in `mercury.config.ts`'s `channels` (decl
 
 ## Running it
 
-Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). You operate them with `mfw`, the Mercury CLI, from this folder or any folder under it (`bun install` at the repo root puts it in `node_modules/.bin`); each command below says which `docker compose` call it makes, in case you need to go around it. `bunx mfw --help` lists them all, and the [CLI's README](../cli/README.md) documents each one.
+Two services, both defined in `docker-compose.yml`: `mercury` (the agent itself) and `qdrant` (the vector database backing its episodic memory). You operate them with `mfw`, the Mercury CLI, from this folder or any folder under it (`bun install` at the repo root puts it in `node_modules/.bin`); each command below says which `docker compose` call it makes, in case you need to go around it. `mfw --help` lists them all, and the [CLI's README](../cli/README.md) documents each one.
 
 ### Starting it
 
 ```bash
-bunx mfw start
+mfw start
 ```
 
 Builds whatever changed and starts both services in the background (`docker compose up -d --build`): the command returns immediately, and both containers keep running after you close the terminal.
@@ -59,24 +59,24 @@ In development, `docker-compose.override.yml` is applied automatically on top of
 ### Restarting and rebuilding
 
 ```bash
-bunx mfw restart
+mfw restart
 ```
 
-Rebuilds what changed and recreates both containers even when nothing did: a clean restart. An edited `.env` doesn't need it, `bunx mfw start` already recreates what the change touches.
+Rebuilds what changed and recreates both containers even when nothing did: a clean restart. An edited `.env` doesn't need it, `mfw start` already recreates what the change touches.
 
 ---
 
 CLI binaries are a step further than that: `scripts/install-clis.sh` fetches them once, at image build time, and they're baked into the image from then on. Docker caches that layer by the install script's own content (unchanged), not by whether a new release exists upstream, so a normal rebuild can silently keep serving an old binary. Force a real refetch with `--no-cache` (`docker compose build --no-cache`, then `up -d`):
 
 ```bash
-bunx mfw restart --no-cache
+mfw restart --no-cache
 ```
 
 ### Viewing logs
 
 ```bash
-bunx mfw logs
-bunx mfw logs mercury
+mfw logs
+mfw logs mercury
 ```
 
 Follows every service's logs together, interleaved, or only the one you name (`docker compose logs -f [service]`).
@@ -86,7 +86,7 @@ Follows every service's logs together, interleaved, or only the one you name (`d
 The interactive terminal is a dev command, not part of the running service. It boots a one-off instance and opens the REPL against it (`docker compose run --rm mercury bun run repl`):
 
 ```bash
-bunx mfw repl
+mfw repl
 ```
 
 Type a question and Mercury answers, streaming the response as it generates and showing what tool it called along the way (server-side only, never sent to a chat audience). `/dump` writes the last turn's untruncated tool output to a file when the truncated live view isn't enough. The REPL is identity-less by design, so a debug session never writes to per-user memory. `Ctrl+D` (or `Ctrl+C`) ends it and removes the one-off container, leaving a running service untouched.
@@ -96,7 +96,7 @@ Type a question and Mercury answers, streaming the response as it generates and 
 The REPL goes through Mercury's model loop, not what you want if you're just checking that a raw command works before wiring it into a plugin's allowlist. For that, open a shell in the container:
 
 ```bash
-bunx mfw shell
+mfw shell
 ```
 
 It joins the running container (`docker compose exec mercury bash`), or opens a one-off one if the service isn't up (`docker compose run --rm mercury bash`). The CLI binaries are already on `PATH` (baked in at image build time) and their credentials live in the `cli-credentials` volume mounted at `/home/mercury/.config`, so they behave exactly as they would when Mercury itself calls them. `exit` or `Ctrl+D` leaves the shell; a joined container keeps running.
@@ -104,7 +104,7 @@ It joins the running container (`docker compose exec mercury bash`), or opens a 
 ### Stopping everything
 
 ```bash
-bunx mfw stop
+mfw stop
 ```
 
 Stops and removes both containers (`docker compose down`). The named volumes (wiki vault, Qdrant data, CLI credentials) aren't touched: they survive, and the next start picks up right where it left off. See [Resetting memory](#resetting-memory) for actually wiping one of them.
@@ -114,17 +114,17 @@ Stops and removes both containers (`docker compose down`). The named volumes (wi
 The wiki vault lives on its own Docker volume, not in this repo, so its maintenance runs in a one-off container on that volume:
 
 ```bash
-bunx mfw vault list
-bunx mfw vault read curated/standards/some-file.md
-bunx mfw vault grep "some pattern"
-cat note.md | bunx mfw vault write-curated curated/standards/new-file.md --author yourname
+mfw vault list
+mfw vault read curated/standards/some-file.md
+mfw vault grep "some pattern"
+cat note.md | mfw vault write-curated curated/standards/new-file.md --author yourname
 ```
 
 ### Inspecting Qdrant
 
 ```bash
-bunx mfw memory list
-bunx mfw memory read episodic_memory --limit 10
+mfw memory list
+mfw memory read episodic_memory --limit 10
 ```
 
 `list` prints every collection with its number of points, `read` a collection's points with their payload, newest first where the collection has a timestamp index (episodic memory, the verbatim archive). Read-only. For anything else Qdrant's own REST API is published on `6333` (see `docker-compose.yml`):
@@ -155,7 +155,7 @@ cp .env.example .env
 # fill in .env: OLLAMA_HOST/OLLAMA_MODEL for that host's endpoint, service
 # credentials, COMPOSE_FILE above, CLI credentials below
 bun install
-bunx mfw start
+mfw start
 ```
 
 `mfw` needs Bun and a `bun install` on the host. Without them, `docker compose up -d --build` is what `mfw start` runs.
@@ -163,7 +163,7 @@ bunx mfw start
 ### Redeploying
 
 ```bash
-git pull && bunx mfw restart
+git pull && mfw restart
 ```
 
 Add `--no-cache` to also refetch the CLI binaries. Without Bun on the host: `git pull && docker compose up -d --build`.
@@ -175,9 +175,9 @@ The tool plugins' CLIs (Jira, Bitbucket, atlassian-admin) normally read their au
 On a machine where the CLI is already logged in, `mfw` packs its config folder into that variable:
 
 ```bash
-bunx mfw credentials set jira
-bunx mfw credentials set jira --from /path/to/jira-cli
-bunx mfw credentials set jira --print
+mfw credentials set jira
+mfw credentials set jira --from /path/to/jira-cli
+mfw credentials set jira --print
 ```
 
 The first writes it into this app's `.env` (replacing an older value), the second packs a folder that isn't `~/.config/jira-cli`, the third prints the line instead, to paste into the remote host's `.env`. The value is never printed otherwise.
@@ -185,14 +185,14 @@ The first writes it into this app's `.env` (replacing an older value), the secon
 That "only the first time" check cuts both ways, though: once a CLI's subdirectory exists, even empty or broken from a bad first attempt, the entrypoint never touches it again, silently. Fixing `.env` and redeploying afterward does nothing, since as far as the entrypoint's concerned that CLI's already set up. Clear just that one subdirectory to force a re-materialization on the next start (it asks you to type the plugin's name, since any token the CLI refreshed on the volume goes with it):
 
 ```bash
-bunx mfw credentials reset jira
+mfw credentials reset jira
 ```
 
 ### Resetting memory
 
 ```bash
-bunx mfw reset memory
-bunx mfw reset wiki
+mfw reset memory
+mfw reset wiki
 ```
 
 `memory` deletes every Qdrant collection, `wiki` the whole vault: each wipes its own named volume and brings its service back up on an empty one, useful for clearing out test data without touching the other layer. Both ask you to type the app's name (`mercury`) first, and anything else deletes nothing. After a memory reset a running Mercury is restarted too, since it sets up its Qdrant collections only when it starts.

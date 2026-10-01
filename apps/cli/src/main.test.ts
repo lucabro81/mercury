@@ -4,7 +4,7 @@
  * same answers, and a command line that can't work exits non-zero with a
  * message saying why, writing nothing.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -291,13 +291,47 @@ describe("mfw create with a newer CLI on the registry", () => {
   test("installs the newer one, runs it with the same arguments, writes nothing itself, exits with its code", async () => {
     const dir = join(base, "demo");
     const { calls, relaunch } = scriptedRelaunch({ create: 7 });
-    expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch })).toBe(7);
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await main(["create", dir, "--plugins", "jira", "--yes"], { relaunch, globalInstall: true })).toBe(7);
+      // #104: a stale global CLI also says how to stop being stale.
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([
+        `mfw ${cliVersion()} is behind the registry's ${NEWER}: running ${NEWER} instead.`,
+        "update your mfw: mfw upgrade",
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
     const env = { MFW_SELF_UPDATED: NEWER, NPM_CONFIG_REGISTRY: newerRegistry.url.origin };
     expect(calls).toEqual([
       { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "--version"], env },
       { argv: ["bunx", `@mercury-fw/cli@${NEWER}`, "create", dir, "--plugins", "jira", "--yes"], env },
     ]);
     expect(existsSync(dir)).toBe(false);
+  });
+
+  // #104: run through `bun create` or `bunx`, there's no global mfw to upgrade.
+  test("not a global install: no mfw upgrade hint", async () => {
+    const { relaunch } = scriptedRelaunch();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await main(["create", join(base, "demo"), "--yes"], { relaunch, globalInstall: false });
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([
+        `mfw ${cliVersion()} is behind the registry's ${NEWER}: running ${NEWER} instead.`,
+      ]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  test("the install check runs quietly: only the newer CLI's own run talks", async () => {
+    const quiet: Array<boolean | undefined> = [];
+    const relaunch = async (_argv: string[], _env: Record<string, string>, opts?: { quiet?: boolean }) => {
+      quiet.push(opts?.quiet);
+      return 0;
+    };
+    await main(["create", join(base, "demo"), "--yes"], { relaunch });
+    expect(quiet).toEqual([true, undefined]);
   });
 
   // The newer CLI's own failure (a wizard cancelled, a bad folder) is its
@@ -317,6 +351,53 @@ describe("mfw create with a newer CLI on the registry", () => {
       expect(calls.map((c) => c.argv.at(-1))).toEqual(["--version"]);
       expect(existsSync(join(dir, "package.json"))).toBe(true);
     }
+  });
+
+  // #104: `mfw upgrade` updates the global install to the registry's latest.
+  test("mfw upgrade installs the registry's newer CLI globally, exiting with the install's code", async () => {
+    for (const code of [0, 3]) {
+      const { calls, relaunch } = fakeRelaunch(code);
+      expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(code);
+      expect(calls).toEqual([
+        {
+          argv: ["bun", "add", "-g", `@mercury-fw/cli@${NEWER}`],
+          env: { NPM_CONFIG_REGISTRY: newerRegistry.url.origin },
+        },
+      ]);
+    }
+  });
+
+  test("mfw upgrade with this CLI already the latest: installs nothing, exit 0, says so", async () => {
+    process.env.MFW_REGISTRY = registry.url.origin; // answers an older version for everything
+    const { calls, relaunch } = fakeRelaunch();
+    const logs = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(0);
+      expect(logs.mock.calls.map((c) => c[0])).toEqual([`mfw ${cliVersion()} is the latest.`]);
+    } finally {
+      logs.mockRestore();
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("mfw upgrade says what it upgraded, only when the install worked", async () => {
+    for (const [code, said] of [[0, [`mfw upgraded from ${cliVersion()} to ${NEWER}.`]], [3, []]] as const) {
+      const { relaunch } = fakeRelaunch(code);
+      const logs = spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await main(["upgrade"], { cwd: base, relaunch });
+        expect(logs.mock.calls.map((c) => c[0])).toEqual([...said]);
+      } finally {
+        logs.mockRestore();
+      }
+    }
+  });
+
+  test("mfw upgrade with an unreachable registry: exit 1, installs nothing", async () => {
+    process.env.MFW_REGISTRY = "http://127.0.0.1:9";
+    const { calls, relaunch } = fakeRelaunch();
+    expect(await main(["upgrade"], { cwd: base, relaunch })).toBe(1);
+    expect(calls).toEqual([]);
   });
 
   test("the registry handed to the newer CLI has no trailing slash", async () => {
@@ -341,5 +422,133 @@ describe("mfw create with a newer CLI on the registry", () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toContain("couldn't check for a newer mfw: Can't reach http://127.0.0.1:9");
     expect(existsSync(join(dir, "package.json"))).toBe(true);
+  });
+});
+
+// #104: a global `mfw` runs inside apps made with other framework versions;
+// the app's own CLI (its devDependency) is the one that matches, so the
+// global one hands the command over to it when the versions differ.
+describe("a global mfw inside an app with its own CLI", () => {
+  const saved = process.env.MFW_DEFERRED;
+  beforeEach(() => {
+    delete process.env.MFW_DEFERRED;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.MFW_DEFERRED;
+    else process.env.MFW_DEFERRED = saved;
+  });
+
+  /** An app in `base/my-agent`, its CLI installed at `local` (none when
+   * undefined), plus deps and a relaunch that record what they're asked. */
+  function setup(local: string | undefined) {
+    const dir = join(base, "my-agent");
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "mercury.config.ts"), "");
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "my-agent" }));
+    if (local !== undefined) {
+      mkdirSync(join(dir, "node_modules", "@mercury-fw", "cli"), { recursive: true });
+      writeFileSync(join(dir, "node_modules", "@mercury-fw", "cli", "package.json"), JSON.stringify({ version: local }));
+    }
+    const runs: string[][] = [];
+    const deps: AppDeps = {
+      run: async (argv) => {
+        runs.push(argv);
+        return 0;
+      },
+      capture: async () => "",
+      ask: async () => "",
+      print: () => {},
+      home: "/nonexistent-home",
+    };
+    const relaunches: Array<{ argv: string[]; env: Record<string, string> }> = [];
+    const relaunch = async (argv: string[], env: Record<string, string>) => {
+      relaunches.push({ argv, env });
+      return 5;
+    };
+    return { dir, runs, deps, relaunches, relaunch };
+  }
+
+  test("the app's CLI at another version: runs that one with the same arguments, from a subfolder too", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+    expect(await main(["logs", "mercury"], { cwd: join(dir, "src"), deps, relaunch })).toBe(5);
+    expect(relaunches).toEqual([
+      {
+        argv: ["bun", join(dir, "node_modules", "@mercury-fw", "cli", "src", "bin.ts"), "logs", "mercury"],
+        env: { MFW_DEFERRED: "1" },
+      },
+    ]);
+    expect(runs).toEqual([]);
+  });
+
+  test("says which CLI runs; a newer app CLI is handed over too", async () => {
+    const { dir, deps, relaunches, relaunch } = setup("999.0.0");
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await main(["stop"], { cwd: dir, deps, relaunch });
+      expect(errors.mock.calls.map((c) => c[0])).toEqual([`mfw ${cliVersion()}: running the app's 999.0.0`]);
+    } finally {
+      errors.mockRestore();
+    }
+    expect(relaunches.length).toBe(1);
+  });
+
+  test("an unreadable or versionless app CLI manifest, or an app CLI that won't start: a warning, runs here", async () => {
+    for (const manifest of ["", "{not json", JSON.stringify({ name: "x" })]) {
+      const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+      writeFileSync(join(dir, "node_modules", "@mercury-fw", "cli", "package.json"), manifest);
+      expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+      expect(relaunches).toEqual([]);
+      expect(runs.length).toBe(1);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const { dir, runs, deps } = setup("0.1.0");
+    const broken = async () => {
+      throw new Error("Executable not found in $PATH: \"bun\"");
+    };
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await main(["start"], { cwd: dir, deps, relaunch: broken })).toBe(0);
+      expect(errors.mock.calls.at(-1)?.[0]).toContain("couldn't run the app's mfw");
+    } finally {
+      errors.mockRestore();
+    }
+    expect(runs.length).toBe(1);
+  });
+
+  test("the app's CLI at this same version: runs here", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup(cliVersion());
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs).toEqual([["docker", "compose", "up", "-d", "--build"]]);
+  });
+
+  test("an app not installed yet (no node_modules): runs here", async () => {
+    const { dir, runs, deps, relaunches, relaunch } = setup(undefined);
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs.length).toBe(1);
+  });
+
+  test("already handed over (MFW_DEFERRED): runs here, no loop", async () => {
+    process.env.MFW_DEFERRED = "1";
+    const { dir, runs, deps, relaunches, relaunch } = setup("0.1.0");
+    expect(await main(["start"], { cwd: dir, deps, relaunch })).toBe(0);
+    expect(relaunches).toEqual([]);
+    expect(runs.length).toBe(1);
+  });
+
+  test("create and upgrade are the global CLI's own: never handed over", async () => {
+    const { dir, relaunches, relaunch } = setup("0.1.0");
+    // No registry check in this test (#96's relaunch): it isn't what's tested.
+    const updated = process.env.MFW_SELF_UPDATED;
+    process.env.MFW_SELF_UPDATED = cliVersion();
+    try {
+      await main(["create", join(dir, "nested"), "--yes"], { cwd: dir, relaunch });
+      await main(["upgrade", "--help"], { cwd: dir, relaunch });
+    } finally {
+      if (updated === undefined) delete process.env.MFW_SELF_UPDATED;
+      else process.env.MFW_SELF_UPDATED = updated;
+    }
+    expect(relaunches).toEqual([]);
   });
 });

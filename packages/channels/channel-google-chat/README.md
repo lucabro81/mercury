@@ -45,7 +45,7 @@ Everything goes through `gcloud` except two pages of Cloud Console (steps 6 and 
 
 - a Google Workspace Business or Enterprise account: Chat apps don't exist for personal Gmail accounts;
 - `gcloud` logged in with that account (`gcloud auth login <you@company.com>`), allowed to create projects and link a billing account;
-- the app with its dependencies installed (`bun install`), for `bunx mfw` in step 5.
+- the app with its dependencies installed (`bun install`), for `mfw` in step 5.
 
 ### 1. Name things
 
@@ -108,7 +108,7 @@ A service account takes a few seconds to become visible to the rest of Google Cl
 Then, from the app's folder, write the key and the subscription into its `.env` with the app's own CLI, and delete the key file. The command replaces the lines `mfw create` left empty (or an older key), puts the private key on one line the way the channel reads it, and never prints it:
 
 ```bash
-bunx mfw google-chat set-key key.json --subscription "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}"
+mfw google-chat set-key key.json --subscription "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}"
 rm key.json
 ```
 
@@ -139,10 +139,10 @@ Click **Save**. The field names here come from Google's own Pub/Sub quickstart; 
 
 ### 8. Start and try it
 
-Start the app (`bunx mfw start`) and check that the channel came up without errors:
+Start the app (`mfw start`) and check that the channel came up without errors:
 
 ```bash
-bunx mfw logs mercury
+mfw logs mercury
 ```
 
 `[channel] google-chat started` with no `pubsub stream error` after it means Mercury is pulling from the subscription. Then, in Google Chat, start a new chat and search the app's name (it shows up only for the people and groups in **Visibility**), or add it to a space; write to it and it answers.
@@ -177,7 +177,7 @@ gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
   --role="roles/pubsub.subscriber"
 ```
 
-Then restart the app (`bunx mfw restart`). The messages sent while the subscription was missing are lost, though: Pub/Sub keeps messages only for a subscription that exists.
+Then restart the app (`mfw restart`). The messages sent while the subscription was missing are lost, though: Pub/Sub keeps messages only for a subscription that exists.
 
 If the topic is gone too, redo steps 3 to 5 and, in step 7, paste the new topic in **Connection settings**.
 

@@ -100,7 +100,7 @@ describe("google-chat set-key", () => {
     await appCommands(app, f.deps).googleChatSetKey(keyFile, { subscription: SUBSCRIPTION });
     expect(f.printed).toEqual([
       `GOOGLE_CHAT_APP_CLIENT_EMAIL, GOOGLE_CHAT_APP_PRIVATE_KEY and GOOGLE_CHAT_PUBSUB_SUBSCRIPTION set in ${envFile}, from ${keyFile}.`,
-      `Delete ${keyFile} now, the env file holds the key. bunx mfw start applies it to a running app.`,
+      `Delete ${keyFile} now, the env file holds the key. mfw start applies it to a running app.`,
     ]);
     const all = f.printed.join("\n");
     expect(all).not.toContain("PRIVATE KEY-----");

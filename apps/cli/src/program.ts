@@ -18,6 +18,8 @@ export type AppCommands = ReturnType<typeof appCommands>;
 export type ProgramHandlers = {
   /** `mfw create`; returns the exit code. */
   create: (args: CreateArgs) => Promise<number>;
+  /** `mfw upgrade`; returns the exit code. */
+  upgrade: () => Promise<number>;
   /** The app the app commands act on; throws outside one. */
   app: () => AppCommands;
 };
@@ -72,6 +74,16 @@ Examples:
     )
     .action(async (folder: string, opts: CreateOptions) => {
       result.code = await handlers.create(toCreateArgs(folder, opts));
+    });
+
+  program
+    .command("upgrade")
+    .summary("updates the global mfw")
+    .description(
+      "Installs the registry's latest mfw globally (bun add -g @mercury-fw/cli@<latest>), when it's newer than this one. An app's own framework, its CLI included, is upgraded with bun update in the app.",
+    )
+    .action(async () => {
+      result.code = await handlers.upgrade();
     });
 
   // commander reads --no-cache as "cache: false"; the commands take noCache.

@@ -128,7 +128,7 @@ export function appCommands(app: App, deps: AppDeps) {
       setEnvVar(envFile, variable, value);
       deps.print(`${variable} set in ${envFile}, from ${source}.`);
       deps.print(
-        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run bunx mfw credentials reset ${plugin} first.`,
+        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run mfw credentials reset ${plugin} first.`,
       );
       return 0;
     },
@@ -171,7 +171,7 @@ export function appCommands(app: App, deps: AppDeps) {
           ? "GOOGLE_CHAT_APP_CLIENT_EMAIL and GOOGLE_CHAT_APP_PRIVATE_KEY"
           : "GOOGLE_CHAT_APP_CLIENT_EMAIL, GOOGLE_CHAT_APP_PRIVATE_KEY and GOOGLE_CHAT_PUBSUB_SUBSCRIPTION";
       deps.print(`${written} set in ${envFile}, from ${source}.`);
-      deps.print(`Delete ${source} now, the env file holds the key. bunx mfw start applies it to a running app.`);
+      deps.print(`Delete ${source} now, the env file holds the key. mfw start applies it to a running app.`);
       return 0;
     },
   };
@@ -184,7 +184,7 @@ export function appCommands(app: App, deps: AppDeps) {
     for (const [i, argv] of all.entries()) {
       const code = await deps.run(argv, { cwd: app.dir });
       if (code === 0) continue;
-      if (i > 0) deps.print(`The ${service} service was stopped and not restarted: bunx mfw start brings it back.`);
+      if (i > 0) deps.print(`The ${service} service was stopped and not restarted: mfw start brings it back.`);
       return code;
     }
     return 0;
