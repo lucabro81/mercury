@@ -346,7 +346,7 @@ function renderCompose(name: string, hasTools: boolean): string {
     "      - qdrant",
     "",
     "  qdrant:",
-    "    image: qdrant/qdrant:v1.19.0",
+    "    image: qdrant/qdrant:latest",
     "    volumes:",
     "      - qdrant-data:/qdrant/storage",
     "",

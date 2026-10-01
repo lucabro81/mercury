@@ -8,7 +8,7 @@
 
 # curl/jq are only needed to download the CLI binaries — kept out of the final
 # image so their (currently unpatched) CVEs don't end up in the running container
-FROM oven/bun:1 AS clis
+FROM oven/bun:latest AS clis
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl jq ca-certificates \
   && rm -rf /var/lib/apt/lists/*
@@ -23,7 +23,7 @@ ARG MERCURY_PLUGIN_CLIS=jira,bitbucket,atlassian-admin
 COPY apps/mercury/scripts/install-clis.sh ./scripts/install-clis.sh
 RUN ./scripts/install-clis.sh
 
-FROM oven/bun:1
+FROM oven/bun:latest
 
 # apt upgrade: applies security fixes already published in the Debian repos but
 #   not yet included in the base image at build time
