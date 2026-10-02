@@ -57,7 +57,9 @@ describe("createSemanticFactExtractor", () => {
     const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
     await extract(MESSAGES);
 
-    expect(received?.instructions.toLowerCase()).toMatch(/stabil|ricorrent|preferenz/);
+    expect(received?.instructions.toLowerCase()).toMatch(/stable|recurring/);
+    // Model-facing prompts are written in English.
+    expect(received?.instructions).not.toMatch(/utente|conversazione|restituisci/i);
   });
 
   // Point 5: identity/name is already available directly from a
@@ -74,7 +76,7 @@ describe("createSemanticFactExtractor", () => {
     const extract = createSemanticFactExtractor(MODEL, generateObjectFn);
     await extract(MESSAGES);
 
-    expect(received?.instructions.toLowerCase()).toMatch(/identità|nome/);
+    expect(received?.instructions.toLowerCase()).toMatch(/identity|name/);
   });
 
   // Point 4: index.ts prepends "[Da: <name>]" to every user message before
