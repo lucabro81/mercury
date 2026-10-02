@@ -58,7 +58,7 @@ describe("create", () => {
   test("the folder alone: nothing answered, wizard not skipped", async () => {
     const h = harness();
     expect(await h.run("create", "my-app")).toBe(0);
-    expect(h.calls).toEqual([["create", { dir: "my-app", yes: false }]]);
+    expect(h.calls).toEqual([["create", { dir: "my-app", yes: false, install: true, git: true }]]);
   });
 
   test("every flag", async () => {
@@ -76,6 +76,8 @@ describe("create", () => {
       "http,google-chat",
       "--plugins",
       "jira",
+      "--git-remote",
+      "git@example.com:acme/demo.git",
       "--yes",
     );
     expect(h.calls).toEqual([
@@ -88,7 +90,10 @@ describe("create", () => {
           role: "the release assistant",
           channels: ["http", "google-chat"],
           plugins: ["jira"],
+          gitRemote: "git@example.com:acme/demo.git",
           yes: true,
+          install: true,
+          git: true,
         },
       ],
     ]);
@@ -98,6 +103,12 @@ describe("create", () => {
     const h = harness();
     await h.run("create", "d", "--channels", " http , ", "--plugins", "");
     expect(h.calls[0]?.[1]).toMatchObject({ channels: ["http"], plugins: [] });
+  });
+
+  test("--no-install and --no-git turn the steps after writing off", async () => {
+    const h = harness();
+    await h.run("create", "d", "--no-install", "--no-git");
+    expect(h.calls[0]?.[1]).toMatchObject({ install: false, git: false });
   });
 
   test("-y is --yes", async () => {
