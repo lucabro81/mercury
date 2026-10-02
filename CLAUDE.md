@@ -77,8 +77,9 @@ its own repo and deployed.
 `apps/cli` is the Mercury CLI (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
 the first-party channels and tool plugins, with the framework at the CLI's own
-version and each chosen plugin at its latest on the registry; installing is
-left to the user (`bun install`). Every other command operates an app from
+version and each chosen plugin at its latest on the registry, then runs
+`bun install` and commits the app to a new git repository (`finish.ts`;
+`--no-install`, `--no-git`, `--git-remote`, nothing pushed). Every other command operates an app from
 inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
 `vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`), as `docker compose` calls (or env-file writes); `mfw` is installed
 globally (`bun add -g @mercury-fw/cli`, `mfw upgrade`); an app also gets the CLI as a

@@ -9,13 +9,15 @@ import { CATALOG, type CatalogEntry } from "./catalog.ts";
 import { appNameError } from "./render.ts";
 import type { CreateArgs } from "./args.ts";
 
-/** The answers `renderApp` needs, apart from the package versions. */
+/** The answers `renderApp` needs, apart from the package versions, and the
+ * repository's origin (none when absent). */
 export type Answers = {
   name: string;
   assistantName: string;
   role: string;
   channels: string[];
   plugins: string[];
+  gitRemote?: string;
 };
 
 export const DEFAULT_ASSISTANT_NAME = "Mercury";
@@ -67,6 +69,16 @@ export async function askAnswers(args: CreateArgs, dir: string): Promise<Answers
   if (channels === undefined) return cancelled();
   const plugins = await pick("tool", "Tool plugins (space to select)", args.plugins ?? []);
   if (plugins === undefined) return cancelled();
+  // Asked only when there will be a repository and the flag didn't say.
+  let gitRemote = args.gitRemote;
+  if (args.git && gitRemote === undefined) {
+    const typed = await p.text({
+      message: "Git remote for origin (empty: none, add it later)",
+      validate: (v) => (v?.trim().startsWith("-") ? "That's not a remote: git would read it as an option" : undefined),
+    });
+    if (p.isCancel(typed)) return cancelled();
+    if (typed && typed.trim()) gitRemote = typed.trim();
+  }
 
   p.note(
     [
@@ -74,12 +86,13 @@ export async function askAnswers(args: CreateArgs, dir: string): Promise<Answers
       `Assistant: You are ${assistantName}, ${role}.`,
       `Channels: ${channels.length > 0 ? channels.join(", ") : "none"}`,
       `Tool plugins: ${plugins.length > 0 ? plugins.join(", ") : "none"}`,
+      ...(args.git ? [`Origin: ${gitRemote ?? "none"}`] : []),
     ].join("\n"),
     "Summary",
   );
   const ok = await p.confirm({ message: `Create it in ${dir}?` });
   if (p.isCancel(ok) || !ok) return cancelled();
-  return { name, assistantName, role, channels, plugins };
+  return { name, assistantName, role, channels, plugins, ...(gitRemote !== undefined ? { gitRemote } : {}) };
 }
 
 function cancelled(): undefined {

@@ -33,6 +33,13 @@ afterAll(() => {
   registry.stop(true);
 });
 
+/** A git config with an identity, for the tests' git: never the user's own. */
+let gitConfig: string;
+beforeAll(() => {
+  gitConfig = join(mkdtempSync(join(tmpdir(), "mercury-cli-gitconfig-")), "gitconfig");
+  writeFileSync(gitConfig, "[user]\n\tname = Test\n\temail = test@example.com\n");
+});
+
 let base: string;
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), "mercury-cli-create-"));
@@ -42,13 +49,19 @@ afterEach(() => {
 });
 
 /** Runs the CLI with `args` against the fake registry, returning its exit code
- * and output. Async, so the fake registry in this process can answer it. */
+ * and output. Async, so the fake registry in this process can answer it.
+ * `create` gets `--no-install`: the fake registry can't serve an install. */
 async function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return runWith(registry.url.origin, ...args);
+  return runWith(registry.url.origin, ...args, ...(args[0] === "create" ? ["--no-install"] : []));
 }
 
 /** Runs the CLI with `args` against the registry at `registryUrl`. */
 async function runWith(registryUrl: string, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return runIn(registryUrl, gitConfig, ...args);
+}
+
+/** Runs the CLI with git reading `gitConfigFile` as its global config. */
+async function runIn(registryUrl: string, gitConfigFile: string, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   // stdin closed and a timeout: a run that wrongly reaches the wizard fails
   // instead of hanging the suite.
   const proc = Bun.spawn(["bun", CLI, ...args], {
@@ -56,7 +69,12 @@ async function runWith(registryUrl: string, ...args: string[]): Promise<{ code: 
     stdout: "pipe",
     stderr: "pipe",
     timeout: 10_000,
-    env: { ...process.env, MFW_REGISTRY: registryUrl },
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_(AUTHOR|COMMITTER)_/.test(key))),
+      MFW_REGISTRY: registryUrl,
+      GIT_CONFIG_GLOBAL: gitConfigFile,
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -102,10 +120,12 @@ describe("mfw create --yes", () => {
     const result = await run("create", dir, "--yes");
     expect(result.code).toBe(0);
     expect(result.stdout).toBe(`Created demo in ${dir}
+  git: first commit on main
 
 Next:
   cd ${dir}
   bun install
+  git add bun.lock && git commit -m "Add bun.lock"
   cp .env.example .env    # then fill it in
   mfw start               # bunx mfw start, without a global mfw
 
@@ -178,6 +198,91 @@ describe("mfw create, checks before the wizard", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("is not empty");
     expect(readdirSync(dir)).toEqual(["notes.txt"]);
+  });
+});
+
+/** `git -C dir <args>`'s output, trimmed. */
+async function git(dir: string, ...args: string[]): Promise<string> {
+  const proc = Bun.spawn(["git", "-C", dir, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_CONFIG_GLOBAL: gitConfig } });
+  return (await new Response(proc.stdout).text()).trim();
+}
+
+// #103: the scaffold creates the repository the app is pushed from.
+describe("mfw create, the repository", () => {
+  test("a repository on main with one commit holding every written file, and the origin as typed", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--channels", "http", "--plugins", "jira", "--git-remote", "git@example.com:acme/demo.git", "--yes");
+    expect(result.code).toBe(0);
+    expect(await git(dir, "branch", "--show-current")).toBe("main");
+    expect(await git(dir, "log", "--format=%B")).toBe(`Scaffold with mfw create ${cliVersion()}\n\nChannels: http\nPlugins: jira`);
+    expect(await git(dir, "rev-list", "--count", "HEAD")).toBe("1");
+    expect(await git(dir, "status", "--porcelain")).toBe("");
+    const written = renderApp({ name: "demo", assistantName: "Mercury", role: "an internal assistant", channels: ["http"], plugins: ["jira"], versions });
+    expect((await git(dir, "ls-files")).split("\n").sort()).toEqual([...written.keys()].sort());
+    expect(await git(dir, "remote", "get-url", "origin")).toBe("git@example.com:acme/demo.git");
+    expect(result.stdout).toContain("  origin: git@example.com:acme/demo.git\n");
+    expect(result.stdout).toContain("  git push -u origin main\n");
+  });
+
+  test("no remote given: no origin, no push", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--yes");
+    expect(await git(dir, "remote")).toBe("");
+    expect(result.stdout).not.toContain("git push");
+  });
+
+  test("--no-git: no repository", async () => {
+    const dir = join(base, "demo");
+    expect((await run("create", dir, "--no-git", "--yes")).code).toBe(0);
+    expect(existsSync(join(dir, ".git"))).toBe(false);
+  });
+
+  test("--git-remote with --no-git exits 1, writing nothing", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--no-git", "--git-remote", "x", "--yes");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--git-remote needs the repository: drop --no-git");
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("inside a repository already: no nested one, and it says why", async () => {
+    await git(base, "init", "-q");
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--yes");
+    expect(result.code).toBe(0);
+    expect(existsSync(join(dir, ".git"))).toBe(false);
+    expect(result.stdout).toContain("  git: skipped, the folder is already inside a git repository\n");
+  });
+
+  // #103 review: git decides whether it can commit; its refusal is reported
+  // with the commands to finish by hand, the app stays written.
+  test("git refusing the commit (no identity): its own words, and the commands to finish", async () => {
+    const noIdentity = join(base, "no-identity-gitconfig");
+    writeFileSync(noIdentity, "[user]\n\tuseConfigOnly = true\n");
+    const dir = join(base, "demo");
+    const result = await runIn(registry.url.origin, noIdentity, "create", dir, "--no-install", "--git-remote", "git@example.com:acme/demo.git", "--yes");
+    expect(result.code).toBe(0);
+    expect(existsSync(join(dir, "mercury.config.ts"))).toBe(true);
+    expect(result.stdout).toMatch(/  git: failed \(git commit: [^\n]*(email|identity)/);
+    expect(result.stdout).toContain(`  git commit -m "Scaffold with mfw create"
+  git remote add origin git@example.com:acme/demo.git
+`);
+    expect(result.stdout).not.toContain("git push");
+  });
+
+  test("an empty --git-remote means none", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--git-remote", " ", "--yes");
+    expect(result.code).toBe(0);
+    expect(await git(dir, "remote")).toBe("");
+  });
+
+  test("a --git-remote starting with - exits 1 before writing anything (git would read it as an option)", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--git-remote=--upload-pack=x", "--yes");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('--git-remote "--upload-pack=x" isn\'t a remote');
+    expect(existsSync(dir)).toBe(false);
   });
 });
 
@@ -366,7 +471,7 @@ describe("mfw create with a newer CLI on the registry", () => {
     for (const install of [1, "throw"] as const) {
       const dir = join(base, `demo-${install}`);
       const { calls, relaunch } = scriptedRelaunch({ install });
-      expect(await main(["create", dir, "--yes"], { relaunch })).toBe(0);
+      expect(await main(["create", dir, "--no-install", "--no-git", "--yes"], { relaunch })).toBe(0);
       expect(calls.map((c) => c.argv.at(-1))).toEqual(["--version"]);
       expect(existsSync(join(dir, "package.json"))).toBe(true);
     }

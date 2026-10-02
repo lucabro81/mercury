@@ -15,7 +15,13 @@ export type CreateArgs = {
   role?: string;
   channels?: string[];
   plugins?: string[];
+  /** The repository's origin, taken as typed. */
+  gitRemote?: string;
   yes: boolean;
+  /** Run `bun install` after writing (`--no-install` turns it off). */
+  install: boolean;
+  /** Create the repository with a first commit (`--no-git` turns it off). */
+  git: boolean;
 };
 
 /** `create`'s options as commander hands them over. */
@@ -25,7 +31,10 @@ export type CreateOptions = {
   role?: string;
   channels?: string;
   plugins?: string;
+  gitRemote?: string;
   yes?: boolean;
+  install?: boolean;
+  git?: boolean;
 };
 
 /** A comma-separated list, trimmed, empty items dropped. */
@@ -37,11 +46,13 @@ const list = (value: string): string[] =>
 
 /** The answers in `folder` and `opts`, with only what was actually given. */
 export function toCreateArgs(folder: string, opts: CreateOptions): CreateArgs {
-  const args: CreateArgs = { dir: folder, yes: opts.yes ?? false };
+  const args: CreateArgs = { dir: folder, yes: opts.yes ?? false, install: opts.install ?? true, git: opts.git ?? true };
   if (opts.name !== undefined) args.name = opts.name;
   if (opts.assistantName !== undefined) args.assistantName = opts.assistantName;
   if (opts.role !== undefined) args.role = opts.role;
   if (opts.channels !== undefined) args.channels = list(opts.channels);
   if (opts.plugins !== undefined) args.plugins = list(opts.plugins);
+  // Blank is none, as in the wizard.
+  if (opts.gitRemote !== undefined && opts.gitRemote.trim() !== "") args.gitRemote = opts.gitRemote.trim();
   return args;
 }

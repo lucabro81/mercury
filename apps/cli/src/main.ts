@@ -1,7 +1,7 @@
 /**
  * The `mfw` command. `create <folder>` writes a new Mercury app from the
  * template, asking what to put in it (or taking the answers from flags with
- * `--yes`); `bun install` in the new app is left to the user. The other
+ * `--yes`), then installs it and commits it to a new repository (`finish.ts`). The other
  * commands operate an existing app from inside its folder (see
  * `app/commands.ts`). The command line itself is declared in `program.ts`.
  */
@@ -16,6 +16,7 @@ import { appVersions, cliVersion, newerCli, registryFrom } from "./versions.ts";
 import { appCommands, terminalDeps, type AppDeps } from "./app/commands.ts";
 import { findApp, type App } from "./app/find-app.ts";
 import { askAnswers, DEFAULT_ASSISTANT_NAME, DEFAULT_ROLE, type Answers } from "./wizard.ts";
+import { finishApp, finishMessage, spawnRun, type Run } from "./finish.ts";
 import { targetError, writeApp } from "./write.ts";
 
 /** The answers taken from the flags alone, defaults for the rest. */
@@ -26,6 +27,7 @@ function answersFromFlags(args: CreateArgs, defaultName: string): Answers {
     role: args.role ?? DEFAULT_ROLE,
     channels: args.channels ?? [],
     plugins: args.plugins ?? [],
+    ...(args.gitRemote !== undefined ? { gitRemote: args.gitRemote } : {}),
   };
 }
 
@@ -90,9 +92,18 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch, globalInst
   return relaunch(["bunx", cli, "create", ...rawArgs], env);
 }
 
+/** What's wrong with `--git-remote`, or undefined. It's taken as typed, but
+ * one starting with "-" would reach git as an option. */
+function remoteError(args: CreateArgs): string | undefined {
+  if (args.gitRemote === undefined) return undefined;
+  if (!args.git) return "--git-remote needs the repository: drop --no-git";
+  if (args.gitRemote.startsWith("-")) return `--git-remote "${args.gitRemote}" isn't a remote`;
+  return undefined;
+}
+
 /** `mfw create`: returns the exit code. `rawArgs` are the arguments after
  * `create` as typed, for a relaunch. */
-async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, globalInstall: boolean): Promise<number> {
+async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, globalInstall: boolean, run: Run): Promise<number> {
   const relaunched = await relaunchIfStale(rawArgs, relaunch, globalInstall);
   if (relaunched !== undefined) return relaunched;
   // The folder is created in kebab case, only its own name: the parent path is
@@ -105,7 +116,10 @@ async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, g
   const dir = join(dirname(typed), folder);
   // What the command line already settles is checked before any question, so
   // the wizard is never answered for nothing.
-  const early = targetError(dir) ?? selectionError(args.channels ?? [], args.plugins ?? []);
+  const early =
+    targetError(dir) ??
+    selectionError(args.channels ?? [], args.plugins ?? []) ??
+    remoteError(args);
   if (early !== undefined) {
     throw new Error(early);
   }
@@ -118,16 +132,21 @@ async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, g
   ).map((e) => e.package);
   const versions = await appVersions(chosen, { registry: registryFrom(process.env.MFW_REGISTRY) });
   writeApp(dir, renderApp({ ...answers, versions }));
-  console.log(`Created ${answers.name} in ${dir}
-
-Next:
-  cd ${dir}
-  bun install
-  cp .env.example .env    # then fill it in
-  mfw start               # bunx mfw start, without a global mfw
-
-Optional, to have mfw everywhere:
-  bun add -g @mercury-fw/cli`);
+  const none = (ids: string[]) => (ids.length > 0 ? ids.join(", ") : "none");
+  const report = await finishApp(
+    dir,
+    {
+      install: args.install,
+      git: args.git,
+      ...(answers.gitRemote !== undefined ? { remote: answers.gitRemote } : {}),
+      commitMessage: [
+        `Scaffold with mfw create ${cliVersion()}`,
+        `Channels: ${none(answers.channels)}\nPlugins: ${none(answers.plugins)}`,
+      ],
+    },
+    run,
+  );
+  process.stdout.write(finishMessage({ name: answers.name, dir, remote: answers.gitRemote, report }));
   return 0;
 }
 
@@ -203,13 +222,14 @@ export async function main(
     deps,
     relaunch = spawnRelaunch,
     globalInstall = isGlobalInstall(),
-  }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch; globalInstall?: boolean } = {},
+    run = spawnRun,
+  }: { cwd?: string; deps?: AppDeps; relaunch?: Relaunch; globalInstall?: boolean; run?: Run } = {},
 ): Promise<number> {
   const handedOver = await handOverToAppCli(argv, cwd, relaunch);
   if (handedOver !== undefined) return handedOver;
   const rawCreateArgs = argv.slice(argv.indexOf("create") + 1);
   return runProgram(argv, {
-    create: (args) => create(args, rawCreateArgs, relaunch, globalInstall),
+    create: (args) => create(args, rawCreateArgs, relaunch, globalInstall, run),
     upgrade: () => upgrade(relaunch),
     app: () => appCommands(findApp(cwd), deps ?? terminalDeps()),
   });
