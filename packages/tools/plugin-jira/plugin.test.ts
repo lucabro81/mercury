@@ -49,6 +49,12 @@ describe("jiraPlugin", () => {
       expect(body).not.toContain("curated/standards");
     });
 
+    // #120: jira 0.8.1 fixed its --help examples; a warning that they omit
+    // --select would now tell the model something false.
+    it("doesn't warn that the --help examples omit --select", () => {
+      expect(body).not.toMatch(/--help` examples omit/);
+    });
+
     it("puts --select on every example of a command that requires it", () => {
       const examples = [...body.matchAll(/`(jira issue (?:search|get|transitions)\b[^`]*)`/g)].map((m) => m[1]!);
       expect(examples.length).toBeGreaterThanOrEqual(3);
