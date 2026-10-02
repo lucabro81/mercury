@@ -190,10 +190,14 @@ ${TAIL}
     expect(message({ install: "done", git: { skipped: INSIDE_A_REPOSITORY }, remote: "off" })).not.toContain("origin");
   });
 
-  test("a failed origin: says why, gives the command, no push", () => {
+  test("a failed origin: says why, gives the command next to the other git steps, no push", () => {
     const text = message({ install: "done", git: "done", remote: { failed: "error: nope" } }, "bad");
     expect(text).toContain("  origin: failed (error: nope)\n");
-    expect(text).toContain("  git remote add origin bad\n");
+    expect(text).toContain(`Next:
+  cd ${DIR}
+  git remote add origin bad
+${TAIL}
+`);
     expect(text).not.toContain("git push");
   });
 });

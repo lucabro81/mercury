@@ -215,8 +215,10 @@ describe("mfw create, the repository", () => {
     expect(result.code).toBe(0);
     expect(await git(dir, "branch", "--show-current")).toBe("main");
     expect(await git(dir, "log", "--format=%B")).toBe(`Scaffold with mfw create ${cliVersion()}\n\nChannels: http\nPlugins: jira`);
+    expect(await git(dir, "rev-list", "--count", "HEAD")).toBe("1");
     expect(await git(dir, "status", "--porcelain")).toBe("");
-    expect((await git(dir, "ls-files")).split("\n")).toContain("mercury.config.ts");
+    const written = renderApp({ name: "demo", assistantName: "Mercury", role: "an internal assistant", channels: ["http"], plugins: ["jira"], versions });
+    expect((await git(dir, "ls-files")).split("\n").sort()).toEqual([...written.keys()].sort());
     expect(await git(dir, "remote", "get-url", "origin")).toBe("git@example.com:acme/demo.git");
     expect(result.stdout).toContain("  origin: git@example.com:acme/demo.git\n");
     expect(result.stdout).toContain("  git push -u origin main\n");

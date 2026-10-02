@@ -127,13 +127,12 @@ export function finishMessage(app: { name: string; dir: string; remote?: string;
   if (byHand) {
     next.push("git init -b main", "git add -A", 'git commit -m "Scaffold with mfw create"');
     if (app.remote !== undefined) next.push(`git remote add origin ${app.remote}`);
-  } else if (report.install !== "done" && report.git === "done") {
-    next.push('git add bun.lock && git commit -m "Add bun.lock"');
+  } else if (report.git === "done") {
+    if (report.install !== "done") next.push('git add bun.lock && git commit -m "Add bun.lock"');
+    if (app.remote !== undefined && report.remote !== "done") next.push(`git remote add origin ${app.remote}`);
   }
   next.push("cp .env.example .env    # then fill it in", "mfw start               # bunx mfw start, without a global mfw");
-  if (report.git === "done" && app.remote !== undefined) {
-    next.push(report.remote === "done" ? "git push -u origin main" : `git remote add origin ${app.remote}`);
-  }
+  if (report.git === "done" && report.remote === "done") next.push("git push -u origin main");
 
   return `Created ${app.name} in ${app.dir}
 ${status.join("")}
