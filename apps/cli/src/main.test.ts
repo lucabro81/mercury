@@ -95,6 +95,25 @@ describe("mfw create --yes", () => {
     expect(result.stdout).toContain(dir);
   });
 
+  // #115: an app created with `bun create mercury-agent` has no global mfw,
+  // and the message told it to run `mfw start` anyway: command not found.
+  test("prints the next steps, with bunx for an app without a global mfw and the global install as optional", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--yes");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(`Created demo in ${dir}
+
+Next:
+  cd ${dir}
+  bun install
+  cp .env.example .env    # then fill it in
+  mfw start               # bunx mfw start, without a global mfw
+
+Optional, to have mfw everywhere:
+  bun add -g @mercury-fw/cli
+`);
+  });
+
   test("an unreachable registry exits 1 saying so, writing nothing", async () => {
     const dir = join(base, "demo");
     const result = await runWith("http://127.0.0.1:9", "create", dir, "--plugins", "jira", "--yes");
