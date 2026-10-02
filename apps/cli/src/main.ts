@@ -124,7 +124,10 @@ Next:
   cd ${dir}
   bun install
   cp .env.example .env    # then fill it in
-  mfw start`);
+  mfw start               # bunx mfw start, without a global mfw
+
+Optional, to have mfw everywhere:
+  bun add -g @mercury-fw/cli`);
   return 0;
 }
 
