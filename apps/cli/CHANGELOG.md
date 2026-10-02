@@ -1,5 +1,12 @@
 # @mercury-fw/cli
 
+## 0.29.2
+
+### Patch Changes
+
+- cc31536: - `mfw create` ends by saying that, without a global `mfw`, the app's commands run as `bunx mfw <command>`, and lists the global install as an optional step.
+  - @mercury-fw/core@0.29.2
+
 ## 0.29.1
 
 ### Patch Changes
