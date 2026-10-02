@@ -1,5 +1,12 @@
 # @mercury-fw/plugin-jira
 
+## 0.2.1
+
+### Patch Changes
+
+- 0c85d4a: - Installs jira CLI 0.8.1, whose `--help` examples all carry `--select`.
+  - The skill no longer warns that the `--help` examples omit `--select`.
+
 ## 0.2.0
 
 ### Minor Changes
