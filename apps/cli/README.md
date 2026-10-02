@@ -44,9 +44,12 @@ Writes a new Mercury app into `<folder>`, which has to be missing or empty; the 
 
 - the app name (the `name` in `package.json`, defaulting to the folder's);
 - the assistant's name and role, which become `persona/identity.md` ("You are Hermes, the platform team's release assistant.") next to a `persona/tone.md` to edit;
-- which channels and which tool plugins to include (none is fine: the REPL always works).
+- which channels and which tool plugins to include (none is fine: the REPL always works);
+- the git remote for `origin`, which you can leave empty (most of the time it doesn't exist yet when you scaffold).
 
-It writes the `mercury.config.ts` for that selection, the persona, the service and REPL entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. A plugin that hands over lists comes wrapped in the formatter with a starting rule, yours to change. Nothing is installed: run `bun install` in the new app.
+It writes the `mercury.config.ts` for that selection, the persona, the service and REPL entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. A plugin that hands over lists comes wrapped in the formatter with a starting rule, yours to change.
+
+Then it runs `bun install` in the app and creates a git repository on `main` with a first commit (`bun.lock` included), adding `origin` when you gave one; nothing is pushed. Each step is best effort and never undoes the ones before it: an install that fails still leaves the app committed, without the lockfile, and the closing message says what to run. The repository is skipped, saying why, when `git` isn't installed, when the folder is already inside a repository (an app created in a monorepo belongs to it), or when git has no `user.name`/`user.email`.
 
 | Flag | |
 |---|---|
@@ -55,6 +58,9 @@ It writes the `mercury.config.ts` for that selection, the persona, the service a
 | `--role <text>` | Completes "You are <name>, …" (default `an internal assistant`). |
 | `--channels <ids>` | Comma-separated: `google-chat`, `http`. |
 | `--plugins <ids>` | Comma-separated: `jira`, `bitbucket`, `atlassian-admin`. |
+| `--git-remote <url>` | The repository's `origin`, taken as typed. |
+| `--no-install` | Don't run `bun install`. |
+| `--no-git` | Don't create the repository. |
 | `-y`, `--yes` | No questions: the flags, and the defaults for the rest. |
 
 ```bash

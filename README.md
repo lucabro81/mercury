@@ -25,12 +25,11 @@ You need Bun, Docker and an Ollama-compatible endpoint the containers can reach.
 bun add -g @mercury-fw/cli
 mfw create my-agent
 cd my-agent
-bun install
 cp .env.example .env
 mfw start
 ```
 
-`mfw` is Mercury's command-line tool, installed once (`mfw upgrade` keeps it current). Without a global install, `bun create mercury-agent my-agent` does the same scaffolding and `bunx mfw <command>` runs the rest. `mfw create` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
+`mfw` is Mercury's command-line tool, installed once (`mfw upgrade` keeps it current). Without a global install, `bun create mercury-agent my-agent` does the same scaffolding and `bunx mfw <command>` runs the rest. `mfw create` asks for the app's name, the assistant's name and role, which channels and which tool plugins to include, then writes an app with exactly that: the config, the persona, the two entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. It installs the app and commits it to a new git repository (adding `origin` if you give one, never pushing). Fill in `.env` (at least `OLLAMA_HOST` and `OLLAMA_MODEL`) before starting it.
 
 The service is headless (channels and background jobs); to talk to the agent from a terminal, open the dev REPL:
 
