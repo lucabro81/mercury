@@ -35,6 +35,7 @@ channels: [googleChatChannel],
   - [6. Configure the consent screen (Cloud Console)](#6-configure-the-consent-screen-cloud-console)
   - [7. Configure the Chat app (Cloud Console)](#7-configure-the-chat-app-cloud-console)
   - [8. Start and try it](#8-start-and-try-it)
+- [Connecting an app to an existing Chat app](#connecting-an-app-to-an-existing-chat-app)
 - [When the subscription disappears](#when-the-subscription-disappears)
 
 ## Setting up the Chat app
@@ -100,7 +101,7 @@ gcloud pubsub subscriptions add-iam-policy-binding "$SUBSCRIPTION" \
   --project="$PROJECT_ID" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/pubsub.subscriber"
-gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL"
+gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL" --project="$PROJECT_ID"
 ```
 
 A service account takes a few seconds to become visible to the rest of Google Cloud: if the binding fails saying the account doesn't exist, wait a moment and run it again.
@@ -146,6 +147,42 @@ mfw logs mercury
 ```
 
 `[channel] google-chat started` with no `pubsub stream error` after it means Mercury is pulling from the subscription. Then, in Google Chat, start a new chat and search the app's name (it shows up only for the people and groups in **Visibility**), or add it to a space; write to it and it answers.
+
+## Connecting an app to an existing Chat app
+
+When the Chat app is already set up and the Mercury instance behind it changes (the app scaffolded again, or moved to another machine), the new app only needs a key of the service account and the subscription's name in its `.env`. It replaces the old instance, it doesn't run next to it: stop the old one first, two instances on one subscription split the conversations between them.
+
+If you don't have the project's id at hand, `gcloud projects list` shows it; then the service account and the subscription:
+
+```bash
+PROJECT_ID=<the project's id>
+gcloud iam service-accounts list --project="$PROJECT_ID"
+gcloud pubsub subscriptions list --project="$PROJECT_ID" --format="value(name)"
+```
+
+```bash
+SA_EMAIL=<the EMAIL column of the service account Mercury runs as>
+SUBSCRIPTION=<the part after subscriptions/>
+```
+
+Then, from the new app's folder, create a key, write it into the `.env` with the subscription, and delete the key file:
+
+```bash
+gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL" --project="$PROJECT_ID"
+mfw google-chat set-key key.json --subscription "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}"
+rm key.json
+```
+
+The old instance's key stays valid until you delete it, and a service account holds at most 10 keys, after which `keys create` fails. List them and delete the ones no instance uses anymore:
+
+```bash
+gcloud iam service-accounts keys list --iam-account="$SA_EMAIL" --project="$PROJECT_ID" --managed-by=user
+gcloud iam service-accounts keys delete <KEY_ID> --iam-account="$SA_EMAIL" --project="$PROJECT_ID"
+```
+
+The key the new app uses is the one with the latest `CREATED_AT`.
+
+Start it and check it as in [step 8](#8-start-and-try-it).
 
 ## When the subscription disappears
 
