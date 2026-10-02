@@ -1,5 +1,12 @@
 # mercury
 
+## 0.24.15
+
+### Patch Changes
+
+- Updated dependencies [5e09c69]
+  - @mercury-fw/channel-google-chat@0.1.3
+
 ## 0.24.14
 
 ### Patch Changes
