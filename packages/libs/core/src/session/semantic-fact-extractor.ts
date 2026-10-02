@@ -34,13 +34,12 @@ type GenerateObjectFn = (params: {
 }) => Promise<{ object: SemanticFact[] }>;
 
 const SYSTEM_PROMPT =
-  "Estrai fatti stabili e ricorrenti sull'utente da questa conversazione, scegliendo il topic " +
-  'esclusivamente tra questi quattro: "team", "role" (ruolo), "preferred-language" (lingua ' +
-  'preferita), "tools-used" (strumenti usati). Ogni fatto è una coppia {topic, value}: "value" è ' +
-  "quanto dichiarato o chiaramente implicato per quel topic. Non estrarre l'identità o il nome " +
-  "dell'utente — Mercury lo traccia già separatamente, non va incluso qui. Non estrarre dettagli " +
-  "specifici di un singolo task, validi solo per questa sessione — solo cose plausibilmente vere " +
-  "anche in futuro. Restituisci un array vuoto se non c'è nulla che qualifica tra i topic ammessi.";
+  "Extract stable, recurring facts about the user from this conversation, choosing the topic only " +
+  'among these four: "team", "role", "preferred-language", "tools-used". Each fact is a {topic, value} ' +
+  'pair: "value" is what was stated or clearly implied for that topic. Don\'t extract the user\'s ' +
+  "identity or name: Mercury already tracks it separately. Don't extract details of a single task that " +
+  "only hold for this session, only things plausibly still true later. Return an empty array if nothing " +
+  "qualifies under the allowed topics.";
 
 // index.ts prepends this to every user message before it reaches history,
 // so the model knows who it's talking to within a turn — bookkeeping

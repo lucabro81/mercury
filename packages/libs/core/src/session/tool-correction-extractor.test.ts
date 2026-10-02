@@ -47,6 +47,31 @@ describe("createToolCorrectionExtractor", () => {
     expect(receivedPrompt).toContain('jira issue search --jql "x" --select issues.key');
   });
 
+  // #112: the topic came back with the CLI's name in it about half the time
+  // ("jira-select-flag" next to "select-flag"), and the note's file is
+  // `<tool>-<topic>.md`: one rule, two files, one of them "jira-jira-…".
+  it("asks, in English, for a topic naming the flag or subcommand, without the CLI's name", async () => {
+    const steps: StepInfo[] = [
+      step([runCommandCall("1", "jira issue search --fields x")], [runCommandResult("1", { ok: false, error: "boom" })]),
+      step([runCommandCall("2", "jira issue search --select x")], [runCommandResult("2", { ok: true, data: {} })]),
+    ];
+    let received: { instructions: string; prompt: string } | undefined;
+    const generateObjectFn = async (params: { instructions: string; prompt: string }) => {
+      received = params;
+      return { object: [] };
+    };
+
+    await createToolCorrectionExtractor(MODEL, generateObjectFn)(steps);
+
+    expect(received?.instructions).toContain(
+      '"topic" is a short, stable key for this correction: the name of the flag or subcommand it is about, in kebab-case, ' +
+        'without the tool\'s name (the tool is already known: "select-flag", not "jira-select-flag"); ' +
+        "a correction about the same flag as another one gets the same key.",
+    );
+    expect(received?.prompt).toBe("Failed command: jira issue search --fields x\nError: boom\nCorrected command (succeeded): jira issue search --select x");
+    expect(`${received?.instructions} ${received?.prompt}`).not.toMatch(/comando|restituisci|correzione/i);
+  });
+
   it("does not pair a failure with a success from a different binary", async () => {
     const steps: StepInfo[] = [
       step([runCommandCall("1", "jira issue search --jql x")], [runCommandResult("1", { ok: false, error: "e" })]),

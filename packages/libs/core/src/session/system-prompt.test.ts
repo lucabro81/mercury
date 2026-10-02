@@ -57,6 +57,30 @@ describe("buildSystemPrompt", () => {
   });
 });
 
+// #112: the wiki block told the model to prefer a new file over updating an
+// existing one, and to write down command patterns; every failed search left
+// a new note under a slightly different name in curated/.
+describe("buildSystemPrompt wiki writing rules", () => {
+  const prompt = buildSystemPrompt({ pluginFragments: [], skills: [], multiUserChannel: false });
+
+  it("asks to look for an existing document and update it before creating a new one", () => {
+    expect(prompt).toContain(
+      "- If you learn something worth remembering (a correction from the user, a new convention, how this team uses a tool), " +
+        "first grep the wiki for a document on the same topic: if there is one, read it and update it with write_file; " +
+        "create a new, clearly-named file only when nothing covers it.",
+    );
+    expect(prompt).not.toContain("prefer creating a new, clearly-named file");
+  });
+
+  it("forbids notes that restate a CLI's syntax", () => {
+    expect(prompt).toContain(
+      "- DON'T write a wiki document restating a CLI's syntax or flags — a plugin's skill and --help are the source for those, " +
+        "and a note written after a failed attempt ends up contradicting them.",
+    );
+    expect(prompt).not.toContain("a useful command pattern");
+  });
+});
+
 /**
  * The persona is the instance's: its identity replaces the opening line and its
  * tone replaces the closing block, each in the slot the default occupies, and

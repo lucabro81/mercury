@@ -30,14 +30,17 @@ type GenerateObjectFn = (params: {
   prompt: string;
 }) => Promise<{ object: z.infer<typeof ProceduralCorrectionCandidateSchema>[] }>;
 
+// The note's file is `<tool>-<topic>.md`, so the tool's name in the topic
+// doubles it, and two wordings of one rule make two files (#112).
 const SYSTEM_PROMPT =
-  "Ti viene mostrato un tentativo di comando fallito e uno, per lo stesso strumento, andato a buon " +
-  "fine più tardi nello stesso turno di conversazione. Descrivi la correzione appresa come una coppia " +
-  '{topic, value}: "topic" è una chiave breve e stabile per questa specifica correzione (es. ' +
-  '"select-prefix", "assignee-operator"), "value" è la regola pratica da ricordare, in una frase, utile ' +
-  "per chiunque userà questo comando in futuro — non solo per chi l'ha scoperta ora. Se il secondo " +
-  "tentativo non è davvero una correzione dell'errore del primo (es. l'utente ha semplicemente cambiato " +
-  "richiesta), restituisci un array vuoto.";
+  "You are shown a command attempt that failed and a later one, for the same tool, that succeeded in " +
+  "the same conversation turn. Describe the correction learned as a {topic, value} pair. " +
+  '"topic" is a short, stable key for this correction: the name of the flag or subcommand it is about, ' +
+  "in kebab-case, without the tool's name (the tool is already known: \"select-flag\", not " +
+  '"jira-select-flag"); a correction about the same flag as another one gets the same key. ' +
+  '"value" is the practical rule to remember, in one sentence, useful to anyone who runs this command ' +
+  "later, not only to whoever found it now. If the second attempt isn't really a correction of the " +
+  "first one's error (e.g. the user simply asked for something else), return an empty array.";
 
 /** Same normalization `semantic-fact-extractor.ts` used to apply to identity/preference topics — still needed here since this topic is free text, not a closed enum (procedural corrections are open-ended by nature). */
 function normalizeTopic(topic: string): string {
@@ -116,9 +119,9 @@ export function createToolCorrectionExtractor(
           schema: ProceduralCorrectionCandidateSchema,
           instructions: SYSTEM_PROMPT,
           prompt:
-            `Comando fallito: ${failed.command}\n` +
-            `Errore: ${failed.error ?? "(nessun messaggio)"}\n` +
-            `Comando corretto (riuscito): ${corrected.command}`,
+            `Failed command: ${failed.command}\n` +
+            `Error: ${failed.error ?? "(no message)"}\n` +
+            `Corrected command (succeeded): ${corrected.command}`,
         });
         for (const candidate of object) {
           corrections.push({ tool: failed.binary, topic: normalizeTopic(candidate.topic), value: candidate.value });
