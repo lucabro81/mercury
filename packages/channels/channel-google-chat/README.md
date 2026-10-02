@@ -157,12 +157,12 @@ If you don't have the project's id at hand, `gcloud projects list` shows it; the
 ```bash
 PROJECT_ID=<the project's id>
 gcloud iam service-accounts list --project="$PROJECT_ID"
-gcloud pubsub subscriptions list --project="$PROJECT_ID"
+gcloud pubsub subscriptions list --project="$PROJECT_ID" --format="value(name)"
 ```
 
 ```bash
 SA_EMAIL=<the EMAIL column of the service account Mercury runs as>
-SUBSCRIPTION=<the last part of the subscription's name>
+SUBSCRIPTION=<the part after subscriptions/>
 ```
 
 Then, from the new app's folder, create a key, write it into the `.env` with the subscription, and delete the key file:
@@ -172,6 +172,15 @@ gcloud iam service-accounts keys create key.json --iam-account="$SA_EMAIL" --pro
 mfw google-chat set-key key.json --subscription "projects/${PROJECT_ID}/subscriptions/${SUBSCRIPTION}"
 rm key.json
 ```
+
+The old instance's key stays valid until you delete it, and a service account holds at most 10 keys, after which `keys create` fails. List them and delete the ones no instance uses anymore:
+
+```bash
+gcloud iam service-accounts keys list --iam-account="$SA_EMAIL" --project="$PROJECT_ID" --managed-by=user
+gcloud iam service-accounts keys delete <KEY_ID> --iam-account="$SA_EMAIL" --project="$PROJECT_ID"
+```
+
+The key the new app uses is the one with the latest `CREATED_AT`.
 
 Start it and check it as in [step 8](#8-start-and-try-it).
 
