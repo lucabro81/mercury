@@ -72,7 +72,10 @@ export async function askAnswers(args: CreateArgs, dir: string): Promise<Answers
   // Asked only when there will be a repository and the flag didn't say.
   let gitRemote = args.gitRemote;
   if (args.git && gitRemote === undefined) {
-    const typed = await p.text({ message: "Git remote for origin (empty: none, add it later)" });
+    const typed = await p.text({
+      message: "Git remote for origin (empty: none, add it later)",
+      validate: (v) => (v?.trim().startsWith("-") ? "That's not a remote: git would read it as an option" : undefined),
+    });
     if (p.isCancel(typed)) return cancelled();
     if (typed && typed.trim()) gitRemote = typed.trim();
   }

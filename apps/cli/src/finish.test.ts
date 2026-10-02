@@ -5,18 +5,19 @@
  * failures without spawning anything; `main.test.ts` runs real git end to end.
  */
 import { describe, expect, test } from "bun:test";
-import { finishApp, finishMessage, type FinishReport, type Run } from "./finish.ts";
+import { finishApp, finishMessage, INSIDE_A_REPOSITORY, type FinishReport, type Run } from "./finish.ts";
 
 const DIR = "/apps/demo";
 const MESSAGE = ["Scaffold with mfw create 1.2.3", "Channels: http\nPlugins: jira"];
 
-/** A runner that records every command and answers from `codes`, keyed by the
- * command line (exit 0 for anything not listed). */
+/** A runner that records every command (`(live)` when its output goes
+ * straight to the terminal) and answers from `codes`, keyed by the command
+ * line (exit 0 for anything not listed). */
 function fakeRun(codes: Record<string, number | { code: number; output: string }> = {}): { run: Run; calls: string[] } {
   const calls: string[] = [];
-  const run: Run = async (argv, cwd) => {
+  const run: Run = async (argv, cwd, opts) => {
     const line = argv.join(" ");
-    calls.push(`${cwd}: ${line}`);
+    calls.push(`${cwd}: ${line}${opts?.live ? " (live)" : ""}`);
     const answer = codes[line] ?? 0;
     return typeof answer === "number" ? { code: answer, output: answer === 0 ? "" : `${argv[0]} failed` } : answer;
   };
@@ -27,16 +28,14 @@ function fakeRun(codes: Record<string, number | { code: number; output: string }
 const OUTSIDE_REPO = { "git rev-parse --is-inside-work-tree": 128 };
 
 describe("finishApp", () => {
-  test("installs, then creates the repository, commits and adds the origin, in this order", async () => {
+  test("installs with its output live, then creates the repository, commits and adds the origin, in this order", async () => {
     const { run, calls } = fakeRun(OUTSIDE_REPO);
     const report = await finishApp(DIR, { install: true, git: true, remote: "git@example.com:acme/demo.git", commitMessage: MESSAGE }, run);
     expect(report).toEqual({ install: "done", git: "done", remote: "done" });
     expect(calls).toEqual([
-      `${DIR}: bun install`,
+      `${DIR}: bun install (live)`,
       `${DIR}: git --version`,
       `${DIR}: git rev-parse --is-inside-work-tree`,
-      `${DIR}: git config user.name`,
-      `${DIR}: git config user.email`,
       `${DIR}: git init -q -b main`,
       `${DIR}: git add -A`,
       `${DIR}: git commit -q -m ${MESSAGE[0]} -m ${MESSAGE[1]}`,
@@ -58,14 +57,14 @@ describe("finishApp", () => {
     expect(calls).toEqual([]);
   });
 
-  test("a failed install still commits the app, without the lockfile", async () => {
-    const { run, calls } = fakeRun({ ...OUTSIDE_REPO, "bun install": { code: 1, output: "error: network down\n" } });
+  test("a failed install, reported by its exit code, still commits the app without the lockfile", async () => {
+    const { run, calls } = fakeRun({ ...OUTSIDE_REPO, "bun install": 1 });
     const report = await finishApp(DIR, { install: true, git: true, commitMessage: MESSAGE }, run);
-    expect(report).toEqual({ install: { failed: "error: network down" }, git: "done", remote: "off" });
+    expect(report).toEqual({ install: { failed: "exit code 1" }, git: "done", remote: "off" });
     expect(calls).toContain(`${DIR}: git commit -q -m ${MESSAGE[0]} -m ${MESSAGE[1]}`);
   });
 
-  test("skips git, saying why, when git isn't installed", async () => {
+  test("skips git, saying why, when git isn't installed; the remote isn't tried", async () => {
     const { run, calls } = fakeRun({ "git --version": 127 });
     const report = await finishApp(DIR, { install: false, git: true, remote: "x", commitMessage: MESSAGE }, run);
     expect(report).toEqual({ install: "off", git: { skipped: "git isn't installed" }, remote: "off" });
@@ -75,17 +74,18 @@ describe("finishApp", () => {
   test("skips git when the folder is already inside a repository", async () => {
     const { run, calls } = fakeRun();
     const report = await finishApp(DIR, { install: false, git: true, commitMessage: MESSAGE }, run);
-    expect(report).toEqual({ install: "off", git: { skipped: "the folder is already inside a git repository" }, remote: "off" });
+    expect(report).toEqual({ install: "off", git: { skipped: INSIDE_A_REPOSITORY }, remote: "off" });
     expect(calls.some((c) => c.includes("git init"))).toBe(false);
   });
 
-  test("skips git when it has no user name or email", async () => {
-    for (const missing of ["git config user.name", "git config user.email"]) {
-      const { run, calls } = fakeRun({ ...OUTSIDE_REPO, [missing]: 1 });
-      const report = await finishApp(DIR, { install: false, git: true, commitMessage: MESSAGE }, run);
-      expect(report.git).toEqual({ skipped: "git has no user.name or user.email set" });
-      expect(calls.some((c) => c.includes("git init"))).toBe(false);
-    }
+  // #103 review: an identity can come from the environment too; git decides,
+  // and its own refusal is what the user reads.
+  test("a refused commit (no identity, a hook) reports git's own words and stops there", async () => {
+    const refusal = "Author identity unknown\n\n*** Please tell me who you are.\n";
+    const { run, calls } = fakeRun({ ...OUTSIDE_REPO, [`git commit -q -m ${MESSAGE[0]} -m ${MESSAGE[1]}`]: { code: 128, output: refusal } });
+    const report = await finishApp(DIR, { install: false, git: true, remote: "x", commitMessage: MESSAGE }, run);
+    expect(report).toEqual({ install: "off", git: { failed: `git commit: ${refusal.trim()}` }, remote: "off" });
+    expect(calls.some((c) => c.includes("remote"))).toBe(false);
   });
 
   test("a failed git step stops the ones after it and says which one", async () => {
@@ -109,6 +109,10 @@ describe("finishMessage", () => {
 Optional, to have mfw everywhere:
   bun add -g @mercury-fw/cli
 `;
+  /** The commands that finish the repository by hand. */
+  const BY_HAND = `  git init -b main
+  git add -A
+  git commit -m "Scaffold with mfw create"`;
   const message = (report: FinishReport, remote?: string) => finishMessage({ name: "demo", dir: DIR, remote, report });
 
   test("everything done: what happened, then the steps left, push included", () => {
@@ -135,7 +139,7 @@ ${OPTIONAL}`);
   });
 
   test("install not run but committed: install, then commit the lockfile", () => {
-    for (const install of ["off", { failed: "error: network down" }] as const) {
+    for (const install of ["off", { failed: "exit code 1" }] as const) {
       const text = message({ install, git: "done", remote: "off" });
       expect(text).toContain(`Next:
   cd ${DIR}
@@ -143,17 +147,47 @@ ${OPTIONAL}`);
   git add bun.lock && git commit -m "Add bun.lock"
 ${TAIL}`);
     }
-    expect(message({ install: { failed: "error: network down" }, git: "done", remote: "off" })).toContain(
-      "  bun install: failed (error: network down)\n",
+    expect(message({ install: { failed: "exit code 1" }, git: "done", remote: "off" })).toContain("  bun install: failed (exit code 1)\n");
+  });
+
+  test("git failed or not installed: says why, then the commands to finish by hand, the origin with them", () => {
+    for (const git of [{ failed: "git commit: Author identity unknown" }, { skipped: "git isn't installed" }]) {
+      const text = message({ install: "done", git, remote: "off" }, "git@example.com:acme/demo.git");
+      expect(text).toContain(`Next:
+  cd ${DIR}
+${BY_HAND}
+  git remote add origin git@example.com:acme/demo.git
+${TAIL}
+`);
+      expect(text).not.toContain("git push");
+    }
+    expect(message({ install: "done", git: { failed: "git commit: Author identity unknown" }, remote: "off" })).toContain(
+      "  git: failed (git commit: Author identity unknown)\n",
+    );
+    expect(message({ install: "done", git: { skipped: "git isn't installed" }, remote: "off" })).toContain(
+      "  git: skipped, git isn't installed\n",
     );
   });
 
-  test("git skipped or failed: says why, no push", () => {
-    const skipped = message({ install: "done", git: { skipped: "git isn't installed" }, remote: "off" }, "x");
-    expect(skipped).toContain("  git: skipped, git isn't installed\n");
-    expect(skipped).not.toContain("git push");
-    const failed = message({ install: "done", git: { failed: "git add -A: fatal: boom" }, remote: "off" });
-    expect(failed).toContain("  git: failed (git add -A: fatal: boom)\n");
+  test("git failed with the install not run: install first, so the commit holds the lockfile", () => {
+    expect(message({ install: "off", git: { skipped: "git isn't installed" }, remote: "off" })).toContain(`Next:
+  cd ${DIR}
+  bun install
+${BY_HAND}
+${TAIL}
+`);
+  });
+
+  test("inside another repository: no commands for git, and a remote given says it wasn't added", () => {
+    const text = message({ install: "done", git: { skipped: INSIDE_A_REPOSITORY }, remote: "off" }, "x");
+    expect(text).toContain(`  git: skipped, ${INSIDE_A_REPOSITORY}
+  origin: not added, the app is in that repository
+`);
+    expect(text).toContain(`Next:
+  cd ${DIR}
+${TAIL}
+`);
+    expect(message({ install: "done", git: { skipped: INSIDE_A_REPOSITORY }, remote: "off" })).not.toContain("origin");
   });
 
   test("a failed origin: says why, gives the command, no push", () => {

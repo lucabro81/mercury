@@ -111,6 +111,12 @@ describe("create", () => {
     expect(h.calls[0]?.[1]).toMatchObject({ install: false, git: false });
   });
 
+  test("a blank --git-remote is no remote", async () => {
+    const h = harness();
+    await h.run("create", "d", "--git-remote", "  ");
+    expect(h.calls[0]?.[1]).not.toHaveProperty("gitRemote");
+  });
+
   test("-y is --yes", async () => {
     const h = harness();
     await h.run("create", "d", "-y");

@@ -92,6 +92,15 @@ async function relaunchIfStale(rawArgs: string[], relaunch: Relaunch, globalInst
   return relaunch(["bunx", cli, "create", ...rawArgs], env);
 }
 
+/** What's wrong with `--git-remote`, or undefined. It's taken as typed, but
+ * one starting with "-" would reach git as an option. */
+function remoteError(args: CreateArgs): string | undefined {
+  if (args.gitRemote === undefined) return undefined;
+  if (!args.git) return "--git-remote needs the repository: drop --no-git";
+  if (args.gitRemote.startsWith("-")) return `--git-remote "${args.gitRemote}" isn't a remote`;
+  return undefined;
+}
+
 /** `mfw create`: returns the exit code. `rawArgs` are the arguments after
  * `create` as typed, for a relaunch. */
 async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, globalInstall: boolean, run: Run): Promise<number> {
@@ -110,7 +119,7 @@ async function create(args: CreateArgs, rawArgs: string[], relaunch: Relaunch, g
   const early =
     targetError(dir) ??
     selectionError(args.channels ?? [], args.plugins ?? []) ??
-    (!args.git && args.gitRemote !== undefined ? "--git-remote needs the repository: drop --no-git" : undefined);
+    remoteError(args);
   if (early !== undefined) {
     throw new Error(early);
   }

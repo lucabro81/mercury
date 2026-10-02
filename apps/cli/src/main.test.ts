@@ -69,7 +69,12 @@ async function runIn(registryUrl: string, gitConfigFile: string, ...args: string
     stdout: "pipe",
     stderr: "pipe",
     timeout: 10_000,
-    env: { ...process.env, MFW_REGISTRY: registryUrl, GIT_CONFIG_GLOBAL: gitConfigFile, GIT_CONFIG_NOSYSTEM: "1" },
+    env: {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_(AUTHOR|COMMITTER)_/.test(key))),
+      MFW_REGISTRY: registryUrl,
+      GIT_CONFIG_GLOBAL: gitConfigFile,
+      GIT_CONFIG_NOSYSTEM: "1",
+    },
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -247,14 +252,35 @@ describe("mfw create, the repository", () => {
     expect(result.stdout).toContain("  git: skipped, the folder is already inside a git repository\n");
   });
 
-  test("git without an identity: no repository, and it says why", async () => {
-    const empty = join(base, "empty-gitconfig");
-    writeFileSync(empty, "");
+  // #103 review: git decides whether it can commit; its refusal is reported
+  // with the commands to finish by hand, the app stays written.
+  test("git refusing the commit (no identity): its own words, and the commands to finish", async () => {
+    const noIdentity = join(base, "no-identity-gitconfig");
+    writeFileSync(noIdentity, "[user]\n\tuseConfigOnly = true\n");
     const dir = join(base, "demo");
-    const result = await runIn(registry.url.origin, empty, "create", dir, "--no-install", "--yes");
+    const result = await runIn(registry.url.origin, noIdentity, "create", dir, "--no-install", "--git-remote", "git@example.com:acme/demo.git", "--yes");
     expect(result.code).toBe(0);
-    expect(existsSync(join(dir, ".git"))).toBe(false);
-    expect(result.stdout).toContain("  git: skipped, git has no user.name or user.email set\n");
+    expect(existsSync(join(dir, "mercury.config.ts"))).toBe(true);
+    expect(result.stdout).toMatch(/  git: failed \(git commit: [^\n]*(email|identity)/);
+    expect(result.stdout).toContain(`  git commit -m "Scaffold with mfw create"
+  git remote add origin git@example.com:acme/demo.git
+`);
+    expect(result.stdout).not.toContain("git push");
+  });
+
+  test("an empty --git-remote means none", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--git-remote", " ", "--yes");
+    expect(result.code).toBe(0);
+    expect(await git(dir, "remote")).toBe("");
+  });
+
+  test("a --git-remote starting with - exits 1 before writing anything (git would read it as an option)", async () => {
+    const dir = join(base, "demo");
+    const result = await run("create", dir, "--git-remote=--upload-pack=x", "--yes");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('--git-remote "--upload-pack=x" isn\'t a remote');
+    expect(existsSync(dir)).toBe(false);
   });
 });
 

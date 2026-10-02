@@ -7,8 +7,13 @@
  */
 
 /** Runs `argv` in `cwd`; resolves with its exit code and its output (stdout
- * and stderr together). A missing binary resolves with a non-zero code. */
-export type Run = (argv: string[], cwd: string) => Promise<{ code: number; output: string }>;
+ * and stderr together), or with an empty output when `live` sends it straight
+ * to the terminal. A missing binary resolves with a non-zero code. */
+export type Run = (argv: string[], cwd: string, opts?: { live?: boolean }) => Promise<{ code: number; output: string }>;
+
+/** Why git is skipped for an app created inside another repository: on
+ * purpose, so there's nothing to finish by hand. */
+export const INSIDE_A_REPOSITORY = "the folder is already inside a git repository";
 
 /** What to do after writing: `remote` is taken as typed. */
 export type FinishOptions = {
@@ -30,8 +35,12 @@ export type FinishReport = {
 };
 
 /** The real runner: a child process with its output captured. */
-export const spawnRun: Run = async (argv, cwd) => {
+export const spawnRun: Run = async (argv, cwd, opts) => {
   try {
+    if (opts?.live) {
+      const proc = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
+      return { code: await proc.exited, output: "" };
+    }
     const proc = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, code] = await Promise.all([
       new Response(proc.stdout).text(),
@@ -48,8 +57,9 @@ export const spawnRun: Run = async (argv, cwd) => {
 export async function finishApp(dir: string, opts: FinishOptions, run: Run): Promise<FinishReport> {
   const report: FinishReport = { install: "off", git: "off", remote: "off" };
   if (opts.install) {
-    const installed = await run(["bun", "install"], dir);
-    report.install = installed.code === 0 ? "done" : { failed: installed.output.trim() };
+    // Live: an install can take a while, and its progress is worth seeing.
+    const installed = await run(["bun", "install"], dir, { live: true });
+    report.install = installed.code === 0 ? "done" : { failed: `exit code ${installed.code}` };
   }
   if (!opts.git) return report;
 
@@ -80,16 +90,13 @@ export async function finishApp(dir: string, opts: FinishOptions, run: Run): Pro
   return report;
 }
 
-/** Why the repository can't be created in `dir`, or undefined when it can. */
+/** Why the repository can't be created in `dir`, or undefined when it can.
+ * Whether git can commit (an identity, hooks, signing) is git's to say: the
+ * commit runs, and its refusal is reported as it is. */
 async function whyNoGit(dir: string, run: Run): Promise<string | undefined> {
   if ((await run(["git", "--version"], dir)).code !== 0) return "git isn't installed";
   // An app created inside a monorepo belongs to that repository, not a nested one.
-  if ((await run(["git", "rev-parse", "--is-inside-work-tree"], dir)).code === 0) {
-    return "the folder is already inside a git repository";
-  }
-  for (const key of ["user.name", "user.email"]) {
-    if ((await run(["git", "config", key], dir)).code !== 0) return "git has no user.name or user.email set";
-  }
+  if ((await run(["git", "rev-parse", "--is-inside-work-tree"], dir)).code === 0) return INSIDE_A_REPOSITORY;
   return undefined;
 }
 
@@ -105,16 +112,23 @@ function statusOf(outcome: FinishReport[keyof FinishReport], done: string): stri
  * writing did, and what's left to run. */
 export function finishMessage(app: { name: string; dir: string; remote?: string; report: FinishReport }): string {
   const { report } = app;
+  const insideRepository = typeof report.git === "object" && "skipped" in report.git && report.git.skipped === INSIDE_A_REPOSITORY;
+  // A repository that git didn't finish (not installed, a step refused) is
+  // finished by hand; one skipped on purpose isn't.
+  const byHand = report.git !== "done" && report.git !== "off" && !insideRepository;
   const status = [
     ["bun install", statusOf(report.install, "done")],
     ["git", statusOf(report.git, "first commit on main")],
-    ["origin", statusOf(report.remote, app.remote ?? "")],
+    ["origin", insideRepository && app.remote !== undefined ? "not added, the app is in that repository" : statusOf(report.remote, app.remote ?? "")],
   ].flatMap(([step, value]) => (value === undefined ? [] : [`  ${step}: ${value}\n`]));
 
   const next = [`cd ${app.dir}`];
-  if (report.install !== "done") {
-    next.push("bun install");
-    if (report.git === "done") next.push('git add bun.lock && git commit -m "Add bun.lock"');
+  if (report.install !== "done") next.push("bun install");
+  if (byHand) {
+    next.push("git init -b main", "git add -A", 'git commit -m "Scaffold with mfw create"');
+    if (app.remote !== undefined) next.push(`git remote add origin ${app.remote}`);
+  } else if (report.install !== "done" && report.git === "done") {
+    next.push('git add bun.lock && git commit -m "Add bun.lock"');
   }
   next.push("cp .env.example .env    # then fill it in", "mfw start               # bunx mfw start, without a global mfw");
   if (report.git === "done" && app.remote !== undefined) {

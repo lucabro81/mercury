@@ -49,7 +49,7 @@ Writes a new Mercury app into `<folder>`, which has to be missing or empty; the 
 
 It writes the `mercury.config.ts` for that selection, the persona, the service and REPL entrypoints, a Dockerfile, a compose file with Qdrant, and an env example listing every variable the chosen pieces read. A plugin that hands over lists comes wrapped in the formatter with a starting rule, yours to change.
 
-Then it runs `bun install` in the app and creates a git repository on `main` with a first commit (`bun.lock` included), adding `origin` when you gave one; nothing is pushed. Each step is best effort and never undoes the ones before it: an install that fails still leaves the app committed, without the lockfile, and the closing message says what to run. The repository is skipped, saying why, when `git` isn't installed, when the folder is already inside a repository (an app created in a monorepo belongs to it), or when git has no `user.name`/`user.email`.
+Then it runs `bun install` in the app and creates a git repository on `main` with a first commit (`bun.lock` included), adding `origin` when you gave one; nothing is pushed. Each step is best effort and never undoes the ones before it: an install that fails still leaves the app committed, without the lockfile, and the closing message says what to run. The repository is skipped when the folder is already inside one (an app created in a monorepo belongs to it). Whether git can commit is git's call: when it refuses (no identity, a hook) or isn't installed, the message reports why and lists the commands to finish by hand. `bun install` prints its own output as it runs.
 
 | Flag | |
 |---|---|

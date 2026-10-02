@@ -52,6 +52,7 @@ export function toCreateArgs(folder: string, opts: CreateOptions): CreateArgs {
   if (opts.role !== undefined) args.role = opts.role;
   if (opts.channels !== undefined) args.channels = list(opts.channels);
   if (opts.plugins !== undefined) args.plugins = list(opts.plugins);
-  if (opts.gitRemote !== undefined) args.gitRemote = opts.gitRemote;
+  // Blank is none, as in the wizard.
+  if (opts.gitRemote !== undefined && opts.gitRemote.trim() !== "") args.gitRemote = opts.gitRemote.trim();
   return args;
 }
