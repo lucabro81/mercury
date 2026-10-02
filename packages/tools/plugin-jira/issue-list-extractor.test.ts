@@ -243,6 +243,40 @@ describe("createJiraIssueListExtractor", () => {
     }
   });
 
+  // #114: without JIRA_SITE_URL the plugin contributed no post-processor at
+  // all, so the model lost issueCount and went back to counting keys itself.
+  describe("without siteUrl", () => {
+    const noSite = createJiraIssueListExtractor({});
+
+    it("adds issueCount to a full list and emits no display (no browse link to build)", () => {
+      const issues = [{ key: "MER-1", fields: { summary: "s", status: { name: "Da fare" } } }];
+      expect(noSite(PARSED, { ok: true, data: { issues, nextPageToken: "t" } })).toEqual({
+        ok: true,
+        data: { issues, nextPageToken: "t", issueCount: 1 },
+      });
+    });
+
+    it("adds issueCount to an empty list and emits no display", () => {
+      expect(noSite(PARSED, { ok: true, data: { issues: [] } })).toEqual({ ok: true, data: { issues: [], issueCount: 0 } });
+    });
+
+    it("still adds the formattedListNote where a list couldn't be built", () => {
+      expect(noSite(PARSED, { ok: true, data: { issues: [{ key: "MER-1" }] } })).toEqual({
+        ok: true,
+        data: { issues: [{ key: "MER-1" }], issueCount: 1, formattedListNote: expect.stringContaining(JIRA_ISSUE_LIST_SELECT) },
+      });
+      expect(noSite(PARSED, { ok: true, data: {} })).toEqual({
+        ok: true,
+        data: { formattedListNote: expect.stringContaining(JIRA_ISSUE_LIST_SELECT) },
+      });
+    });
+
+    it("passes anything other than an issue search through unchanged", () => {
+      const result: CliResult = { ok: true, data: { issues: [] } };
+      expect(noSite({ binary: "jira", args: ["issue", "get"], prefix: ["issue", "get"] }, result)).toEqual(result);
+    });
+  });
+
   it("preserves every original field on each issue in data — augments, never replaces", () => {
     const result: CliResult = {
       ok: true,

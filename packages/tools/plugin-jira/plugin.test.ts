@@ -6,7 +6,7 @@ import { jiraPlugin, JIRA_ISSUE_LIST_SELECT } from "./index.ts";
  * The Jira plugin's assembled module object — its static declaration (name,
  * skill) and its `build()`, which validates its own allowlist (schema only, no
  * `--version` spawn) and turns the runtime context into the `jiraCommand` tool,
- * the issue-list extractor (only when JIRA_SITE_URL is set), and the tool's
+ * the issue-list extractor (its list display only when JIRA_SITE_URL is set), and the tool's
  * status describer. The generic loader that consumes this shape is tested with
  * synthetic plugins in @mercury-fw/core's plugin-loader.test.ts.
  */
@@ -84,15 +84,19 @@ describe("jiraPlugin", () => {
     expect(searched).toEqual({ ok: true, data: { issues: [], issueCount: 0 }, display: { type: "issue-list", items: [] } });
   });
 
-  it("contributes no post-processor when JIRA_SITE_URL is absent", () => {
-    const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
-    expect(c.postProcess).toBeUndefined();
-  });
-
-  it("treats an empty JIRA_SITE_URL as unconfigured — no post-processor and no log noise", () => {
-    const logs: string[] = [];
-    const c = jiraPlugin.build!({ model: MODEL, env: { JIRA_SITE_URL: "" }, log: (m) => logs.push(m) });
-    expect(c.postProcess).toBeUndefined();
-    expect(logs).toEqual([]);
+  // #114: without JIRA_SITE_URL there was no post-processor, so no issueCount
+  // either; only the list display needs the site.
+  it("contributes the extractor without JIRA_SITE_URL too: issueCount, no display", () => {
+    for (const env of [{}, { JIRA_SITE_URL: "" }]) {
+      const logs: string[] = [];
+      const c = jiraPlugin.build!({ model: MODEL, env, log: (m) => logs.push(m) });
+      const issues = [{ key: "MER-1", fields: { summary: "s" } }];
+      const searched = c.postProcess!(
+        { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] },
+        { ok: true, data: { issues } },
+      );
+      expect(searched).toEqual({ ok: true, data: { issues, issueCount: 1 } });
+      expect(logs).toEqual([]);
+    }
   });
 });

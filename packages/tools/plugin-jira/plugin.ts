@@ -11,8 +11,8 @@
  *    allowlist, the session's confirm-staging/display-stashing, and the
  *    post-processor handed in (its own issue-list extractor, possibly wrapped
  *    by a formatter decorator at composition);
- *  - `postProcess`: the `issue search` result extractor (only when
- *    JIRA_SITE_URL is set — see below);
+ *  - `postProcess`: the `issue search` result extractor (its list display
+ *    only when JIRA_SITE_URL is set — see below);
  *  - `toolStatusDescribers`: the status label for `jiraCommand`.
  *
  * The object is a plain literal, not typed against a core interface — a plugin
@@ -70,17 +70,14 @@ export function createJiraPlugin(deps: { runCliFn?: typeof runCli } = {}): Plugi
       }
       const configs = { [loaded.binary]: loaded.config };
 
-      // The `issue search` extractor only registers when JIRA_SITE_URL is set —
-      // it isn't derivable from any CLI output (the API talks to
-      // api.atlassian.com/ex/jira/<cloud-id>/…, unrelated to the human-facing
-      // hostname), so without it `issue search` passes through unaugmented. An
-      // absent or empty site url is "not configured" and stays silent. Rendering
-      // config (itemTemplate) lives in the render handler wired at composition, so
-      // `siteUrl` is the extractor's only input.
-      const siteUrl = ctx.env.JIRA_SITE_URL;
-      const postProcess: CliPostProcessor | undefined = siteUrl
-        ? createJiraIssueListExtractor({ siteUrl })
-        : undefined;
+      // The `issue search` extractor always registers; its list display needs
+      // JIRA_SITE_URL for the browse links, which aren't derivable from any CLI
+      // output (the API talks to api.atlassian.com/ex/jira/<cloud-id>/…,
+      // unrelated to the human-facing hostname). An absent or empty site url is
+      // "not configured" and stays silent: `issueCount` and the notes still reach
+      // the model, the list display doesn't.
+      const siteUrl = ctx.env.JIRA_SITE_URL || undefined;
+      const postProcess: CliPostProcessor = createJiraIssueListExtractor({ siteUrl });
 
       // Status label for jiraCommand, from the same allowlist that gates
       // execution (so the label can't drift from what runs). No per-command

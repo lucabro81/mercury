@@ -16,7 +16,8 @@
  * its data and gets a model-facing `formattedListNote` (no display). Every
  * result with an `issues` array also gets `issueCount`, that page's length.
  * `siteUrl` (the team's browsable Jira host) isn't derivable from any CLI
- * output, so it's a deployment constant carried in the plugin's config.
+ * output, so it's a deployment constant carried in the plugin's config;
+ * without it the extractor emits no `display`, the rest stays.
  *
  * `CliResult`/`CliPostProcessor` come from `@mercury-fw/plugin-types`, the shared
  * contract both the core and the plugins import.
@@ -25,11 +26,10 @@ import type { CliResult, CliPostProcessor } from "@mercury-fw/plugin-types";
 
 /** The extractor's configuration: just `siteUrl`, the team's browsable Jira
  * site (e.g. `https://example.atlassian.net`), used to build each issue's
- * browse link. It is the extractor's only input — rendering config
- * (`itemTemplate`) moved to the render handler. The single caller (`plugin.ts`)
- * only reaches here when `JIRA_SITE_URL` is a non-empty string, so no schema
- * validation is layered on a one-required-field shape. */
-export type IssueListConfig = { siteUrl: string };
+ * browse link. Without it there is no link to build, so no `display` is
+ * emitted; `issueCount` and the notes don't need it. The single caller
+ * (`plugin.ts`) passes it only when `JIRA_SITE_URL` is a non-empty string. */
+export type IssueListConfig = { siteUrl?: string };
 
 /** The `--select` for `jira issue search` that yields a formattable list: the
  * key, summary and status of every issue, plus the next page's token. The CLI
@@ -127,10 +127,6 @@ export function createJiraIssueListExtractor(config: IssueListConfig): CliPostPr
     const data = { ...shape.data, issueCount: shape.issues.length };
     const { issues } = shape;
 
-    if (issues.length === 0) {
-      return { ok: true, data, display: { type: "issue-list", items: [] } };
-    }
-
     if (!issues.every(isJiraIssue)) {
       return { ok: true, data: { ...data, formattedListNote: CANNOT_FORMAT_NOTE } };
     }
@@ -138,6 +134,10 @@ export function createJiraIssueListExtractor(config: IssueListConfig): CliPostPr
     const missingSummary = issues.some((issue) => typeof issue.fields?.summary !== "string");
     if (missingSummary) {
       return { ok: true, data: { ...data, formattedListNote: CANNOT_FORMAT_NOTE } };
+    }
+
+    if (siteUrl === undefined) {
+      return { ok: true, data };
     }
 
     // Structured records on the user-facing `display` channel; the render
