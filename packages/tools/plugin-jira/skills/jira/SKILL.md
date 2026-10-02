@@ -15,7 +15,6 @@ HOW THE CLI PRINTS (read this first):
 - Transitions available for an issue: `jira issue transitions KAN-4 --select transitions.id,transitions.name`
 - Counting: `--max-results 100 --select issues.key,nextPageToken`. When the result carries `issueCount`, that is the number of issues on this page: use it, never count the keys yourself. If `nextPageToken` is present, there are more: repeat with `--page-token <that value>` and add up each page's `issueCount`.
 - `--select-all` prints everything and is refused above a size cap: use it only for a single small response, never for a search.
-- Some `--help` examples omit `--select`: they fail as written. Always add it.
 
 DO:
 - Call jiraCommand with `command` set to the exact command line you would type in a terminal — quote values containing spaces, exactly like a real shell.
