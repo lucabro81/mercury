@@ -1,5 +1,12 @@
 # @mercury-fw/plugin-jira
 
+## 0.3.0
+
+### Minor Changes
+
+- bd643ab: - `JIRA_SITE_URL` is required: without it the plugin doesn't load, and the startup log says which variable to set.
+  - Every search result carries `issueCount` and the notes for the model, since the extractor is always there.
+
 ## 0.2.1
 
 ### Patch Changes

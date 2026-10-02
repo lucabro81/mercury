@@ -1,5 +1,12 @@
 # @mercury-fw/cli
 
+## 0.29.3
+
+### Patch Changes
+
+- bd643ab: - A scaffolded app with Jira marks `JIRA_SITE_URL` as required in its env example.
+  - @mercury-fw/core@0.29.3
+
 ## 0.29.2
 
 ### Patch Changes
