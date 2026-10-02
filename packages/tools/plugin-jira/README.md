@@ -10,7 +10,7 @@ An app scaffolded with it already has all of this. By hand:
 
 - list it in `trustedDependencies` in the app's `package.json`, or Bun skips the install script that downloads the binary;
 - add `jira` to `MERCURY_CLIS`;
-- set `JIRA_SITE_URL` (`https://<site>.atlassian.net`), which the issue links in search results point to: without it a search still works, but comes back without the list to show the user.
+- set `JIRA_SITE_URL` (`https://<site>.atlassian.net`), which the issue links in search results point to. It's required: without it the plugin doesn't load, and the log says so at startup.
 
 The plugin hands search results over as a typed list (`JiraDisplays["issue-list"]`: key, summary, status, url), and the app decides how it reads with [`@mercury-fw/formatter`](https://www.npmjs.com/package/@mercury-fw/formatter):
 

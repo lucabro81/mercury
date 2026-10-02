@@ -6,12 +6,14 @@ import { jiraPlugin, JIRA_ISSUE_LIST_SELECT } from "./index.ts";
  * The Jira plugin's assembled module object — its static declaration (name,
  * skill) and its `build()`, which validates its own allowlist (schema only, no
  * `--version` spawn) and turns the runtime context into the `jiraCommand` tool,
- * the issue-list extractor (its list display only when JIRA_SITE_URL is set), and the tool's
+ * the issue-list extractor (JIRA_SITE_URL is required: without it build()
+ * throws, and the loader skips the plugin), and the tool's
  * status describer. The generic loader that consumes this shape is tested with
  * synthetic plugins in @mercury-fw/core's plugin-loader.test.ts.
  */
 const MODEL = {} as never; // build() only closes over the model; it never calls it
 const noLog = () => {};
+const ENV = { JIRA_SITE_URL: "https://example.atlassian.net" };
 const sctx: SessionToolContext = { sessionKey: "s", stageConfirmation: async () => "tok", stashDisplay: () => "d1" };
 
 describe("jiraPlugin", () => {
@@ -63,14 +65,14 @@ describe("jiraPlugin", () => {
   });
 
   it("builds a jiraCommand tool and its status describer", () => {
-    const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
+    const c = jiraPlugin.build!({ model: MODEL, env: ENV, log: noLog });
     const tools = c.sessionTools!(sctx, c.postProcess);
     expect(Object.keys(tools)).toEqual(["jiraCommand"]);
     expect(c.toolStatusDescribers!.jiraCommand!({ command: "jira issue search --jql X" })).toBe("esecuzione jira issue search");
   });
 
   it("contributes no post-turn guard — the model-backed issue-list corrector is retired", () => {
-    const c = jiraPlugin.build!({ model: MODEL, env: {}, log: noLog });
+    const c = jiraPlugin.build!({ model: MODEL, env: ENV, log: noLog });
     expect(c.postTurnGuards ?? []).toEqual([]);
   });
 
@@ -84,19 +86,12 @@ describe("jiraPlugin", () => {
     expect(searched).toEqual({ ok: true, data: { issues: [], issueCount: 0 }, display: { type: "issue-list", items: [] } });
   });
 
-  // #114: without JIRA_SITE_URL there was no post-processor, so no issueCount
-  // either; only the list display needs the site.
-  it("contributes the extractor without JIRA_SITE_URL too: issueCount, no display", () => {
+  // #114: without JIRA_SITE_URL the plugin loaded with no post-processor, so
+  // the model lost issueCount. A Jira instance has a Jira site: the variable
+  // is required, and the loader reports the throw as "failed to load, skipped".
+  it("refuses to build without JIRA_SITE_URL, or with it empty, naming the variable", () => {
     for (const env of [{}, { JIRA_SITE_URL: "" }]) {
-      const logs: string[] = [];
-      const c = jiraPlugin.build!({ model: MODEL, env, log: (m) => logs.push(m) });
-      const issues = [{ key: "MER-1", fields: { summary: "s" } }];
-      const searched = c.postProcess!(
-        { binary: "jira", args: ["issue", "search"], prefix: ["issue", "search"] },
-        { ok: true, data: { issues } },
-      );
-      expect(searched).toEqual({ ok: true, data: { issues, issueCount: 1 } });
-      expect(logs).toEqual([]);
+      expect(() => jiraPlugin.build!({ model: MODEL, env, log: noLog })).toThrow(/JIRA_SITE_URL is not set/);
     }
   });
 });
