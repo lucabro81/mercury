@@ -72,7 +72,7 @@ export const CATALOG: CatalogEntry[] = [
     package: "@mercury-fw/plugin-jira",
     exportName: "jiraPlugin",
     credentials: { folder: "jira-cli", variable: "JIRA_CLI_CONFIG_TAR_B64" },
-    env: [{ name: "JIRA_SITE_URL", comment: "Jira site the issue links point to (https://<site>.atlassian.net)" }],
+    env: [{ name: "JIRA_SITE_URL", comment: "Required: the Jira site the issue links point to (https://<site>.atlassian.net)" }],
     formatter: {
       displaysType: "JiraDisplays",
       helpers: [
