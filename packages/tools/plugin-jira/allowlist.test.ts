@@ -30,6 +30,9 @@ describe("@mercury-fw/plugin-jira allowlist", () => {
     expect(matchCommand(["issue", "transitions", "KAN-42"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "transitions"], mutating: false });
     expect(matchCommand(["doctor"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["doctor"], mutating: false });
     expect(matchCommand(["auth", "whoami"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["auth", "whoami"], mutating: false });
+    // #129: the account IDs assign and mentions need, and project keys.
+    expect(matchCommand(["user", "search", "--query", "Jane"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["user", "search"], mutating: false });
+    expect(matchCommand(["project", "search", "--query", "support"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["project", "search"], mutating: false });
   });
 
   // create/transition (apply)/comment add/remove execute directly —
@@ -39,6 +42,7 @@ describe("@mercury-fw/plugin-jira allowlist", () => {
   it("allows write subcommands directly, without confirmation, marked mutating", () => {
     expect(matchCommand(["issue", "create", "--project", "KAN", "--type", "Task", "--summary", "x"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "create"], mutating: true });
     expect(matchCommand(["issue", "transition", "KAN-1", "--to", "Done"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "transition"], mutating: true });
+    expect(matchCommand(["issue", "assign", "KAN-1", "--assignee", "5b10ac8d"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "assign"], mutating: true });
     expect(matchCommand(["issue", "comment", "add", "KAN-1", "--body", "x"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "comment", "add"], mutating: true });
     expect(matchCommand(["issue", "comment", "remove", "KAN-1", "10012"], jiraConfig)).toEqual({ kind: "allowed", prefix: ["issue", "comment", "remove"], mutating: true });
   });
@@ -93,11 +97,12 @@ describe("@mercury-fw/plugin-jira allowlist", () => {
   // Regression guard: a future edit to jira.json that flips mutating:false
   // on a write command (or forgets it on a new one) shouldn't slip through
   // silently — this pins the exact set of mutating prefixes expected today.
-  it("has exactly five mutating commands (create, transition, comment add/remove, delete)", () => {
+  it("has exactly six mutating commands (create, transition, assign, comment add/remove, delete)", () => {
     const mutating = jiraConfig.allowedPrefixes.filter((c) => c.mutating).map((c) => c.prefix);
     expect(mutating).toEqual([
       ["issue", "create"],
       ["issue", "transition"],
+      ["issue", "assign"],
       ["issue", "comment", "add"],
       ["issue", "comment", "remove"],
       ["issue", "delete"],

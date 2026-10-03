@@ -58,9 +58,18 @@ describe("jiraPlugin", () => {
     });
 
     it("puts --select on every example of a command that requires it", () => {
-      const examples = [...body.matchAll(/`(jira issue (?:search|get|transitions)\b[^`]*)`/g)].map((m) => m[1]!);
-      expect(examples.length).toBeGreaterThanOrEqual(3);
+      const examples = [...body.matchAll(/`(jira (?:issue (?:search|get|transitions)|user search|project search)\b[^`]*)`/g)].map((m) => m[1]!);
+      expect(examples.length).toBeGreaterThanOrEqual(5);
       for (const example of examples) expect(example).toContain("--select ");
+    });
+
+    // #129: what the account ID is for, with the selects tried live on 0.8.2.
+    it("shows how to find an account ID and a project key, and where an account ID goes", () => {
+      expect(body).toContain("`jira user search --query \"Jane Doe\" --select accountId,displayName`");
+      expect(body).toContain("`jira project search --query support --select values.key,values.name`");
+      expect(body).toContain("`jira issue assign KAN-4 --assignee <accountId>`");
+      expect(body).toContain("--mention <accountId>");
+      expect(body).toContain("{{mention:<accountId>}}");
     });
   });
 
