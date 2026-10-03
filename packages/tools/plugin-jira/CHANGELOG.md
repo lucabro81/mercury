@@ -1,5 +1,11 @@
 # @mercury-fw/plugin-jira
 
+## 0.4.1
+
+### Patch Changes
+
+- 9a6bec5: - For a project named informally, the skill has the model search the wiki for the name instead of reading a fixed file a new app doesn't have, then look the project up in Jira.
+
 ## 0.4.0
 
 ### Minor Changes
