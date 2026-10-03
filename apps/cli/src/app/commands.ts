@@ -7,11 +7,14 @@
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { CATALOG, type CliCredentials } from "../catalog.ts";
 import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
 import { LOCAL_PACKS_DIR, packageNameOf, withLocalOverrides, withoutLocalOverrides } from "./local-packages.ts";
+import { findTests, loadTest } from "../e2e/load.ts";
+import { runE2e } from "../e2e/runner.ts";
+import { openReplSession } from "../e2e/session.ts";
 
 export type AppDeps = {
   /** Runs `argv` in `cwd` on the user's terminal (stdin, stdout, stderr) and returns its exit code. */
@@ -48,6 +51,16 @@ export const RESET_TARGETS = {
   wiki: { service: SERVICE, volume: "wiki-vault", what: "the wiki vault (every note)" },
 } as const;
 export type ResetTarget = keyof typeof RESET_TARGETS;
+
+/** How long one e2e turn may take: a local model on a long, tool-heavy turn is slow. */
+const E2E_TURN_TIMEOUT_MS = 10 * 60_000;
+
+/** Runs `argv` in `cwd`, returning its exit code and its output (stdout and stderr together). */
+async function captureCode(argv: string[], cwd: string): Promise<{ code: number; output: string }> {
+  const proc = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  return { code, output: stdout + stderr };
+}
 
 /** The compose calls that build and start the app; `recreate` restarts containers even when nothing changed. */
 function startCalls(noCache: boolean, recreate: boolean): string[][] {
@@ -192,6 +205,35 @@ export function appCommands(app: App, deps: AppDeps) {
       writeManifest(withLocalOverrides(readManifest(), packs));
       deps.print(`${packs.length} local packages in ${target}: ${packs.map((p) => p.name).join(", ")}.`);
       return deps.run(["bun", "install"], { cwd: app.dir });
+    },
+    /** Runs e2e tests (`tests`, or the app's `e2e/*.e2e.ts`) against the app's
+     * REPL in its container, keeping the turns and checks in
+     * `e2e/results/<time>/`; returns 1 when a case didn't pass. */
+    e2e: async (tests: string[], { repeat }: { repeat?: number }) => {
+      const files = findTests(tests, { appDir: app.dir, cwd: process.cwd() });
+      const loaded = await Promise.all(files.map(async (file) => ({ file: relative(process.cwd(), file) || file, test: await loadTest(file) })));
+      const results = join(app.dir, "e2e", "results", new Date().toISOString().replace(/[:.]/g, "-"));
+      mkdirSync(results, { recursive: true });
+      let sessions = 0;
+      return runE2e(loaded, repeat === undefined ? {} : { repeat }, {
+        openSession: async () =>
+          openReplSession({
+            argv: [...COMPOSE, "run", "--rm", "-T", "-v", `${results}:/e2e`, SERVICE, "bun", "run", "repl"],
+            cwd: app.dir,
+            hostDir: results,
+            replDir: "/e2e",
+            name: `run-${++sessions}`,
+            timeoutMs: E2E_TURN_TIMEOUT_MS,
+          }),
+        cli: (command) => captureCode([...COMPOSE, "run", "--rm", "-T", "--no-deps", SERVICE, "sh", "-c", command], app.dir),
+        appPackages: (readManifest() as { dependencies?: Record<string, string> }).dependencies ?? {},
+        print: deps.print,
+        now: Date.now,
+        writeReport: async (report) => {
+          writeFileSync(join(results, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+          deps.print(`Turns and checks in ${results}`);
+        },
+      });
     },
     /** Undoes `localPackages`: the app installs from the registry again. */
     localPackagesOff: async () => {

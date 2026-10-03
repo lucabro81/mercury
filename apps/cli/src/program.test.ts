@@ -31,6 +31,7 @@ function harness({ code = 0, appError }: { code?: number; appError?: string } = 
     googleChatSetKey: record("googleChatSetKey"),
     localPackages: record("localPackages"),
     localPackagesOff: record("localPackagesOff"),
+    e2e: record("e2e"),
   };
   const out: string[] = [];
   const err: string[] = [];
@@ -173,6 +174,8 @@ describe("app commands reach the app with their arguments", () => {
     ],
     [["local-packages", "../../.packs"], ["localPackages", "../../.packs"]],
     [["local-packages", "--off"], ["localPackagesOff"]],
+    [["e2e"], ["e2e", [], {}]],
+    [["e2e", "a.e2e.ts", "b.e2e.ts", "--repeat", "3"], ["e2e", ["a.e2e.ts", "b.e2e.ts"], { repeat: 3 }]],
   ])("mfw %p", async (argv, call) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(0);
@@ -223,6 +226,8 @@ describe("refused before anything runs", () => {
     [["local-packages"], "local-packages takes a folder of tarballs, or --off"],
     [["local-packages", "x", "--off"], "local-packages takes a folder of tarballs, or --off"],
     [["local-packages", "a", "b"], "too many arguments"],
+    [["e2e", "--repeat", "0"], "--repeat takes a positive whole number"],
+    [["e2e", "--repeat", "ten"], "--repeat takes a positive whole number"],
   ])("mfw %p: %s", async (argv, message) => {
     const h = harness();
     expect(await h.run(...argv)).toBe(1);
@@ -244,7 +249,7 @@ describe("refused before anything runs", () => {
 });
 
 describe("help", () => {
-  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials", "google-chat", "local-packages", "upgrade"];
+  const COMMANDS = ["create", "start", "stop", "restart", "logs", "repl", "shell", "vault", "memory", "reset", "credentials", "google-chat", "local-packages", "e2e", "upgrade"];
 
   test("--help lists every command, exit 0", async () => {
     const h = harness();

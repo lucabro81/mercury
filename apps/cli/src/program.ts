@@ -24,12 +24,14 @@ export type ProgramHandlers = {
   app: () => AppCommands;
 };
 
-/** `--limit`'s value: a positive whole number. */
-function positiveInt(value: string): string {
-  if (!/^\d+$/.test(value) || Number(value) < 1) {
-    throw new InvalidArgumentError(`--limit takes a positive whole number (got "${value}").`);
-  }
-  return value;
+/** A parser for `flag`'s value: a positive whole number, kept as typed. */
+function positiveInt(flag: string): (value: string) => string {
+  return (value) => {
+    if (!/^\d+$/.test(value) || Number(value) < 1) {
+      throw new InvalidArgumentError(`${flag} takes a positive whole number (got "${value}").`);
+    }
+    return value;
+  };
 }
 
 /** The help's closing paragraph for the commands that run inside an app. */
@@ -199,7 +201,7 @@ Examples:
       "Prints a collection's points, each as its id and one line per payload field: newest first where the collection has a timestamp index, in Qdrant's own order otherwise.",
     )
     .argument("<collection>", "as mfw memory list prints it")
-    .option("--limit <n>", "how many points (default: 20)", positiveInt)
+    .option("--limit <n>", "how many points (default: 20)", positiveInt("--limit"))
     .action(async (collection: string, opts: { limit?: string }) =>
       inApp((app) => app.memory(["read", collection, ...(opts.limit === undefined ? [] : ["--limit", opts.limit])]))(),
     );
@@ -280,6 +282,19 @@ Examples:
       if ((folder === undefined) === (opts.off !== true)) throw new Error("local-packages takes a folder of tarballs, or --off");
       await inApp((app) => (folder === undefined ? app.localPackagesOff() : app.localPackages(folder)))();
     });
+
+  program
+    .command("e2e")
+    .summary("runs the app's end-to-end tests against its model")
+    .description(
+      "Runs e2e tests: each case's turns go to the app's real model through its REPL (in the container, like mfw repl), and its checks run on the tool calls each turn made and the answer it gave. Without files, every e2e/*.e2e.ts in the app. Prints every check, exits 1 when a case didn't pass enough runs, and keeps the turns and checks in e2e/results/<time>/. The app must be built and its env file filled in, as for mfw repl.",
+    )
+    .argument("[tests...]", "test files (default: e2e/*.e2e.ts)")
+    .option("--repeat <n>", "runs of each case, overriding its own repeat", positiveInt("--repeat"))
+    .addHelpText("after", `\nExamples:\n  mfw e2e\n  mfw e2e e2e/jira.e2e.ts --repeat 3${INSIDE_AN_APP}`)
+    .action(async (tests: string[], opts: { repeat?: string }) =>
+      inApp((app) => app.e2e(tests, opts.repeat === undefined ? {} : { repeat: Number(opts.repeat) }))(),
+    );
 
   return program;
 }
