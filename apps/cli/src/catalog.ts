@@ -10,7 +10,7 @@
 export type EnvVar = { name: string; comment: string; value?: string };
 
 /** A channel or tool plugin the app can include. `id` is the plugin's own
- * `name` (what MERCURY_CLIS lists for a tool plugin), `exportName` the value the
+ * `name` (what the logs and `dependsOn` call it), `exportName` the value the
  * app's config imports from `package`. */
 export type CatalogEntry = {
   id: string;
