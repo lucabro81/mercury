@@ -19,17 +19,10 @@ export type CatalogEntry = {
   exportName: string;
   env: EnvVar[];
   formatter?: FormatterExample;
-  credentials?: CliCredentials;
   /** Dependencies whose install scripts Bun must run for this entry (Bun runs
    * none it isn't told to trust), on top of a tool plugin's own package. */
   trusts?: string[];
 };
-
-/** Where a tool plugin's CLI keeps its login: `folder` under the CLI user's
- * `~/.config`, and the env variable that carries that folder into the
- * container (a base64 tar.gz with the folder at its root), materialized on
- * the credentials volume the first time the folder isn't there. */
-export type CliCredentials = { folder: string; variable: string };
 
 /** Starting formatter rules for a plugin that hands the user lists: without a
  * rule a kind of list isn't shown, so the scaffolded config wraps the plugin
@@ -71,7 +64,6 @@ export const CATALOG: CatalogEntry[] = [
     kind: "tool",
     package: "@mercury-fw/plugin-jira",
     exportName: "jiraPlugin",
-    credentials: { folder: "jira-cli", variable: "JIRA_CLI_CONFIG_TAR_B64" },
     env: [{ name: "JIRA_SITE_URL", comment: "Required: the Jira site the issue links point to (https://<site>.atlassian.net)" }],
     formatter: {
       displaysType: "JiraDisplays",
@@ -90,7 +82,6 @@ export const CATALOG: CatalogEntry[] = [
     kind: "tool",
     package: "@mercury-fw/plugin-bitbucket",
     exportName: "bitbucketPlugin",
-    credentials: { folder: "bitbucket-cli", variable: "BITBUCKET_CLI_CONFIG_TAR_B64" },
     env: [],
   },
   {
@@ -98,7 +89,6 @@ export const CATALOG: CatalogEntry[] = [
     kind: "tool",
     package: "@mercury-fw/plugin-atlassian-admin",
     exportName: "atlassianAdminPlugin",
-    credentials: { folder: "atlassian-admin-cli", variable: "ATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64" },
     env: [],
   },
 ];
