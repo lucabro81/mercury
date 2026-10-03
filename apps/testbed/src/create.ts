@@ -23,6 +23,7 @@ async function settle(args: CreateArgs): Promise<CreateArgs> {
 try {
   const args = await settle(parseCreateArgs(process.argv.slice(2)));
   const app = join(ROOT, "apps", args.name);
+  const existed = existsSync(app) && !args.fresh;
   for (const step of planCreate(args, { root: ROOT, exists: existsSync(app) })) {
     if (step.step === "remove") {
       rmSync(step.dir, { recursive: true, force: true });
@@ -33,7 +34,11 @@ try {
       if (code !== 0) throw new Error(`${step.argv.join(" ")} exited with ${code}`);
     }
   }
-  console.log(`\n${app} is ready. Next: its .env (see README.md), then from there: bunx mfw start, bunx mfw e2e.`);
+  console.log(
+    existed
+      ? `\n${app} has the new packages: bunx mfw start from there rebuilds its image with them.`
+      : `\n${app} is ready. Next: its env file (see README.md), then from there: bunx mfw start, bunx mfw e2e.`,
+  );
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);

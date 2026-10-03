@@ -21,7 +21,9 @@ export default e2e({
         expect.call("jiraCommand", (c) => command(c.input).startsWith("jira project search"), "searches the project");
         expect.call("jiraCommand", (c) => command(c.input).startsWith("jira user search"), "searches the user");
         expect.everyCall("jiraCommand", (c) => command(c.input).includes("--select "), "every jira command has --select");
-        expect.noFailedCalls();
+        // Not noFailedCalls: the skill has the model look for a project-name
+        // mapping in the wiki first, and a new app's wiki doesn't have it yet.
+        expect.everyCall("jiraCommand", (c) => c.ok, "no jira command failed");
         expect.callCount({ max: 2 }, "jiraCommand");
         expect.answer(/\bCS\b/);
         expect.answer("Luca Brognara");
