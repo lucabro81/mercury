@@ -105,7 +105,7 @@ The framework packages share one version and are released together, so an app pi
 
 ## Developing in this repo
 
-A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and [`apps/mercury`](apps/mercury), the reference instance, which runs from the workspaces and is where changes get tried end to end.
+A Bun workspace managed with Turborepo: the framework and the first-party plugins under `packages/` (grouped by role), the CLI and `create-mercury-agent` under `apps/`, and the [test bed](apps/testbed), where a change gets tried end to end before it's published: an app made with `mfw create` that installs this repo's packages packed as they'd go to npm, and `mfw e2e` checking what its real model does with them.
 
 ```bash
 bun install

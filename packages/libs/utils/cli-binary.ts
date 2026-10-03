@@ -12,9 +12,8 @@
  *
  * The binary version is pinned as data rather than resolved to "latest" at
  * install time: two builds weeks apart must bake the identical binary, so the
- * pin is bumped deliberately. That reproducibility is why binary provisioning
- * moved off the build-time `install-clis.sh` "latest per crate" resolution and
- * onto the versioned plugin packages.
+ * pin is bumped deliberately, together with whatever in the plugin (allowlist,
+ * skill) the new version changes.
  */
 import { chmod, mkdir } from "node:fs/promises";
 

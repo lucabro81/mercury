@@ -1,11 +1,9 @@
 /**
  * Checks an installed CLI binary's version against a maintainer-declared
  * `minVersion` (from an externally-configured CLI config file, see
- * `src/tools/cli-config-loader.ts`). No version-check convention existed
- * anywhere in this codebase before this — confirmed by searching
- * `scripts/install-clis.sh` (only resolves GitHub release *tags* to pick
- * a download asset, never validates an already-installed binary) and the
- * rest of `src/`.
+ * `src/tools/cli-config-loader.ts`). Nothing else validates an
+ * already-installed binary: provisioning downloads a pinned version and
+ * never checks it again.
  *
  * Assumes `--version` is the right flag to invoke — the CLIs are
  * Rust/clap-based, and `--version` is clap's near-universal default, but

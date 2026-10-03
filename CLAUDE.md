@@ -33,7 +33,7 @@ regression test that fails before the fix and passes after.
 
 ## What it is
 
-Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`). `apps/mercury` is the production instance (Jira, Bitbucket, atlassian-admin on Google Chat and HTTP), kept here as the reference instance until it moves to its own scaffolded repo.
+Mercury is a framework for building your own agent, published on npm as `@mercury-fw/*`: an app declares its plugins, channels and persona in `mercury.config.ts`, and `@mercury-fw/core` runs the rest. Apps are scaffolded with `bun create mercury-agent` (`mfw create`) and live in repositories of their own, the production instance included. This repo holds the framework, the first-party plugins and channels, the CLI, and a test bed (`apps/testbed`) where a change is tried live before it's published.
 
 ## Stack
 
@@ -61,18 +61,15 @@ Mercury is a framework for building your own agent, published on npm as `@mercur
 ## Repo structure
 
 Monorepo (Bun workspaces + Turborepo). The framework runtime is `@mercury-fw/core`
-(`packages/libs/core`); the plugins are siblings under `packages/`. `apps/mercury`
-is a **thin reference instance**: it declares its composition in `mercury.config.ts`
-and ships the two entrypoints (`src/index.ts` service, `src/repl.ts` dev REPL),
-both of which just import `@mercury-fw/core` and hand it that config — the runtime
-itself lives in core. Everything instance-specific (Dockerfile, compose files,
-scripts) lives inside `apps/mercury/`, because that instance happens to be the
-one with containers.
-
-The end state (see #48) is a repo of **core + plugins only**, with the production
-instance leaving as the first scaffolding consumer; `apps/mercury` stays as the
-interim reference/production instance until the production app is scaffolded into
-its own repo and deployed.
+(`packages/libs/core`); the plugins and channels are siblings under `packages/`.
+There's no instance in the repo: apps are scaffolded into their own
+repositories. A change is tried live in the test bed (`apps/testbed`, a private
+workspace): `bun run create <name>` there makes an app with this repo's
+`mfw create` under `apps/testbed/apps/<name>` (ignored by git, outside the
+workspace globs), installing this repo's packages packed as they'd go to npm
+(`mfw local-packages`), so it runs the unreleased code in the scaffolded
+Dockerfile with real credentials, and `mfw e2e` checks what its model does.
+The procedure is in `apps/testbed/README.md`.
 
 `apps/cli` is the Mercury CLI (`@mercury-fw/cli`, bin `mfw`): `mfw create
 <folder>` writes a new app from its `template/` plus a hand-written catalog of
@@ -81,7 +78,7 @@ version and each chosen plugin at its latest on the registry, then runs
 `bun install` and commits the app to a new git repository (`finish.ts`;
 `--no-install`, `--no-git`, `--git-remote`, nothing pushed). Every other command operates an app from
 inside its folder (`app/`: `start`/`stop`/`restart`, `logs`, `repl`, `shell`,
-`vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`), as `docker compose` calls (or env-file writes); `mfw` is installed
+`vault`, `memory`, `reset`, `credentials set|reset`, `google-chat set-key`, `local-packages`, `e2e`), as `docker compose` calls (or env-file writes, or a REPL session driven through `/dump` for `e2e`); `mfw` is installed
 globally (`bun add -g @mercury-fw/cli`, `mfw upgrade`); an app also gets the CLI as a
 devDependency at the framework's version, and inside an app a global `mfw` at another
 version hands the command over to it (`MFW_DEFERRED`), so the app's commands match its framework. No "plumbing" commands mirroring
@@ -112,7 +109,7 @@ mercury/                       # repo root
 │   ├── formatters/
 │   │   └── formatter/             # @mercury-fw/formatter — applies an instance's per-kind rules to the lists a data plugin emits (formatterPlugin + formatter); holds no format of its own
 │   ├── libs/
-│   │   ├── core/                 # @mercury-fw/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline (the bulk of the old apps/mercury/src). See its own tree below
+│   │   ├── core/                 # @mercury-fw/core — the framework runtime: composeMercury + loaders + engines wiring + turn pipeline. See its own tree below
 │   │   ├── kit/                  # @mercury-fw/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
 │   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
 │   │   ├── confirm-engine/       # the core-owned confirm mechanism (store + stage + resolve), consumed by the core, injected into channels
@@ -121,8 +118,8 @@ mercury/                       # repo root
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
     ├── create-mercury-agent/     # what `bun create mercury-agent` runs: `mfw create`, nothing of its own
-    ├── cli/                   # @mercury-fw/cli — program.ts (the command line, commander), `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), template/*.tpl (static files, imported as text); app/ (find-app.ts, commands.ts: the commands that operate an app; credentials.ts: packing a CLI's config folder into its env variable)
-    └── mercury/               # ← everything below this line is relative to here
+    ├── cli/                   # @mercury-fw/cli — program.ts (the command line, commander), `mfw create <folder>`: catalog.ts (channels/plugins it offers), render.ts (template + selection → files), write.ts, wizard.ts (@clack/prompts), finish.ts (install + first commit), template/*.tpl (static files, imported as text); app/ (find-app.ts, commands.ts: the commands that operate an app; credentials.ts: packing a CLI's config folder into its env variable; local-packages.ts); e2e/ (the e2e test format, runner and REPL session behind `mfw e2e`, `@mercury-fw/cli/e2e`)
+    └── testbed/               # private: create.ts/pack.ts make apps under apps/ (ignored) on this repo's packed packages; tests/example.e2e.ts, a template; README.md, the procedure
 ```
 
 Naming: every workspace is `@mercury-fw/*`. The role is read from the bucket
@@ -130,28 +127,7 @@ folder plus the name prefix (`plugin-*`, `channel-*`, `*-types`), not encoded
 again in the name. Workspace names must be unique repo-wide — the folder doesn't
 namespace them.
 
-**Paths and commands in this file and in README.md are relative to
-`apps/mercury/`** unless they clearly aren't (`.changeset/`, `turbo.json`,
-the root `scripts/`). `docker compose` in particular only works from
-there — the compose files never moved to the root.
-
-```
-apps/mercury/                  # the reference instance — thin: config + entrypoints + containers
-├── scripts/
-│   └── install-clis.sh
-├── mercury.config.ts          # this instance's composition — the plugins + channels it wires, and the formatter rules for the plugins' lists (defineMercuryConfig)
-├── src/
-│   ├── index.ts              # service entrypoint — composeMercury(mercuryConfig) + start channels/admin/crons, signal-driven shutdown (headless)
-│   └── repl.ts               # dev REPL entrypoint (`bun run repl`) — composeMercury(mercuryConfig) + open the terminal; destined for the future Mercury CLI
-├── Dockerfile
-├── docker-compose.yml
-├── docker-compose.override.yml
-├── CHANGELOG.md
-├── .env.example
-└── package.json
-```
-
-The framework runtime the entrypoints call into lives in `@mercury-fw/core`
+The framework runtime an app's entrypoints call into lives in `@mercury-fw/core`
 (`packages/libs/core/src`), config-agnostic — `composeMercury(config)` takes the
 instance's config as a parameter, it never imports a `mercury.config.ts`:
 
@@ -172,7 +148,7 @@ packages/libs/core/
     │   └── tool-log.ts         # terminal-only debug visibility helpers
     ├── memory/                # Layer 3 — episodic store (Qdrant)
     ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
-    ├── admin/                 # POC admin panel — dev-only, no auth (see docker-compose.override.yml)
+    ├── admin/                 # POC admin panel — dev-only, no auth, off unless ADMIN_PANEL_ENABLED=true
     └── cron/                  # idle-session scanner
 ```
 
@@ -190,17 +166,15 @@ SemVer via [Changesets](https://github.com/changesets/changesets); every package
 
 ## Operational notes
 
-- **Develop via Docker, not on the host**: `mfw start` (`docker compose up -d --build`) is the normal workflow, not just deployment. `docker-compose.override.yml` mounts `src/` and uses `bun run --watch`, applied automatically by Compose with no extra flags. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `mfw repl`
-- Full install/run/deploy commands live in [README.md](README.md), not duplicated here — this file covers stack and conventions only
+- **An app runs via Docker, not on the host**: `mfw start` (`docker compose up -d --build`) is the normal workflow, not just deployment. The running service is headless (channels + crons, shuts down on SIGTERM); for an interactive session use the dev REPL: `mfw repl`. To run this repo's unreleased code, use a test bed app (`apps/testbed/README.md`): inside one, `bunx mfw` runs the app's own CLI, which is this repo's
+- Full install/run/deploy commands live in [README.md](README.md) and the CLI's README, not duplicated here — this file covers stack and conventions only
 - `OLLAMA_HOST` in dev points to `http://host.docker.internal:11434` (Ollama runs on the host, never inside the container)
 - Bun executes `.ts` natively (transpiles at runtime, zero build step) — `tsconfig.json` has `noEmit: true` on purpose. `bun run typecheck` (`tsc --noEmit`) is the separate gate for type validation, which Bun doesn't do at runtime. `bun run test` from the repo root runs every workspace's suite through Turborepo; each package's tests live next to its code (a plugin's tests in its own package), so `bun test` inside one package runs just that package's
-- `scripts/install-clis.sh` always resolves the latest release **per crate** via the GitHub API (independent releases per CLI, not a single repo-wide "latest"), and picks the right asset for the current OS/arch (`linux-x86_64`, `linux-arm64`, `macos-arm64`) — runs at build-time in the Dockerfile, not by hand
 - **Base image is Debian (`oven/bun:1`), not Alpine — reopens D-13.** The CLI binaries are dynamically linked glibc binaries, not static. Verified twice (x86_64 and arm64 builds): Alpine's `gcompat` shim doesn't implement the full glibc resolver (`__res_init` missing) — the CLIs fail to run on Alpine even with `gcompat` installed, regardless of matching architecture. Confirmed the CLIs run natively on Debian with zero compatibility layer. Image size difference is small (~330MB base vs ~290MB Alpine) since the Bun runtime itself dominates the size, not the OS base — not worth the fragility of chasing partial glibc shims
-- Dockerfile is multi-stage: `curl`/`jq` (needed only to download the CLI binaries) live in a separate `clis` build stage, never in the final image — keeps their CVEs out of the running container
 - `apt-get upgrade` after `apt-get update` in the Dockerfile applies security patches already available in the Debian repos but not yet baked into the base image; some CVEs in `oven/bun:1` currently have no fix published yet (e.g. in `libsqlite3`, `ncurses`, `perl-base`) — checked with `trivy image` (offline scanner via `brew install trivy`, no login required unlike `docker scout`), not exploitable through anything Mercury actually uses
 - **Don't `RUN chown -R` on a directory across a separate layer from where its files were created** — it duplicates all that data in the new layer (observed: +65MB for a chown that touched already-copied `node_modules`). Use `COPY --chown=user:group` on each copy, and append `&& chown -R user:group <dir>` to the same `RUN` that creates the files (e.g. `bun install`), not a separate step
 - `env_file: - path: .env / required: false` in compose prevents `docker compose config` from failing when `.env` doesn't exist yet (only `.env.example` is versioned)
-- **Wiki vault and memory maintenance**: `mfw vault <command>` and `mfw memory <list|read>`. The vault and Qdrant's data are Docker named volumes, not host paths, so both run in a one-off `docker compose run --rm -T mercury` container, executing the core's own CLIs by path (`bun node_modules/@mercury-fw/core/src/wiki/vault-cli.ts`, `…/src/memory/memory-cli.ts`), not as package bins: the monorepo image runs `bun install` before copying the sources, and Bun doesn't link a bin whose file isn't there yet. Vault commands: `list`, `read <path>`, `grep <pattern>` (case-insensitive; paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]`, `write-raw <raw/...path.md>` (body read from stdin). Thin routing only, reusing `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee. `mfw memory` is read-only.
+- **Wiki vault and memory maintenance**: `mfw vault <command>` and `mfw memory <list|read>`. The vault and Qdrant's data are Docker named volumes, not host paths, so both run in a one-off `docker compose run --rm -T mercury` container, executing the core's own CLIs by path (`bun node_modules/@mercury-fw/core/src/wiki/vault-cli.ts`, `…/src/memory/memory-cli.ts`), not as package bins: the image runs `bun install` before copying the sources, and Bun doesn't link a bin whose file isn't there yet. Vault commands: `list`, `read <path>`, `grep <pattern>` (case-insensitive; paths are always vault-relative, including the leading `curated/` — matches what `list` prints), `write-curated <curated/...path.md> [--author NAME]`, `write-raw <raw/...path.md>` (body read from stdin). Thin routing only, reusing `wiki-note.ts`/`vault-init.ts` as-is. Deliberately does not expose `writeInferredNote`: that writer is reserved for the deterministic D-22 consolidation engine (see its own docstring), a manual CLI writing "agent-sourced" notes by hand would defeat that guarantee. `mfw memory` is read-only.
 
 ## Hard-won conventions
 

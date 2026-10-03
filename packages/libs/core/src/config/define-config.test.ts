@@ -1,9 +1,8 @@
 /**
  * Tests for the composition config helper. `defineMercuryConfig` is a pure
  * identity+typing helper — it must hand back exactly what it was given, adding
- * no runtime behavior. The companion regression that pins a concrete instance's
- * declared plugin set lives with that instance (`apps/mercury`), not here: the
- * core is agnostic to which plugins any app composes.
+ * no runtime behavior. Which plugins an app declares is that app's business,
+ * tested there if anywhere: the core is agnostic to what any app composes.
  */
 import { describe, expect, test } from "bun:test";
 import { defineMercuryConfig } from "./define-config.ts";
