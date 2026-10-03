@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readCliCredentials, credentialsVariable, appCliCredentials } from "./index.ts";
+import { readCliCredentials, credentialsVariable, appCliCredentials, volumePath } from "./index.ts";
 
 /**
  * The plugin-declared CLI credentials folder (`mercury.cliCredentials` in a
@@ -11,8 +11,20 @@ import { readCliCredentials, credentialsVariable, appCliCredentials } from "./in
  * mechanism as a first-party one.
  */
 describe("readCliCredentials", () => {
-  it("returns the declared folder", () => {
-    expect(readCliCredentials({ mercury: { cliCredentials: { folder: "jira-cli" } } })).toBe("jira-cli");
+  it("a folder is under ~/.config, the default", () => {
+    expect(readCliCredentials({ mercury: { cliCredentials: { folder: "jira-cli" } } })).toEqual({
+      name: "jira-cli",
+      path: ".config/jira-cli",
+    });
+  });
+
+  // #144: a CLI may keep its login outside ~/.config.
+  it("a path is anywhere under the home", () => {
+    expect(readCliCredentials({ mercury: { cliCredentials: { path: ".aws" } } })).toEqual({ name: ".aws", path: ".aws" });
+    expect(readCliCredentials({ mercury: { cliCredentials: { path: ".local/share/tool" } } })).toEqual({
+      name: ".local/share/tool",
+      path: ".local/share/tool",
+    });
   });
 
   it("returns undefined for a package that declares nothing", () => {
@@ -29,7 +41,7 @@ describe("readCliCredentials", () => {
   });
 
   it("rejects a malformed declaration instead of ignoring it", () => {
-    for (const cliCredentials of [null, "jira-cli", {}, { folder: "" }, { folder: 3 }]) {
+    for (const cliCredentials of [null, "jira-cli", {}, { folder: "" }, { folder: 3 }, { path: 3 }, { folder: "a", path: ".a" }]) {
       expect(() => readCliCredentials({ mercury: { cliCredentials } })).toThrow(/mercury\.cliCredentials/);
     }
   });
@@ -38,6 +50,24 @@ describe("readCliCredentials", () => {
     for (const folder of ["a/b", "../x", "..", ".", "/abs", "with space", ".hidden"]) {
       expect(() => readCliCredentials({ mercury: { cliCredentials: { folder } } })).toThrow(/mercury\.cliCredentials/);
     }
+  });
+
+  it("rejects a path that leaves the home, or covers the whole volume or Mercury's part of it", () => {
+    for (const path of ["", "/abs", "../x", "a/../../x", "./a", "a//b", "a/", "with space", ".config", ".config/mercury-home", ".config/mercury-home/x"]) {
+      expect(() => readCliCredentials({ mercury: { cliCredentials: { path } } }), path).toThrow(/mercury\.cliCredentials/);
+    }
+  });
+});
+
+describe("volumePath", () => {
+  it("a folder under ~/.config is on the volume where it is", () => {
+    expect(volumePath(".config/jira-cli")).toBe(".config/jira-cli");
+    expect(volumePath(".config/tool/sub")).toBe(".config/tool/sub");
+  });
+
+  it("anything else goes under ~/.config/mercury-home, the volume being ~/.config", () => {
+    expect(volumePath(".aws")).toBe(".config/mercury-home/.aws");
+    expect(volumePath(".local/share/tool")).toBe(".config/mercury-home/.local/share/tool");
   });
 });
 
@@ -50,6 +80,11 @@ describe("credentialsVariable", () => {
 
   it("maps any other non-alphanumeric to an underscore", () => {
     expect(credentialsVariable("my.tool_cli")).toBe("MY_TOOL_CLI_CONFIG_TAR_B64");
+  });
+
+  it("a path's leading dot doesn't start the name with an underscore", () => {
+    expect(credentialsVariable(".aws")).toBe("AWS_CONFIG_TAR_B64");
+    expect(credentialsVariable(".local/share/tool")).toBe("LOCAL_SHARE_TOOL_CONFIG_TAR_B64");
   });
 });
 
@@ -80,14 +115,14 @@ describe("appCliCredentials", () => {
     );
     installed("@scope/plugin-a", { mercury: { cliCredentials: { folder: "a-cli" } } });
     installed("plain-lib", {});
-    installed("third-party-plugin", { mercury: { cliCredentials: { folder: "tp" } } });
+    installed("third-party-plugin", { mercury: { cliCredentials: { path: ".tp" } } });
     // A devDependency isn't part of what the app runs: not collected.
     installed("@scope/dev-tool", { mercury: { cliCredentials: { folder: "dev" } } });
 
     expect(appCliCredentials(app)).toEqual({
       declared: [
-        { package: "@scope/plugin-a", folder: "a-cli", variable: "A_CLI_CONFIG_TAR_B64" },
-        { package: "third-party-plugin", folder: "tp", variable: "TP_CONFIG_TAR_B64" },
+        { package: "@scope/plugin-a", name: "a-cli", path: ".config/a-cli", variable: "A_CLI_CONFIG_TAR_B64" },
+        { package: "third-party-plugin", name: ".tp", path: ".tp", variable: "TP_CONFIG_TAR_B64" },
       ],
       problems: [],
     });
@@ -104,7 +139,7 @@ describe("appCliCredentials", () => {
     writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { "missing-plugin": "^1.0.0", good: "^1.0.0" } }));
     installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
     const { declared, problems } = appCliCredentials(app);
-    expect(declared).toEqual([{ package: "good", folder: "good-cli", variable: "GOOD_CLI_CONFIG_TAR_B64" }]);
+    expect(declared).toEqual([{ package: "good", name: "good-cli", path: ".config/good-cli", variable: "GOOD_CLI_CONFIG_TAR_B64" }]);
     expect(problems).toEqual([
       `missing-plugin is not installed (no ${join(app, "node_modules", "missing-plugin", "package.json")}): run bun install`,
     ]);
@@ -123,21 +158,22 @@ describe("appCliCredentials", () => {
   // Review of #144: the clash was checked on the folder, but two folders can
   // share a variable (jira-cli, jira_cli), which would hand both one login.
   it.each([
-    ["same", "same"],
-    ["jira-cli", "jira_cli"],
-    ["Jira-cli", "jira-cli"],
-  ])("drops both dependencies whose folders %p and %p map to one variable, and keeps the others", (a, b) => {
+    [{ folder: "same" }, { folder: "same" }, "same", "same"],
+    [{ folder: "jira-cli" }, { folder: "jira_cli" }, "jira-cli", "jira_cli"],
+    [{ folder: "Jira-cli" }, { folder: "jira-cli" }, "Jira-cli", "jira-cli"],
+    [{ folder: "aws" }, { path: ".aws" }, "aws", ".aws"],
+  ])("drops both dependencies whose declarations %p and %p map to one variable, and keeps the others", (da, db, a, b) => {
     writeFileSync(
       join(app, "package.json"),
       JSON.stringify({ dependencies: { one: "^1.0.0", good: "^1.0.0", two: "^1.0.0" } }),
     );
-    installed("one", { mercury: { cliCredentials: { folder: a } } });
+    installed("one", { mercury: { cliCredentials: da } });
     installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
-    installed("two", { mercury: { cliCredentials: { folder: b } } });
+    installed("two", { mercury: { cliCredentials: db } });
     const { declared, problems } = appCliCredentials(app);
     expect(declared.map((c) => c.package)).toEqual(["good"]);
     expect(problems).toEqual([
-      `one and two declare CLI credentials folders (${a}, ${b}) carried by the same variable ${credentialsVariable(a)}: neither is used`,
+      `one and two declare CLI credentials (${a}, ${b}) carried by the same variable ${credentialsVariable(a)}: neither is used`,
     ]);
   });
 });

@@ -16,6 +16,8 @@ export {
   readCliCredentials,
   credentialsVariable,
   appCliCredentials,
+  volumePath,
+  type DeclaredCredentials,
   type CliCredentials,
   type AppCliCredentials,
 } from "./cli-credentials.ts";
