@@ -9,7 +9,11 @@ import { join } from "node:path";
 
 export type CreateArgs = { name: string; plugins?: string[]; channels?: string[]; from?: string; fresh: boolean };
 
-export type Step = { step: "pack" } | { step: "remove"; dir: string } | { step: "run"; argv: string[]; cwd: string };
+export type Step =
+  | { step: "warn"; message: string }
+  | { step: "pack" }
+  | { step: "remove"; dir: string }
+  | { step: "run"; argv: string[]; cwd: string };
 
 /** Where the tarballs are, from an app's folder (`apps/<name>`). */
 const PACKS_FROM_APP = "../../.packs";
@@ -56,6 +60,12 @@ export function planCreate(args: CreateArgs, { root, exists }: { root: string; e
   const app = join(root, "apps", args.name);
   const steps: Step[] = [];
   const create = !exists || args.fresh;
+  // An app that exists keeps its config: plugins, channels or a test given
+  // for it change nothing, which is worth saying.
+  const given = args.plugins !== undefined || args.channels !== undefined || args.from !== undefined;
+  if (exists && !args.fresh && given) {
+    steps.push({ step: "warn", message: `${app} exists: its plugins and channels stay as they are (--fresh makes it anew with the ones given)` });
+  }
   if (exists && args.fresh) steps.push({ step: "remove", dir: app });
   steps.push({ step: "pack" });
   if (create) {

@@ -25,7 +25,9 @@ try {
   const app = join(ROOT, "apps", args.name);
   const existed = existsSync(app) && !args.fresh;
   for (const step of planCreate(args, { root: ROOT, exists: existsSync(app) })) {
-    if (step.step === "remove") {
+    if (step.step === "warn") {
+      console.warn(step.message);
+    } else if (step.step === "remove") {
       rmSync(step.dir, { recursive: true, force: true });
     } else if (step.step === "pack") {
       console.log(`packed ${packAll({ types: true })} packages`);

@@ -73,7 +73,7 @@ bunx mfw e2e ../../tests/jira.e2e.ts
 ## The loop: change, repack, check
 
 1. Change the sources in the repo.
-2. From `apps/testbed`: `bun run create prova`. On an app that exists it only packs and installs again: its config, persona and `.env` stay.
+2. From `apps/testbed`: `bun run create prova`. On an app that exists it only packs and installs again: its config, persona and `.env` stay, and `--plugins`, `--channels` or `--from` given for it change nothing (it says so; `--fresh` makes the app anew with them).
 3. From the app's folder: `bunx mfw start`, which rebuilds the image with the new packages.
 4. `bunx mfw e2e ../../tests/<test>.e2e.ts`, or `bunx mfw repl` to look around by hand.
 
@@ -96,7 +96,7 @@ Prefer read-only cases. A case that changes an external system (creates an issue
 
 ## Starting over, removing an app
 
-`bun run create prova --fresh` removes `apps/prova` and creates it anew, `.env` included: keep a copy of the env file if you want it back. The app's Docker volumes stay. To drop them too (wiki, memory, unpacked credentials), from the app's folder, before removing it:
+`bun run create prova --fresh` removes `apps/prova` and creates it anew, `.env` included: keep a copy of the env file if you want it back. It's also the way out when a first `bun run create` stopped halfway: the folder it left counts as an app that exists, so a plain rerun would only install into it. The app's Docker volumes stay. To drop them too (wiki, memory, unpacked credentials), from the app's folder, before removing it:
 
 ```bash
 bunx mfw stop
