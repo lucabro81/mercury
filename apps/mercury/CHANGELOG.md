@@ -1,5 +1,12 @@
 # mercury
 
+## 0.24.21
+
+### Patch Changes
+
+- Updated dependencies [587a4f7]
+  - @mercury-fw/plugin-jira@0.4.0
+
 ## 0.24.20
 
 ### Patch Changes
