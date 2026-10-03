@@ -9,6 +9,6 @@ import pkg from "./package.json" with { type: "json" };
  */
 describe("mercury.cliCredentials", () => {
   test("declares the CLI's login folder", () => {
-    expect(readCliCredentials(pkg)).toBe("atlassian-admin-cli");
+    expect(readCliCredentials(pkg)).toEqual({ name: "atlassian-admin-cli", path: ".config/atlassian-admin-cli" });
   });
 });
