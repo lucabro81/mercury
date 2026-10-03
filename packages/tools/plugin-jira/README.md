@@ -30,6 +30,6 @@ plugins: [
 
 ## Credentials
 
-The CLI keeps its login under `~/.config/jira-cli`; in a container that's `/home/mercury/.config/jira-cli`, on the `cli-credentials` volume of a scaffolded app. Log in with the CLI's own setup (see [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo)) on a machine, then bring that folder into the volume. Doing this from the app's env file is planned ([#57](https://github.com/lucabro81/mercury-fw/issues/57)).
+The CLI keeps its login under `~/.config/jira-cli`, and the plugin declares that folder in its `package.json` (`mercury.cliCredentials`). Log in with the CLI's own setup (see [CLI-monorepo](https://github.com/lucabro81/CLI-monorepo)) on your machine, then hand the folder to the app with `mfw credentials set jira-cli`: it travels in the app's env file, and the app unpacks it onto its `cli-credentials` volume at the first start without that folder.
 
 MIT
