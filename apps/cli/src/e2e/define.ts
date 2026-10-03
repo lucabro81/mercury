@@ -51,9 +51,9 @@ export type E2eCase = {
   repeat?: number;
   /** How many runs must pass; default every one. */
   minPasses?: number;
-  before?: (ctx: Context) => Promise<void> | void;
-  after?: (ctx: Context) => Promise<void> | void;
-  check: (run: Run, expect: Expect, ctx: Context) => Promise<void> | void;
+  before?: (ctx: Context) => unknown;
+  after?: (ctx: Context) => unknown;
+  check: (run: Run, expect: Expect, ctx: Context) => unknown;
 };
 
 /** An e2e test: what the app must have, and its cases. */
