@@ -2,7 +2,7 @@
 
 Where a change to the framework or to a plugin gets tried live before it's published. The test bed creates an app with `mfw create`, as anyone would, and makes it install this repo's packages packed the way they'd go to npm instead of the registry's. From there it's a normal app (same Dockerfile, same compose file, the real credentials) that runs your unreleased code, and `mfw e2e` checks what its real model does with it.
 
-What it isn't: CI. The apps it creates, the tests you write for them and their results stay out of git, because they depend on things that only exist on your machine: the Ollama instance and the model, what's in the app's wiki and memory, and the accounts its credentials reach. The repo keeps the scripts, this guide and [one example test](tests/example.e2e.ts).
+What it isn't: CI. The apps it creates, the tests you write for them and their results stay out of git, because they depend on things that only exist on your machine: the Ollama instance and the model, what's in the app's wiki and memory, and the accounts its credentials reach. The repo keeps the scripts, this guide and [an example test](tests/example.e2e.ts), a template to copy and fill in with what your instance has.
 
 ## Table of contents
 
@@ -65,7 +65,7 @@ From the app's folder:
 ```bash
 bunx mfw start
 bunx mfw repl
-bunx mfw e2e ../../tests/example.e2e.ts
+bunx mfw e2e ../../tests/jira.e2e.ts
 ```
 
 `bunx mfw start` builds the image with the tarballs (the Dockerfile copies `.packs/` before installing) and starts the app and its Qdrant. Each app has its own Docker volumes, named after its folder: its wiki, memory and credentials don't mix with other apps'.
@@ -83,7 +83,7 @@ A change to the template (what `mfw create` writes) only shows up in a new app: 
 
 A test is a `*.e2e.ts` file: the plugins and channels the app needs, then cases of turns sent to the model with checks on the tool calls each turn made and on the answer. The format, the checks you can make and what can't be tested are in the CLI's README, under [`mfw e2e`](../cli/README.md#mfw-e2e-tests---repeat-n).
 
-Start from the example: copy it under another name in `tests/` (git ignores everything there but the example) and adapt it. Its expected project key and user name are those of the Jira one instance's credentials reach, so they're the first thing to change. Tests can also live in the app's own `e2e/` folder, where `bunx mfw e2e` without arguments finds them.
+Start from the example, a template that runs nowhere as it is: copy it under another name in `tests/` (git ignores everything there but the example), for instance `tests/jira.e2e.ts`, and fill in the constants at its top with what the Jira your app reaches actually has (a project's name and key, part of a person's name and their full name). It's committed for one reason: the typecheck keeps it in step with the test format. Tests can also live in the app's own `e2e/` folder, where `bunx mfw e2e` without arguments finds them.
 
 Prefer read-only cases. A case that changes an external system (creates an issue, assigns one, comments) cleans up after itself in `after`, with `cli`, which runs a command in the app's container outside the model.
 
