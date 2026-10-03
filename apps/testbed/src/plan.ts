@@ -1,0 +1,80 @@
+/**
+ * The steps `bun run create` takes, worked out from its command line before
+ * anything runs: pack this repo's workspaces, create the app with this repo's
+ * `mfw create` when it doesn't exist yet (or anew with `--fresh`), then make
+ * it install the tarballs with `mfw local-packages`.
+ */
+import { parseArgs } from "node:util";
+import { join } from "node:path";
+
+export type CreateArgs = { name: string; plugins?: string[]; channels?: string[]; from?: string; fresh: boolean };
+
+export type Step = { step: "pack" } | { step: "remove"; dir: string } | { step: "run"; argv: string[]; cwd: string };
+
+/** Where the tarballs are, from an app's folder (`apps/<name>`). */
+const PACKS_FROM_APP = "../../.packs";
+
+/** A comma-separated list, trimmed, empty items dropped. */
+const list = (value: string): string[] =>
+  value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/** `bun run create`'s arguments. */
+export function parseCreateArgs(argv: string[]): CreateArgs {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      plugins: { type: "string" },
+      channels: { type: "string" },
+      from: { type: "string" },
+      fresh: { type: "boolean", default: false },
+    },
+  });
+  const name = positionals[0];
+  if (name === undefined || positionals.length > 1) {
+    throw new Error("usage: bun run create <name> [--plugins a,b] [--channels c] [--from <test>] [--fresh]");
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error(`"${name}" isn't a folder name: lowercase letters, digits and dashes`);
+  if (values.from !== undefined && (values.plugins !== undefined || values.channels !== undefined)) {
+    throw new Error("--from takes the plugins and channels from the test: leave out --plugins and --channels");
+  }
+  return {
+    name,
+    ...(values.plugins !== undefined ? { plugins: list(values.plugins) } : {}),
+    ...(values.channels !== undefined ? { channels: list(values.channels) } : {}),
+    ...(values.from !== undefined ? { from: values.from } : {}),
+    fresh: values.fresh ?? false,
+  };
+}
+
+/** The steps for `args`, with the plugins and channels already settled (a
+ * `--from` test read by the caller), for the test bed at `root`. */
+export function planCreate(args: CreateArgs, { root, exists }: { root: string; exists: boolean }): Step[] {
+  const app = join(root, "apps", args.name);
+  const steps: Step[] = [];
+  const create = !exists || args.fresh;
+  if (exists && args.fresh) steps.push({ step: "remove", dir: app });
+  steps.push({ step: "pack" });
+  if (create) {
+    steps.push({
+      step: "run",
+      argv: [
+        "mfw",
+        "create",
+        `apps/${args.name}`,
+        "--plugins",
+        (args.plugins ?? []).join(","),
+        "--channels",
+        (args.channels ?? []).join(","),
+        "--no-install",
+        "--yes",
+      ],
+      cwd: root,
+    });
+  }
+  steps.push({ step: "run", argv: ["mfw", "local-packages", PACKS_FROM_APP], cwd: app });
+  return steps;
+}
