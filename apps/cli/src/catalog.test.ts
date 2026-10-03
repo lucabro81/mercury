@@ -23,8 +23,8 @@ describe("CATALOG", () => {
       const mod = (await import(entry.package)) as Record<string, { name?: unknown } | undefined>;
       const exported = mod[entry.exportName];
       expect(exported, `${entry.package} has no export ${entry.exportName}`).toBeDefined();
-      // The id is what MERCURY_CLIS lists for a tool plugin, so it must be the
-      // name the loader matches on.
+      // The id is what the CLI calls a plugin, so it must be the name the
+      // plugin loads under (the logs and `dependsOn` use it).
       expect(exported?.name).toBe(entry.id);
     }
   });

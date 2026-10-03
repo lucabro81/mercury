@@ -68,7 +68,7 @@ export default defineMercuryConfig({
 });
 ```
 
-`plugins` are the tool plugins, and one of them contributes only when its name is also in `MERCURY_CLIS` and its allowlist validates, so the config says what the app may use and the environment what a given deployment turns on. `channels` are active as soon as they're declared (one left unconfigured stays inert).
+`plugins` are the tool plugins and `channels` the channels, each active as soon as it's declared: a plugin missing a setting it requires (Jira's `JIRA_SITE_URL`) refuses to load and says why at startup, and a channel left unconfigured stays inert.
 
 A plugin can hand the user a list (Jira does, for `issue search`), and how that list reads is the app's call: `formatterPlugin` wraps the plugin and `formatter` takes one rule per kind of list, the line for each item plus an optional text for an empty list. The kinds come typed from the plugin (`JiraDisplays`), so a kind it doesn't emit fails the typecheck, and a kind left without a rule isn't shown at all (the model still gets the data, and the log says which rule is missing).
 

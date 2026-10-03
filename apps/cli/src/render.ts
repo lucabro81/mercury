@@ -51,8 +51,7 @@ const CONFIG_HEADER = `/**
  * its plugins hand over read, and the assistant's persona. The entrypoints
  * (\`src/index.ts\`, \`src/repl.ts\`) hand this config to \`composeMercury\`.
  *
- * A tool plugin contributes only when it's also listed in MERCURY_CLIS; a
- * channel is active as soon as it's declared here.
+ * Every tool plugin and channel declared here is active.
  */`;
 
 /** Builds every file of the new app. Throws on an invalid app name, an empty
@@ -286,22 +285,11 @@ function renderPackageJson(
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-/** The env example: the core's variables, MERCURY_CLIS when a tool plugin was
- * chosen, then a section per chosen entry that reads any variable. */
+/** The env example: the core's variables, then a section per chosen entry
+ * that reads any variable. */
 function renderEnv(channels: CatalogEntry[], tools: CatalogEntry[]): string {
   const block = (vars: EnvVar[]) => vars.map((v) => `# ${v.comment}\n${v.name}=${v.value ?? ""}`).join("\n");
   const sections = [block(CORE_ENV)];
-  if (tools.length > 0) {
-    sections.push(
-      block([
-        {
-          name: "MERCURY_CLIS",
-          comment: "Tool plugins this instance enables (their ids, comma-separated)",
-          value: tools.map((t) => t.id).join(","),
-        },
-      ]),
-    );
-  }
   for (const entry of [...channels, ...tools]) {
     const vars = [...entry.env];
     if (entry.credentials !== undefined) {

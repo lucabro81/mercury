@@ -168,20 +168,21 @@ describe("renderApp: package.json", () => {
 });
 
 describe("renderApp: .env.example", () => {
-  test("http + jira: core vars, MERCURY_CLIS, then each chosen entry's vars", () => {
+  test("http + jira: core vars, then each chosen entry's vars", () => {
     expect(renderApp(HTTP_JIRA).get(".env.example")).toBe(golden("http-jira.env-example"));
   });
 
-  test("nothing chosen: core vars only, no MERCURY_CLIS", () => {
+  test("nothing chosen: core vars only", () => {
     const env = renderApp(EMPTY).get(".env.example") ?? "";
     expect(env).toContain("OLLAMA_HOST=");
-    expect(env).not.toContain("MERCURY_CLIS");
     expect(env).not.toContain("# ---");
   });
 
-  test("MERCURY_CLIS lists every chosen tool plugin; each tool plugin's section carries its credentials variable", () => {
+  // #142: MERCURY_CLIS repeated the config, and a plugin missing from it
+  // was skipped silently.
+  test("no MERCURY_CLIS: declaring a plugin is what enables it; each tool plugin's section carries its credentials variable", () => {
     const env = renderApp(FULL).get(".env.example") ?? "";
-    expect(env).toContain("MERCURY_CLIS=jira,bitbucket,atlassian-admin\n");
+    expect(env).not.toContain("MERCURY_CLIS");
     expect(env).toContain("# --- google-chat\n");
     expect(env).toMatch(/# --- bitbucket\n# bitbucket-cli's config folder, packed: mfw credentials set bitbucket [^\n]*\nBITBUCKET_CLI_CONFIG_TAR_B64=\n/);
     expect(env).toMatch(/# --- atlassian-admin\n# [^\n]*\nATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64=\n/);

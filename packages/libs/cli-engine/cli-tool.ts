@@ -16,10 +16,9 @@
  * which can appear before the subcommand) consumed generically by
  * `stripGlobalFlags` — no more hand-written per-CLI stripping function.
  *
- * Used by: `src/index.ts` (wiring), which builds the `Record<string,
- * CliConfig>` (via `cli-config-loader.ts`) from whichever CLIs are
- * enabled on a given instance and passes it into `createCliTool`
- * alongside the real `runCli`.
+ * Used by: each CLI plugin's `build()`, which validates its own allowlist
+ * (via `cli-config-loader.ts`) into the `Record<string, CliConfig>` and
+ * passes it into `createCliTool` alongside the real `runCli`.
  */
 import { tool, type JSONValue } from "ai";
 import { z } from "zod";
@@ -166,7 +165,7 @@ export function createCliTool(
     stashDisplay?: (artifact: string) => string;
   },
 ): { runCommand: ExecutableTool } {
-  // Anchor the example on a binary actually enabled on this instance rather than
+  // Anchor the example on a binary this tool actually runs rather than
   // a hardcoded one: a fixed `jira …` example misleads the model on an instance
   // without Jira. The concrete, CLI-specific example (real subcommand + flags)
   // belongs to that CLI's own skill, not to this plugin-agnostic tool.

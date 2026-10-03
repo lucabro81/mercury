@@ -6,9 +6,8 @@
  * nothing about any specific plugin — or about CLIs — the composition root
  * names them, this loop processes them identically.
  *
- * Two properties it guarantees, both required by the plan's fail-soft step:
- *  - a plugin contributes only when it is enabled on this instance (its name is
- *    in MERCURY_CLIS);
+ * Two properties it guarantees:
+ *  - every plugin the app declares is loaded: declaring it is what enables it;
  *  - a plugin that fails — its `build()` throws — degrades as a single unit:
  *    none of its contributions land, the failure is
  *    logged with detail, and every other plugin and the process itself carry
@@ -54,10 +53,9 @@ export interface LoadedPlugins {
   activated: string[];
 }
 
-/** Everything the loader needs from the composition root: which plugins are
- * enabled on this instance, and the runtime context every `build()` gets. */
+/** Everything the loader needs from the composition root: the runtime
+ * context every `build()` gets. */
 export interface PluginLoadContext {
-  enabledClis: string[];
   model: LanguageModel;
   env: Record<string, string | undefined>;
   log: (msg: string) => void;
@@ -116,8 +114,8 @@ export function orderByDependencies(plugins: Plugin[]): { ordered: Plugin[]; cyc
  * dependency between them. Never throws — a plugin that fails is logged and
  * skipped, its contributions staged and merged only once the whole plugin
  * succeeds so a later failure can't leave it half-wired. A plugin whose
- * declared `dependsOn` isn't fully activated (a dependency disabled, failed,
- * unknown, or itself skipped) is skipped fail-soft too, transitively.
+ * declared `dependsOn` isn't fully activated (a dependency failed, unknown,
+ * or itself skipped) is skipped fail-soft too, transitively.
  */
 export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
   const promptFragments: string[] = [];
@@ -127,13 +125,9 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
   const postTurnGuards: PostTurnGuard[] = [];
 
   const { ordered, cyclic } = orderByDependencies(plugins);
-  // A plugin caught in a cycle can't be ordered, so it can't load. Report it
-  // only when it's enabled — a disabled plugin contributes nothing regardless,
-  // same silence as any other disabled plugin.
+  // A plugin caught in a cycle can't be ordered, so it can't load.
   for (const plugin of cyclic) {
-    if (ctx.enabledClis.includes(plugin.name)) {
-      ctx.log(`plugin "${plugin.name}" not activated: part of or depends on a dependency cycle`);
-    }
+    ctx.log(`plugin "${plugin.name}" not activated: part of or depends on a dependency cycle`);
   }
 
   // Names that fully activated — a dependency must be in here for a dependent
@@ -142,11 +136,6 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
   const activated = new Set<string>();
 
   for (const plugin of ordered) {
-    // Not enabled on this instance: contribute nothing, and don't even
-    // validate the config — same as a CLI left out of MERCURY_CLIS.
-    if (!ctx.enabledClis.includes(plugin.name)) {
-      continue;
-    }
     // Contract-version skew: core and plugin are versioned and installed
     // separately, so a plugin built against a different contract than this core
     // supports is possible. Refuse it fail-soft rather than run it against a
@@ -160,8 +149,8 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     }
     // Every declared dependency must have fully activated first. Because we
     // process in dependency-first order, a dependency that was going to load
-    // already has; anything still missing is disabled, failed, unknown, or
-    // itself skipped — so this dependent degrades fail-soft too. Checked before
+    // already has; anything still missing failed, is unknown, or was itself
+    // skipped — so this dependent degrades fail-soft too. Checked before
     // touching this plugin's own build, so a doomed plugin does no work.
     const missingDeps = (plugin.dependsOn ?? []).filter((dep) => !activated.has(dep));
     if (missingDeps.length > 0) {

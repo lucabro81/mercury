@@ -6,7 +6,7 @@ Lets a [Mercury](https://github.com/lucabro81/mercury-fw) agent look up users in
 bun add @mercury-fw/plugin-atlassian-admin
 ```
 
-In the app: list it in `trustedDependencies` (or Bun skips the install script that downloads the binary), add `atlassian-admin` to `MERCURY_CLIS`, and declare it in `mercury.config.ts`:
+In the app: list it in `trustedDependencies` (or Bun skips the install script that downloads the binary) and declare it in `mercury.config.ts`:
 
 ```ts
 import { atlassianAdminPlugin } from "@mercury-fw/plugin-atlassian-admin";
