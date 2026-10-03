@@ -2,6 +2,18 @@
 
 What a [Mercury](https://github.com/lucabro81/mercury-fw) plugin author imports: the contract a tool plugin implements (`Plugin`, `PLUGIN_API_VERSION` and the types around them) and the one a channel implements (`ChannelPlugin`, `CHANNEL_API_VERSION`), in one place. It carries no runtime, so a plugin that depends on it doesn't pull the framework in.
 
+A plugin whose CLI keeps its login in a folder under `~/.config`, reading it from there at runtime, declares that folder in its `package.json`:
+
+```json
+{
+  "mercury": {
+    "cliCredentials": { "folder": "my-cli" }
+  }
+}
+```
+
+An app then carries the login into its container with `mfw credentials set <plugin>`, and unpacks it at startup onto a volume that keeps what the CLI writes back. A CLI that authenticates any other way isn't covered by this.
+
 A proper workflow for writing plugins, with an SDK on top of these contracts, is planned ([#27](https://github.com/lucabro81/mercury-fw/issues/27)).
 
 MIT

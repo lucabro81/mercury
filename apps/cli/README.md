@@ -185,22 +185,22 @@ Useful for clearing out test data; the other layer isn't touched.
 
 ### `mfw credentials set <plugin> [--from <dir>] [--print]`
 
-Hands a tool plugin's CLI its login. Every such CLI keeps it in a config folder of its own (`jira-cli`, `bitbucket-cli`, `atlassian-admin-cli`); log in with the CLI on your machine first, then this packs that folder (`~/.config/<cli>`, or `--from` when it lives elsewhere) into a base64 tar.gz and writes it as the plugin's variable in the app's `.env` (`JIRA_CLI_CONFIG_TAR_B64` and so on), replacing an older value and leaving the other lines alone. The value is never printed; `--print` prints the whole line instead and leaves `.env` alone, for pasting it into another host's.
+Hands a plugin's CLI its login, for a plugin whose CLI keeps it in a folder under `~/.config` and reads it from there at runtime. The plugin declares that folder in its `package.json` (`mercury.cliCredentials`), and `<plugin>` names it by the plugin's package or by the folder; a name the app doesn't have is an error listing the ones it has. Log in with the CLI on your machine first, then this packs the folder (`~/.config/<folder>`, or `--from` when it lives elsewhere) into a base64 tar.gz and writes it into the app's `.env` as a variable named after the folder (`jira-cli` goes in `JIRA_CLI_CONFIG_TAR_B64`), replacing an older value and leaving the other lines alone. The value is never printed; `--print` prints the whole line instead and leaves `.env` alone, for pasting it into another host's.
 
-When the container starts, the app's `docker-entrypoint.sh` unpacks the variable onto the credentials volume, but only if that CLI's folder isn't there yet: what the CLI writes back while running, like a refreshed token, stays on the volume across redeploys, and an older value in `.env` never overwrites it. `<plugin>` has to be a tool plugin the app depends on.
+When the app starts, it unpacks the variable onto the credentials volume, but only if that CLI's folder isn't there yet: what the CLI writes back while running, like a refreshed token, stays on the volume across redeploys, and an older value in `.env` never overwrites it. A CLI that authenticates any other way isn't covered by this.
 
 ```bash
-mfw credentials set jira
-mfw credentials set bitbucket --from ~/work/bitbucket-login
-mfw credentials set jira --print
+mfw credentials set jira-cli
+mfw credentials set @mercury-fw/plugin-bitbucket --from ~/work/bitbucket-login
+mfw credentials set jira-cli --print
 ```
 
 ### `mfw credentials reset <plugin>`
 
-Deletes the plugin's CLI folder from the credentials volume, so the variable in `.env` is unpacked again at the next start: what to run after correcting a variable whose folder is already on the volume, since the entrypoint never touches an existing folder. It asks you to type the plugin's name first, because a token the CLI refreshed on the volume goes too (and with a CLI that rotates its refresh token, the one in `.env` may no longer work). Once confirmed it stops the app, removes the folder in a one-off container of the app's own image, and starts the app again (`docker compose stop mercury`, `run --rm --no-deps -T mercury rm -rf …`, `up -d mercury`).
+Deletes the plugin's CLI folder from the credentials volume, so the variable in `.env` is unpacked again at the next start: what to run after correcting a variable whose folder is already on the volume, since the app never touches an existing folder. It asks you to type the folder's name first, because a token the CLI refreshed on the volume goes too (and with a CLI that rotates its refresh token, the one in `.env` may no longer work). Once confirmed it stops the app, removes the folder in a one-off container of the app's own image, and starts the app again (`docker compose stop mercury`, `run --rm --no-deps -T mercury rm -rf …`, `up -d mercury`).
 
 ```bash
-mfw credentials reset jira
+mfw credentials reset jira-cli
 ```
 
 ### `mfw google-chat set-key <key-file> [--subscription <name>]`
