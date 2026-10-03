@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /** Workspaces that stay private: never published. */
-const PRIVATE = new Set(["mercury", "@mercury-fw/typescript-config"]);
+const PRIVATE = new Set(["mercury", "testbed", "@mercury-fw/typescript-config"]);
 
 /** Tracked files that belong to the repo, not to a published package. */
 const REPO_ONLY = [
