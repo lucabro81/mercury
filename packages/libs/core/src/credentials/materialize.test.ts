@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, readlinkSync, lstatSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { materializeCliCredentials } from "./materialize.ts";
@@ -12,11 +12,13 @@ import { materializeCliCredentials } from "./materialize.ts";
 describe("materializeCliCredentials", () => {
   let root: string;
   let app: string;
+  let home: string;
   let configDir: string;
   let logs: string[];
 
-  /** The app declares `deps`, each installed with the given credentials folder (or none). */
-  function appWith(deps: Record<string, string | undefined>): void {
+  /** The app declares `deps`, each installed with the given credentials folder
+   * under ~/.config, or the given declaration, or none. */
+  function appWith(deps: Record<string, string | { path: string } | undefined>): void {
     writeFileSync(
       join(app, "package.json"),
       JSON.stringify({ dependencies: Object.fromEntries(Object.keys(deps).map((d) => [d, "^1.0.0"])) }),
@@ -24,7 +26,8 @@ describe("materializeCliCredentials", () => {
     for (const [name, folder] of Object.entries(deps)) {
       const dir = join(app, "node_modules", name);
       mkdirSync(dir, { recursive: true });
-      const manifest = folder === undefined ? { name } : { name, mercury: { cliCredentials: { folder } } };
+      const declaration = typeof folder === "string" ? { folder } : folder;
+      const manifest = declaration === undefined ? { name } : { name, mercury: { cliCredentials: declaration } };
       writeFileSync(join(dir, "package.json"), JSON.stringify(manifest));
     }
   }
@@ -42,14 +45,15 @@ describe("materializeCliCredentials", () => {
   }
 
   async function run(env: Record<string, string | undefined>): Promise<void> {
-    await materializeCliCredentials({ appDir: app, configDir, env, log: (m) => logs.push(m) });
+    await materializeCliCredentials({ appDir: app, homeDir: home, env, log: (m) => logs.push(m) });
   }
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "materialize-"));
     app = join(root, "app");
     mkdirSync(app);
-    configDir = join(root, "home", ".config");
+    home = join(root, "home");
+    configDir = join(home, ".config");
     logs = [];
   });
   afterEach(() => {
@@ -100,6 +104,63 @@ describe("materializeCliCredentials", () => {
     expect(readdirSync(configDir)).toEqual(["b-cli"]);
     expect(logs).toHaveLength(1);
     expect(logs[0]).toStartWith("plugin-a: could not unpack A_CLI_CONFIG_TAR_B64 into a-cli:");
+  });
+
+  // #144: a CLI may keep its login outside ~/.config. The volume is mounted on
+  // ~/.config, so the login lives there, under mercury-home, and the home path
+  // points to it: what the CLI writes back survives a redeploy too.
+  it("a login declared elsewhere in the home lives on the volume, linked from where the CLI looks", async () => {
+    appWith({ "plugin-aws": { path: ".aws" }, "plugin-deep": { path: ".local/share/tool" } });
+    await run({
+      AWS_CONFIG_TAR_B64: await packed(".aws", "aws-secret"),
+      LOCAL_SHARE_TOOL_CONFIG_TAR_B64: await packed("tool", "deep-secret"),
+    });
+    expect(readFileSync(join(configDir, "mercury-home", ".aws", "token"), "utf-8")).toBe("aws-secret");
+    expect(readlinkSync(join(home, ".aws"))).toBe(join(configDir, "mercury-home", ".aws"));
+    expect(readFileSync(join(home, ".aws", "token"), "utf-8")).toBe("aws-secret");
+    expect(readFileSync(join(home, ".local", "share", "tool", "token"), "utf-8")).toBe("deep-secret");
+    expect(lstatSync(join(home, ".local", "share", "tool")).isSymbolicLink()).toBe(true);
+    expect(logs).toEqual([]);
+  });
+
+  it("on a later start, with the login already on the volume, only the link is made again", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    mkdirSync(join(configDir, "mercury-home", ".aws"), { recursive: true });
+    writeFileSync(join(configDir, "mercury-home", ".aws", "token"), "refreshed");
+    await run({ AWS_CONFIG_TAR_B64: await packed(".aws", "stale") });
+    expect(readFileSync(join(home, ".aws", "token"), "utf-8")).toBe("refreshed");
+    expect(logs).toEqual([]);
+  });
+
+  it("a link already in place is left as it is", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    mkdirSync(join(configDir, "mercury-home", ".aws"), { recursive: true });
+    symlinkSync(join(configDir, "mercury-home", ".aws"), join(home, ".aws"));
+    await run({});
+    expect(readlinkSync(join(home, ".aws"))).toBe(join(configDir, "mercury-home", ".aws"));
+    expect(logs).toEqual([]);
+  });
+
+  it("something else at the home path is never replaced: logged, the login stays on the volume", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    mkdirSync(join(home, ".aws"), { recursive: true });
+    writeFileSync(join(home, ".aws", "mine"), "x");
+    await run({ AWS_CONFIG_TAR_B64: await packed(".aws", "aws-secret") });
+    expect(readFileSync(join(home, ".aws", "mine"), "utf-8")).toBe("x");
+    expect(readFileSync(join(configDir, "mercury-home", ".aws", "token"), "utf-8")).toBe("aws-secret");
+    expect(logs).toEqual([
+      `plugin-aws: ${join(home, ".aws")} is already there and isn't a link to the credentials volume: the CLI won't find its login`,
+    ]);
+  });
+
+  it("no link without a login on the volume, just the warning", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    await run({});
+    expect(existsSync(join(home, ".aws"))).toBe(false);
+    expect(lstatSync(join(home, ".aws"), { throwIfNoEntry: false })).toBeUndefined();
+    expect(logs).toEqual([
+      "plugin-aws: no login for its CLI (no .aws folder, AWS_CONFIG_TAR_B64 not set): run mfw credentials set .aws",
+    ]);
   });
 
   // Review of #144: one dependency that couldn't be read stopped every

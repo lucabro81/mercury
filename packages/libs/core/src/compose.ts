@@ -66,7 +66,7 @@ import { findOrphanCuratedDocs } from "./wiki/orphan-detector.ts";
 import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots, readIndexFile } from "./wiki/wiki-read.ts";
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
-import { join, resolve as resolvePath } from "node:path";
+import { resolve as resolvePath } from "node:path";
 import { homedir } from "node:os";
 import type { Tool } from "ai";
 import { startAdminServer } from "./admin/server.ts";
@@ -154,7 +154,7 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // the plugin loads: unpacked from the env file on a fresh credentials volume.
   await materializeCliCredentials({
     appDir: process.cwd(),
-    configDir: join(homedir(), ".config"),
+    homeDir: homedir(),
     env: process.env,
     log: (msg) => console.error(msg),
   });
