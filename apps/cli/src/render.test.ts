@@ -293,7 +293,8 @@ describe("renderApp: README.md", () => {
       expect(section).toStartWith("## CLI credentials\n\nSome tool plugins run a CLI. When that CLI keeps its login in a folder");
       expect(section).toContain("\nmfw credentials set <plugin>\n");
       expect(section).toContain("\nmfw credentials reset <plugin>\n");
-      expect(section).toContain("A CLI that authenticates any other way isn't covered by this, and nothing guarantees it works in Mercury.");
+      expect(section).toContain("a folder under \`~/.config\`, or a path anywhere under the home");
+      expect(section).toContain("A CLI that authenticates any other way isn't covered by this, and nothing guarantees it works in Mercury;");
       for (const name of ["jira", "bitbucket", "atlassian"]) expect(section).not.toContain(name);
     }
   });

@@ -7,8 +7,8 @@
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative, resolve } from "node:path";
-import { appCliCredentials, type CliCredentials } from "@mercury-fw/utils";
+import { basename, join, relative, resolve } from "node:path";
+import { appCliCredentials, volumePath, type CliCredentials } from "@mercury-fw/utils";
 import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
 import { LOCAL_PACKS_DIR, packageNameOf, withLocalOverrides, withoutLocalOverrides } from "./local-packages.ts";
@@ -127,13 +127,13 @@ export function appCommands(app: App, deps: AppDeps) {
       }
       return 0;
     },
-    /** Packs the plugin's CLI config folder (`from`, by default
-     * `~/.config/<folder>`) into its credentials variable, written into the
-     * app's env file, or printed with `print`. */
+    /** Packs the plugin's CLI login folder (`from`, by default where the
+     * plugin declares it under the home) into its credentials variable,
+     * written into the app's env file, or printed with `print`. */
     credentialsSet: async (plugin: string, { from, print }: { from?: string; print: boolean }) => {
-      const { folder, variable } = credentialsOf(app, plugin);
-      const source = resolve(from ?? join(deps.home, ".config", folder));
-      const value = await packCredentials(source, folder);
+      const { name, path, variable } = credentialsOf(app, plugin);
+      const source = resolve(from ?? join(deps.home, path));
+      const value = await packCredentials(source, basename(path));
       if (print) {
         deps.print(`${variable}=${value}`);
         return 0;
@@ -142,7 +142,7 @@ export function appCommands(app: App, deps: AppDeps) {
       setEnvVar(envFile, variable, value);
       deps.print(`${variable} set in ${envFile}, from ${source}.`);
       deps.print(
-        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run mfw credentials reset ${folder} first.`,
+        `The app unpacks it at its next start, if the volume has no ${name} folder yet; if it has one, run mfw credentials reset ${name} first.`,
       );
       return 0;
     },
@@ -150,15 +150,15 @@ export function appCommands(app: App, deps: AppDeps) {
      * user types the folder's name, so its variable is unpacked again at the
      * next start. A wrong answer deletes nothing. */
     credentialsReset: async (plugin: string) => {
-      const { folder } = credentialsOf(app, plugin);
+      const { name, path } = credentialsOf(app, plugin);
       const answer = await deps.ask(
-        `This deletes the ${folder} folder from the app's credentials volume, and any token the CLI refreshed since it was unpacked. Type the folder's name (${folder}) to confirm: `,
+        `This deletes the ${name} folder from the app's credentials volume, and any token the CLI refreshed since it was unpacked. Type the folder's name (${name}) to confirm: `,
       );
-      if (answer.trim() !== folder) {
+      if (answer.trim() !== name) {
         deps.print("Not confirmed: nothing deleted.");
         return 1;
       }
-      return stopped(SERVICE, [[...COMPOSE, "run", "--rm", "--no-deps", "-T", SERVICE, "rm", "-rf", `/home/mercury/.config/${folder}`]]);
+      return stopped(SERVICE, [[...COMPOSE, "run", "--rm", "--no-deps", "-T", SERVICE, "rm", "-rf", `/home/mercury/${volumePath(path)}`]]);
     },
     /** Writes the Google Chat channel's service account key (the JSON file
      * at `keyFile`) into the app's env file, and the Pub/Sub subscription when
@@ -279,9 +279,9 @@ export function appCommands(app: App, deps: AppDeps) {
  * with the dependencies it couldn't read. */
 function credentialsOf(app: App, plugin: string): CliCredentials {
   const { declared, problems } = appCliCredentials(app.dir);
-  const found = declared.find((c) => c.package === plugin || c.folder === plugin);
+  const found = declared.find((c) => c.package === plugin || c.name === plugin);
   if (found === undefined) {
-    const have = declared.map((c) => `${c.package} (${c.folder})`).join(", ") || "none";
+    const have = declared.map((c) => `${c.package} (${c.name})`).join(", ") || "none";
     const unread = problems.length > 0 ? ` Left out: ${problems.join("; ")}.` : "";
     throw new Error(`${app.name} has no CLI credentials named "${plugin}". It has: ${have}.${unread}`);
   }

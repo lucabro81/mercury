@@ -350,13 +350,13 @@ The HTTP channel listens on \`http://<host>:4100\`, the port in \`HTTP_SURFACE_P
 const CREDENTIALS_SECTION = `
 ## CLI credentials
 
-Some tool plugins run a CLI. When that CLI keeps its login in a folder and reads it at runtime to authenticate, this is how the folder gets into the container: log in with the CLI on your machine first (its own README says how), then hand the folder to the app:
+Some tool plugins run a CLI. When that CLI keeps its login in a folder under your home and reads it at runtime to authenticate, this is how the folder gets into the container: log in with the CLI on your machine first (its own README says how), then hand the folder to the app:
 
 \`\`\`bash
 mfw credentials set <plugin>
 \`\`\`
 
-\`<plugin>\` is the plugin's package or its CLI's folder, which the plugin declares (\`mercury.cliCredentials\` in its \`package.json\`); \`mfw credentials set\` with a name the app doesn't have lists the ones it has. It packs the folder into its variable in \`.env\` (\`--from <folder>\` if it isn't where the CLI usually keeps it, \`--print\` to get the line to paste on another host instead). When the app starts, it unpacks the variable onto the \`cli-credentials\` volume, but only if that CLI's folder isn't there yet: what the CLI writes back afterwards, like a refreshed token, stays on the volume across redeploys, and the older value in \`.env\` never overwrites it.
+\`<plugin>\` is the plugin's package or its CLI's folder, which the plugin declares (\`mercury.cliCredentials\` in its \`package.json\`: a folder under \`~/.config\`, or a path anywhere under the home); \`mfw credentials set\` with a name the app doesn't have lists the ones it has. It packs the folder into its variable in \`.env\` (\`--from <folder>\` if it isn't where the CLI usually keeps it, \`--print\` to get the line to paste on another host instead). When the app starts, it unpacks the variable onto the \`cli-credentials\` volume (mounted on \`~/.config\`: a folder declared elsewhere in the home lives under \`~/.config/mercury-home\`, and its usual place links there), but only if that CLI's folder isn't there yet: what the CLI writes back afterwards, like a refreshed token, stays on the volume across redeploys, and the older value in \`.env\` never overwrites it.
 
 That same rule means a corrected variable does nothing while the old folder is on the volume. Clear it, and the next start unpacks the variable again:
 
@@ -364,5 +364,5 @@ That same rule means a corrected variable does nothing while the old folder is o
 mfw credentials reset <plugin>
 \`\`\`
 
-A CLI that authenticates any other way isn't covered by this, and nothing guarantees it works in Mercury.
+A CLI that authenticates any other way isn't covered by this, and nothing guarantees it works in Mercury; neither does one that deletes its own folder and makes it again, since that replaces the link.
 `;

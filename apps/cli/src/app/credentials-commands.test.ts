@@ -22,13 +22,20 @@ beforeEach(() => {
     join(app.dir, "package.json"),
     JSON.stringify({
       name: "my-agent",
-      dependencies: { "@mercury-fw/core": "^0.26.0", "@mercury-fw/plugin-jira": "^0.1.0", "acme-mercury-plugin": "^1.0.0" },
+      dependencies: {
+        "@mercury-fw/core": "^0.26.0",
+        "@mercury-fw/plugin-jira": "^0.1.0",
+        "acme-mercury-plugin": "^1.0.0",
+        "cloudy-plugin": "^2.0.0",
+      },
     }),
   );
   installed("@mercury-fw/core", {});
   installed("@mercury-fw/plugin-jira", { mercury: { cliCredentials: { folder: "jira-cli" } } });
   // Not in the CLI's catalog: the declaration alone is what makes it work.
   installed("acme-mercury-plugin", { mercury: { cliCredentials: { folder: "acme-cli" } } });
+  // A CLI that keeps its login outside ~/.config.
+  installed("cloudy-plugin", { mercury: { cliCredentials: { path: ".cloudy" } } });
   envFile = join(app.dir, [".", "env"].join(""));
   mkdirSync(join(base, "home", ".config", "jira-cli"), { recursive: true });
   writeFileSync(join(base, "home", ".config", "jira-cli", "app.json"), '{"client_id":"fake"}\n');
@@ -116,9 +123,21 @@ describe("credentials set", () => {
   test.each(["jira", "bitbucket"])("%p isn't a declared package or folder: an error listing what the app has", async (name) => {
     const f = fake();
     await expect(appCommands(app, f.deps).credentialsSet(name, { print: false })).rejects.toThrow(
-      `my-agent has no CLI credentials named "${name}". It has: @mercury-fw/plugin-jira (jira-cli), acme-mercury-plugin (acme-cli).`,
+      `my-agent has no CLI credentials named "${name}". It has: @mercury-fw/plugin-jira (jira-cli), acme-mercury-plugin (acme-cli), cloudy-plugin (.cloudy).`,
     );
     expect(existsSync(envFile)).toBe(false);
+  });
+
+  // #144: a login declared outside ~/.config is packed from where it is.
+  test("a login declared elsewhere in the home is packed from there, under its own name", async () => {
+    mkdirSync(join(base, "home", ".cloudy"), { recursive: true });
+    writeFileSync(join(base, "home", ".cloudy", "token"), "x\n");
+    const f = fake();
+    expect(await appCommands(app, f.deps).credentialsSet(".cloudy", { print: false })).toBe(0);
+    expect(f.printed[0]).toBe(`CLOUDY_CONFIG_TAR_B64 set in ${envFile}, from ${join(base, "home", ".cloudy")}.`);
+    const value = readFileSync(envFile, "utf-8").trim().split("=").slice(1).join("=");
+    const listing = Bun.spawnSync(["tar", "-tzf", "-"], { stdin: Buffer.from(value, "base64") }).stdout.toString();
+    expect(listing.split("\n").filter(Boolean).sort()).toEqual([".cloudy/", ".cloudy/token"]);
   });
 
   test("an app without its dependencies installed says to install them", async () => {
@@ -167,6 +186,15 @@ describe("credentials reset", () => {
     expect(await appCommands(app, f.deps).credentialsReset("jira-cli")).toBe(1);
     expect(f.runs).toEqual(STEPS.slice(0, 2));
     expect(f.printed).toEqual(["The mercury service was stopped and not restarted: mfw start brings it back."]);
+  });
+
+  test("a login declared elsewhere in the home is deleted from where the volume keeps it", async () => {
+    const f = fake({ answer: ".cloudy" });
+    expect(await appCommands(app, f.deps).credentialsReset("cloudy-plugin")).toBe(0);
+    expect(f.asked[0]).toContain("Type the folder's name (.cloudy) to confirm: ");
+    expect(f.runs[1]).toEqual([
+      "docker", "compose", "run", "--rm", "--no-deps", "-T", "mercury", "rm", "-rf", "/home/mercury/.config/mercury-home/.cloudy",
+    ]);
   });
 
   test("a plugin the app doesn't have is refused before any question", async () => {
