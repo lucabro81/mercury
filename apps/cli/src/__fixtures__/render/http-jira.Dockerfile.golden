@@ -12,8 +12,11 @@ RUN groupadd -r mercury && useradd -r -g mercury mercury
 WORKDIR /app
 
 # Each tool plugin downloads its pinned CLI in its postinstall (allowed by
-# package.json's trustedDependencies); the binaries go on PATH.
+# package.json's trustedDependencies); the binaries go on PATH. .packs/ holds
+# local tarballs when the app installs them (mfw local-packages), and is
+# skipped when it isn't there.
 COPY --chown=mercury:mercury package.json bun.lock* ./
+COPY --chown=mercury:mercury .pack[s] ./.packs/
 RUN bun install --production && chown -R mercury:mercury node_modules
 RUN find /app/node_modules -path '*/@mercury-fw/*/bin/*' -type f -exec ln -sf {} /usr/local/bin/ \;
 
