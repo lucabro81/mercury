@@ -146,7 +146,7 @@ packages/libs/core/
     │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
     │   ├── terminal.ts         # the REPL loop (stdin/stdout), driven by the app's repl.ts — a dev console, not a channel
     │   └── tool-log.ts         # terminal-only debug visibility helpers
-    ├── credentials/           # unpacks each plugin-declared CLI login from the env file onto ~/.config at startup
+    ├── credentials/           # unpacks each plugin-declared CLI login from the env file onto the volume (~/.config) at startup, linking one declared elsewhere in the home
     ├── memory/                # Layer 3 — episodic store (Qdrant)
     ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
     ├── admin/                 # POC admin panel — dev-only, no auth, off unless ADMIN_PANEL_ENABLED=true
