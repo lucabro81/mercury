@@ -136,9 +136,48 @@ describe("materializeCliCredentials", () => {
     appWith({ "plugin-aws": { path: ".aws" } });
     mkdirSync(join(configDir, "mercury-home", ".aws"), { recursive: true });
     symlinkSync(join(configDir, "mercury-home", ".aws"), join(home, ".aws"));
+    const before = lstatSync(join(home, ".aws")).ino;
     await run({});
+    // The same link, not one removed and made again.
+    expect(lstatSync(join(home, ".aws")).ino).toBe(before);
     expect(readlinkSync(join(home, ".aws"))).toBe(join(configDir, "mercury-home", ".aws"));
     expect(logs).toEqual([]);
+  });
+
+  it("a link pointing elsewhere is never replaced: logged", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    mkdirSync(join(configDir, "mercury-home", ".aws"), { recursive: true });
+    symlinkSync(join(root, "somewhere-else"), join(home, ".aws"));
+    await run({});
+    expect(readlinkSync(join(home, ".aws"))).toBe(join(root, "somewhere-else"));
+    expect(logs).toEqual([
+      `plugin-aws: ${join(home, ".aws")} is already there and isn't a link to the credentials volume: the CLI won't find its login`,
+    ]);
+  });
+
+  it("a login declared elsewhere that fails to unpack leaves nothing behind and makes no link", async () => {
+    appWith({ "plugin-aws": { path: ".aws" } });
+    await run({ AWS_CONFIG_TAR_B64: "not-an-archive" });
+    expect(readdirSync(join(configDir, "mercury-home"))).toEqual([]);
+    expect(lstatSync(join(home, ".aws"), { throwIfNoEntry: false })).toBeUndefined();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toStartWith("plugin-aws: could not unpack AWS_CONFIG_TAR_B64 into .aws:");
+  });
+
+  // Review of #144: a link that couldn't be made threw out of the startup and
+  // took the whole app down with it.
+  it("a link that can't be made is logged, and the next plugin is still handled", async () => {
+    appWith({ "plugin-deep": { path: ".local/share/tool" }, "plugin-a": "a-cli" });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, ".local"), "a file where a folder should be");
+    await run({
+      LOCAL_SHARE_TOOL_CONFIG_TAR_B64: await packed("tool", "deep-secret"),
+      A_CLI_CONFIG_TAR_B64: await packed("a-cli", "secret-1"),
+    });
+    expect(readFileSync(join(configDir, "mercury-home", ".local", "share", "tool", "token"), "utf-8")).toBe("deep-secret");
+    expect(readFileSync(join(configDir, "a-cli", "token"), "utf-8")).toBe("secret-1");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toStartWith(`plugin-deep: could not link ${join(home, ".local", "share", "tool")} to the credentials volume:`);
   });
 
   it("something else at the home path is never replaced: logged, the login stays on the volume", async () => {

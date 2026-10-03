@@ -11,7 +11,9 @@
  * every start, since the rest of the home is the image's and starts over each
  * time. Called by `composeMercury` before the plugins load, so the service and
  * the REPL both get it. Never throws: a CLI without its login degrades only
- * that plugin's calls.
+ * that plugin's calls. It works on the home it's given, so an app run outside
+ * its container (against the Docker-first rule) would unpack into the real
+ * home: only with a credentials variable set and the folder missing there.
  */
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -58,7 +60,12 @@ export async function materializeCliCredentials({ appDir, homeDir, env, log }: M
       }
     }
     const link = join(homeDir, c.path);
-    if (link !== target) linkTo(target, link, (msg) => log(`${c.package}: ${msg}`));
+    if (link === target) continue;
+    try {
+      linkTo(target, link, (msg) => log(`${c.package}: ${msg}`));
+    } catch (err) {
+      log(`${c.package}: could not link ${link} to the credentials volume: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 
