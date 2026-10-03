@@ -120,6 +120,23 @@ describe("grepWiki", () => {
     expect(matches[0]!.text).toContain("chiude i ticket a lotti");
   });
 
+  // #138: "the monorepo" missed a note saying "Monorepo".
+  it("ignores case", async () => {
+    const vaultPath = await makeTempVault();
+    await seedVault(vaultPath);
+
+    const matches = await grepWiki(vaultPath, "user-a", "CHIUDE I TICKET");
+    expect(matches.map((m) => m.path)).toEqual(["inferred/users/user-a/ticket_closing_style.md"]);
+  });
+
+  it("finds a capitalised note with a lowercase pattern", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "projects/names.md", {}, "Monorepo: MON");
+
+    const matches = await grepWiki(vaultPath, "user-a", "the monorepo|monorepo");
+    expect(matches.map((m) => [m.path, m.text])).toEqual([["curated/projects/names.md", "Monorepo: MON"]]);
+  });
+
   it("returns no matches for content that only exists in another user's inferred notes", async () => {
     const vaultPath = await makeTempVault();
     await seedVault(vaultPath);

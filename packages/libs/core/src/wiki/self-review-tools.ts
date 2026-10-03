@@ -19,7 +19,7 @@ import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import { listWikiFilesInRoots, readWikiFileInRoots, grepWikiInRoots, selfReviewRoots, readIndexFile } from "./wiki-read.ts";
-import { writeCuratedNote, writeIndexFile, deleteRawEntry, deleteCuratedEntry } from "./wiki-note.ts";
+import { writeCuratedNote, writeIndexFile, deleteRawEntry, deleteCuratedEntry, relativeToCurated } from "./wiki-note.ts";
 import { normalizeIndexKey, upsertIndexEntry, removeIndexEntry } from "./index-entry.ts";
 
 export type SelfReviewToolsDeps = { vaultPath: string };
@@ -76,11 +76,12 @@ export function createSelfReviewTools(
   });
 
   const write_curated = tool({
-    description: 'Create or overwrite a curated doc. "path" is relative to curated/, e.g. "standards/jira-fields.md".',
+    description:
+      'Create or overwrite a curated doc. "path" is relative to curated/, e.g. "standards/jira-fields.md"; the path list_files and grep give ("curated/standards/jira-fields.md") works too.',
     inputSchema: z.object({ path: z.string().min(1), content: z.string() }),
     execute: async ({ path, content }) => {
       try {
-        await writeCuratedNote(vaultPath, path, {}, content);
+        await writeCuratedNote(vaultPath, relativeToCurated(path), {}, content);
         return { ok: true as const };
       } catch (err) {
         return { ok: false as const, error: String(err) };

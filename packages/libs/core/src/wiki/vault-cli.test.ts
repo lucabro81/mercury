@@ -48,3 +48,14 @@ describe("vault-cli read", () => {
     });
   });
 });
+
+describe("vault-cli grep", () => {
+  // #138: wiki grep ignores case, here as in the model's tool.
+  test("ignores case", async () => {
+    expect((await run(["write-curated", "curated/projects/names.md"], "Monorepo: MON\n")).code).toBe(0);
+    const r = await run(["grep", "monorepo"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("curated/projects/names.md:");
+    expect(r.stdout).toContain("Monorepo: MON");
+  });
+});

@@ -88,9 +88,10 @@ export async function readWikiFile(vaultPath: string, userId: string, relativePa
 
 export type WikiGrepMatch = { path: string; line: number; text: string };
 
-/** Searches every file under `roots` for `pattern` (a regular expression), line by line. */
+/** Searches every file under `roots` for `pattern` (a regular expression,
+ * case-insensitive: a note's wording isn't the question's), line by line. */
 export async function grepWikiInRoots(vaultPath: string, roots: string[], pattern: string): Promise<WikiGrepMatch[]> {
-  const regex = new RegExp(pattern);
+  const regex = new RegExp(pattern, "i");
   const files = await listWikiFilesInRoots(vaultPath, roots);
   const matches: WikiGrepMatch[] = [];
 

@@ -31,7 +31,8 @@ export async function readWikiVaultFile(vaultPath: string, relativePath: string)
 }
 
 export async function grepWikiVault(vaultPath: string, pattern: string): Promise<WikiGrepMatch[]> {
-  const regex = new RegExp(pattern);
+  // Case-insensitive, like every other wiki grep.
+  const regex = new RegExp(pattern, "i");
   const files = await listWikiVault(vaultPath);
   const matches: WikiGrepMatch[] = [];
   for (const file of files) {

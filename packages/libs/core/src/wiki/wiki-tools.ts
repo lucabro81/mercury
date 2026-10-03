@@ -15,7 +15,7 @@ import type { ExecutableTool } from "@mercury-fw/plugin-types";
 import { tool } from "ai";
 import { z } from "zod";
 import { listWikiFiles, readWikiFile, grepWiki, readWikiFileInRoots } from "./wiki-read.ts";
-import { writeCuratedNote } from "./wiki-note.ts";
+import { writeCuratedNote, relativeToCurated } from "./wiki-note.ts";
 
 export type WikiToolsDeps = { vaultPath: string; userId: string };
 
@@ -55,12 +55,13 @@ export function createWikiTools(
   const write_file = tool({
     description:
       'Write or update a curated wiki document (team knowledge — conventions, standards, decisions). "path" ' +
-      'is relative to curated/, e.g. "standards/jira-fields.md". This can only write under curated/ — your ' +
+      'is relative to curated/, e.g. "standards/jira-fields.md"; the path grep and read_file give ' +
+      '("curated/standards/jira-fields.md") works too. This can only write under curated/ — your ' +
       "own semantic notes are managed automatically by the memory consolidation process, not through this tool.",
     inputSchema: z.object({ path: z.string().min(1), content: z.string() }),
     execute: async ({ path, content }) => {
       try {
-        await writeCuratedNote(vaultPath, path, { last_updated: new Date().toISOString().slice(0, 10) }, content);
+        await writeCuratedNote(vaultPath, relativeToCurated(path), { last_updated: new Date().toISOString().slice(0, 10) }, content);
         return { ok: true as const };
       } catch (err) {
         return { ok: false as const, error: String(err) };
@@ -70,7 +71,7 @@ export function createWikiTools(
 
   const grep = tool({
     description:
-      "Search wiki documents (curated/ plus your own inferred/ notes) for a regular expression pattern. " +
+      "Search wiki documents (curated/ plus your own inferred/ notes) for a regular expression pattern, ignoring case. " +
       "Returns matching lines with their file path and line number.",
     inputSchema: z.object({ pattern: z.string().min(1) }),
     execute: async ({ pattern }) => {

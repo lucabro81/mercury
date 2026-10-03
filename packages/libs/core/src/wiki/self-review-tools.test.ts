@@ -108,6 +108,18 @@ describe("createSelfReviewTools", () => {
     expect(text).toContain("type: curated");
   });
 
+  // #138: the review's list_files and grep give curated/… paths too.
+  it("write_curated takes the vault-relative path list_files and grep give, too", async () => {
+    const vaultPath = await makeTempVault();
+    const { write_curated } = createSelfReviewTools({ vaultPath });
+
+    const result = (await write_curated.execute({ path: "curated/standards/x.md", content: "X." }, {} as never)) as { ok: boolean };
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(join(vaultPath, "curated/standards/x.md"), "utf-8")).toContain("X.");
+    await expect(readFile(join(vaultPath, "curated/curated/standards/x.md"), "utf-8")).rejects.toThrow();
+  });
+
   it("update_index_entry writes a [[wikilink]] line for an existing curated doc", async () => {
     const vaultPath = await makeTempVault();
     await writeCuratedNote(vaultPath, "projects/project-codes.md", {}, "MON = monorepo");
