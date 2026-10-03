@@ -1,5 +1,16 @@
 # @mercury-fw/core
 
+## 0.31.1
+
+### Patch Changes
+
+- 7926aa2: - Wiki grep ignores case, for the agent, the nightly review, `mfw vault grep` and the HTTP `/wiki/grep` route.
+  - The agent's `write_file` and the nightly review's `write_curated` take a path starting with `curated/`, as listing, reading and grepping give it, instead of writing under `curated/curated/`.
+  - @mercury-fw/plugin-types@0.31.1
+  - @mercury-fw/channel-types@0.31.1
+  - @mercury-fw/cli-engine@0.31.1
+  - @mercury-fw/confirm-engine@0.31.1
+
 ## 0.31.0
 
 ### Patch Changes
