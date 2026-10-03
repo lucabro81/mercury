@@ -21,6 +21,13 @@ describe("readCliCredentials", () => {
     expect(readCliCredentials(undefined)).toBeUndefined();
   });
 
+  // Review of #144: a non-object `mercury` threw a bare TypeError from `in`.
+  it("rejects a `mercury` field that isn't an object, with the same clear error", () => {
+    for (const mercury of [null, "x", 3, []]) {
+      expect(() => readCliCredentials({ mercury })).toThrow(/invalid mercury in package\.json/);
+    }
+  });
+
   it("rejects a malformed declaration instead of ignoring it", () => {
     for (const cliCredentials of [null, "jira-cli", {}, { folder: "" }, { folder: 3 }]) {
       expect(() => readCliCredentials({ mercury: { cliCredentials } })).toThrow(/mercury\.cliCredentials/);
@@ -77,32 +84,60 @@ describe("appCliCredentials", () => {
     // A devDependency isn't part of what the app runs: not collected.
     installed("@scope/dev-tool", { mercury: { cliCredentials: { folder: "dev" } } });
 
-    expect(appCliCredentials(app)).toEqual([
-      { package: "@scope/plugin-a", folder: "a-cli", variable: "A_CLI_CONFIG_TAR_B64" },
-      { package: "third-party-plugin", folder: "tp", variable: "TP_CONFIG_TAR_B64" },
-    ]);
+    expect(appCliCredentials(app)).toEqual({
+      declared: [
+        { package: "@scope/plugin-a", folder: "a-cli", variable: "A_CLI_CONFIG_TAR_B64" },
+        { package: "third-party-plugin", folder: "tp", variable: "TP_CONFIG_TAR_B64" },
+      ],
+      problems: [],
+    });
   });
 
   it("returns nothing for an app without dependencies", () => {
     writeFileSync(join(app, "package.json"), JSON.stringify({ name: "x" }));
-    expect(appCliCredentials(app)).toEqual([]);
+    expect(appCliCredentials(app)).toEqual({ declared: [], problems: [] });
   });
 
-  it("fails naming the dependency that isn't installed", () => {
-    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { "missing-plugin": "^1.0.0" } }));
-    expect(() => appCliCredentials(app)).toThrow(/missing-plugin.*not installed/);
+  // Review of #144: one bad dependency used to make the whole read throw, so
+  // the good plugins lost their login too. Each problem now drops only its own.
+  it("reports a dependency that isn't installed, and keeps the others", () => {
+    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { "missing-plugin": "^1.0.0", good: "^1.0.0" } }));
+    installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
+    const { declared, problems } = appCliCredentials(app);
+    expect(declared).toEqual([{ package: "good", folder: "good-cli", variable: "GOOD_CLI_CONFIG_TAR_B64" }]);
+    expect(problems).toEqual([
+      `missing-plugin is not installed (no ${join(app, "node_modules", "missing-plugin", "package.json")}): run bun install`,
+    ]);
   });
 
-  it("fails naming the dependency whose declaration is malformed", () => {
-    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { "bad-plugin": "^1.0.0" } }));
+  it("reports a malformed declaration, and keeps the others", () => {
+    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { "bad-plugin": "^1.0.0", good: "^1.0.0" } }));
     installed("bad-plugin", { mercury: { cliCredentials: { folder: "../escape" } } });
-    expect(() => appCliCredentials(app)).toThrow(/bad-plugin/);
+    installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
+    const { declared, problems } = appCliCredentials(app);
+    expect(declared.map((c) => c.package)).toEqual(["good"]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toStartWith("bad-plugin: invalid mercury.cliCredentials");
   });
 
-  it("fails when two dependencies declare the same folder", () => {
-    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { one: "^1.0.0", two: "^1.0.0" } }));
-    installed("one", { mercury: { cliCredentials: { folder: "same" } } });
-    installed("two", { mercury: { cliCredentials: { folder: "same" } } });
-    expect(() => appCliCredentials(app)).toThrow(/"same".*one.*two/);
+  // Review of #144: the clash was checked on the folder, but two folders can
+  // share a variable (jira-cli, jira_cli), which would hand both one login.
+  it.each([
+    ["same", "same"],
+    ["jira-cli", "jira_cli"],
+    ["Jira-cli", "jira-cli"],
+  ])("drops both dependencies whose folders %p and %p map to one variable, and keeps the others", (a, b) => {
+    writeFileSync(
+      join(app, "package.json"),
+      JSON.stringify({ dependencies: { one: "^1.0.0", good: "^1.0.0", two: "^1.0.0" } }),
+    );
+    installed("one", { mercury: { cliCredentials: { folder: a } } });
+    installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
+    installed("two", { mercury: { cliCredentials: { folder: b } } });
+    const { declared, problems } = appCliCredentials(app);
+    expect(declared.map((c) => c.package)).toEqual(["good"]);
+    expect(problems).toEqual([
+      `one and two declare CLI credentials folders (${a}, ${b}) carried by the same variable ${credentialsVariable(a)}: neither is used`,
+    ]);
   });
 });

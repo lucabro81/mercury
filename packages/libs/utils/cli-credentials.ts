@@ -14,6 +14,10 @@ import { join } from "node:path";
 /** One dependency's declaration, with the env variable that carries it. */
 export type CliCredentials = { package: string; folder: string; variable: string };
 
+/** What an app's dependencies declare: the usable declarations, and one line
+ * per dependency left out (not installed, malformed, sharing a variable). */
+export type AppCliCredentials = { declared: CliCredentials[]; problems: string[] };
+
 /** A single folder name: no separators, no `.`/`..`, no leading dot. */
 const FOLDER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -24,9 +28,13 @@ const FOLDER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  * Hand-validated, like `readPinnedBinary`, to keep this package dependency-free.
  */
 export function readCliCredentials(pkg: unknown): string | undefined {
-  const mercury = (pkg as { mercury?: Record<string, unknown> } | undefined)?.mercury;
-  if (mercury === undefined || !("cliCredentials" in mercury)) return undefined;
-  const declared = mercury.cliCredentials as { folder?: unknown } | null;
+  const mercury = (pkg as { mercury?: unknown } | undefined)?.mercury;
+  if (mercury === undefined) return undefined;
+  if (typeof mercury !== "object" || mercury === null || Array.isArray(mercury)) {
+    throw new Error("invalid mercury in package.json: expected an object");
+  }
+  if (!("cliCredentials" in mercury)) return undefined;
+  const declared = (mercury as { cliCredentials?: unknown }).cliCredentials as { folder?: unknown } | null;
   const folder = typeof declared === "object" && declared !== null ? declared.folder : undefined;
   if (typeof folder !== "string" || !FOLDER.test(folder)) {
     throw new Error(
@@ -43,32 +51,41 @@ export function credentialsVariable(folder: string): string {
 
 /**
  * The declarations of the app's dependencies (its package.json `dependencies`,
- * read from its `node_modules`), in the manifest's order. Throws naming the
- * dependency when one isn't installed or declares a malformed folder, and when
- * two declare the same folder (one volume folder can't hold two logins).
+ * read from its `node_modules`), in the manifest's order. A dependency that
+ * isn't installed or declares a malformed folder is left out with a problem
+ * line, and so are all the ones whose folders map to the same variable (one
+ * variable can't carry two logins): one bad plugin never costs the others
+ * their login. Throws only when the app's own package.json can't be read.
  */
-export function appCliCredentials(appDir: string): CliCredentials[] {
+export function appCliCredentials(appDir: string): AppCliCredentials {
   const manifest = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")) as {
     dependencies?: Record<string, string>;
   };
   const found: CliCredentials[] = [];
+  const problems: string[] = [];
   for (const name of Object.keys(manifest.dependencies ?? {})) {
     const path = join(appDir, "node_modules", name, "package.json");
     if (!existsSync(path)) {
-      throw new Error(`${name} is not installed (no ${path}): run bun install`);
+      problems.push(`${name} is not installed (no ${path}): run bun install`);
+      continue;
     }
-    let folder: string | undefined;
     try {
-      folder = readCliCredentials(JSON.parse(readFileSync(path, "utf-8")));
+      const folder = readCliCredentials(JSON.parse(readFileSync(path, "utf-8")));
+      if (folder !== undefined) found.push({ package: name, folder, variable: credentialsVariable(folder) });
     } catch (err) {
-      throw new Error(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+      problems.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (folder === undefined) continue;
-    const clash = found.find((c) => c.folder === folder);
-    if (clash !== undefined) {
-      throw new Error(`CLI credentials folder "${folder}" is declared by both ${clash.package} and ${name}`);
-    }
-    found.push({ package: name, folder, variable: credentialsVariable(folder) });
   }
-  return found;
+  const declared: CliCredentials[] = [];
+  for (const c of found) {
+    const sharing = found.filter((o) => o.variable === c.variable);
+    if (sharing.length === 1) {
+      declared.push(c);
+    } else if (sharing[0] === c) {
+      problems.push(
+        `${sharing.map((o) => o.package).join(" and ")} declare CLI credentials folders (${sharing.map((o) => o.folder).join(", ")}) carried by the same variable ${c.variable}: neither is used`,
+      );
+    }
+  }
+  return { declared, problems };
 }

@@ -126,6 +126,14 @@ describe("credentials set", () => {
     const f = fake();
     await expect(appCommands(app, f.deps).credentialsSet("jira-cli", { print: false })).rejects.toThrow("run bun install");
   });
+
+  // Review of #144: another dependency's problem made every name fail.
+  test("another dependency's problem doesn't stop a plugin that's fine", async () => {
+    rmSync(join(app.dir, "node_modules", "acme-mercury-plugin"), { recursive: true });
+    const f = fake();
+    expect(await appCommands(app, f.deps).credentialsSet("jira-cli", { print: false })).toBe(0);
+    expect(readFileSync(envFile, "utf-8")).toStartWith("JIRA_CLI_CONFIG_TAR_B64=");
+  });
 });
 
 describe("credentials reset", () => {

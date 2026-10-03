@@ -275,14 +275,15 @@ export function appCommands(app: App, deps: AppDeps) {
 }
 
 /** The CLI credentials `plugin` names, by package or by folder, among those
- * the app's dependencies declare; throws naming the ones it has otherwise. */
+ * the app's dependencies declare; throws naming the ones it has otherwise,
+ * with the dependencies it couldn't read. */
 function credentialsOf(app: App, plugin: string): CliCredentials {
-  const have = appCliCredentials(app.dir);
-  const found = have.find((c) => c.package === plugin || c.folder === plugin);
+  const { declared, problems } = appCliCredentials(app.dir);
+  const found = declared.find((c) => c.package === plugin || c.folder === plugin);
   if (found === undefined) {
-    throw new Error(
-      `${app.name} has no CLI credentials named "${plugin}". It has: ${have.map((c) => `${c.package} (${c.folder})`).join(", ") || "none"}.`,
-    );
+    const have = declared.map((c) => `${c.package} (${c.folder})`).join(", ") || "none";
+    const unread = problems.length > 0 ? ` Left out: ${problems.join("; ")}.` : "";
+    throw new Error(`${app.name} has no CLI credentials named "${plugin}". It has: ${have}.${unread}`);
   }
   return found;
 }

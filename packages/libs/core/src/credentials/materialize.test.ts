@@ -102,10 +102,22 @@ describe("materializeCliCredentials", () => {
     expect(logs[0]).toStartWith("plugin-a: could not unpack A_CLI_CONFIG_TAR_B64 into a-cli:");
   });
 
-  it("logs, without throwing, when the declarations can't be read", async () => {
-    writeFileSync(join(app, "package.json"), JSON.stringify({ dependencies: { missing: "^1.0.0" } }));
+  // Review of #144: one dependency that couldn't be read stopped every
+  // plugin's login from being unpacked.
+  it("logs a dependency it can't read and still unpacks the others", async () => {
+    appWith({ "plugin-a": "a-cli" });
+    const manifest = JSON.parse(readFileSync(join(app, "package.json"), "utf-8"));
+    manifest.dependencies.missing = "^1.0.0";
+    writeFileSync(join(app, "package.json"), JSON.stringify(manifest));
+    await run({ A_CLI_CONFIG_TAR_B64: await packed("a-cli", "secret-1") });
+    expect(readFileSync(join(configDir, "a-cli", "token"), "utf-8")).toBe("secret-1");
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toStartWith("CLI credentials: missing is not installed");
+  });
+
+  it("logs, without throwing, when the app has no readable package.json", async () => {
     await run({});
     expect(logs).toHaveLength(1);
-    expect(logs[0]).toStartWith("CLI credentials not unpacked: missing is not installed");
+    expect(logs[0]).toStartWith("CLI credentials not unpacked: ");
   });
 });

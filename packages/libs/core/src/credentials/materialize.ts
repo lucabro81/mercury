@@ -25,11 +25,13 @@ export interface MaterializeOptions {
 }
 
 /** Unpacks every declared folder that's missing and has its variable set;
- * warns about one that has neither. */
+ * warns about one that has neither, and logs each dependency it couldn't read. */
 export async function materializeCliCredentials({ appDir, configDir, env, log }: MaterializeOptions): Promise<void> {
   let declared: CliCredentials[];
   try {
-    declared = appCliCredentials(appDir);
+    const read = appCliCredentials(appDir);
+    for (const problem of read.problems) log(`CLI credentials: ${problem}`);
+    declared = read.declared;
   } catch (err) {
     log(`CLI credentials not unpacked: ${err instanceof Error ? err.message : String(err)}`);
     return;

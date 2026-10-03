@@ -17,4 +17,5 @@ export {
   credentialsVariable,
   appCliCredentials,
   type CliCredentials,
+  type AppCliCredentials,
 } from "./cli-credentials.ts";
