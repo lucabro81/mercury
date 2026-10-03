@@ -10,8 +10,8 @@ import { loadPlugins, type PluginLoadContext } from "./plugin-loader.ts";
  * synthetic ones. A real plugin's own `build()` behaviour is tested in that
  * plugin's package.
  *
- * The invariants that matter: a plugin only contributes when it is enabled (in
- * MERCURY_CLIS) and declares a compatible `apiVersion`; a plugin that fails — a
+ * The invariants that matter: every declared plugin is loaded when it
+ * declares a compatible `apiVersion`; a plugin that fails — a
  * throwing `build()` — degrades as a whole unit (never half-wired) without
  * taking down the other plugins or the process; and activation is reported in
  * `activated` (there is no central config map to infer it from anymore).
@@ -23,7 +23,6 @@ function plug(p: Partial<Plugin> & Pick<Plugin, "name">): Plugin {
 
 function baseCtx(overrides: Partial<PluginLoadContext> = {}): PluginLoadContext {
   return {
-    enabledClis: [],
     model: {} as never,
     env: {},
     log: () => {},
@@ -34,7 +33,7 @@ function baseCtx(overrides: Partial<PluginLoadContext> = {}): PluginLoadContext 
 describe("loadPlugins", () => {
   it("activates an enabled plugin and collects its fragment", async () => {
     const plugin = plug({ name: "jira", systemPromptFragment: "FRAG" });
-    const loaded = await loadPlugins([plugin], baseCtx({ enabledClis: ["jira"] }));
+    const loaded = await loadPlugins([plugin], baseCtx());
     expect(loaded.activated).toEqual(["jira"]);
     expect(loaded.promptFragments).toEqual(["FRAG"]);
     expect(loaded.sessionToolBundles).toEqual([]);
@@ -46,7 +45,7 @@ describe("loadPlugins", () => {
     const factory = () => ({ jiraCommand: {} as never });
     const guard = { statusLabel: "l", statusId: "g", shouldRun: () => true, run: async () => ({ text: "", outcome: "success" as const }) };
     const plugin = plug({ name: "jira", build: () => ({ postProcess: pp, sessionTools: factory, postTurnGuards: [guard] }) });
-    const loaded = await loadPlugins([plugin], baseCtx({ enabledClis: ["jira"] }));
+    const loaded = await loadPlugins([plugin], baseCtx());
     expect(loaded.sessionToolBundles).toEqual([{ build: factory, postProcess: pp }]);
     expect(loaded.postTurnGuards).toEqual([guard]);
   });
@@ -56,7 +55,7 @@ describe("loadPlugins", () => {
     const bbDescribe = () => "esecuzione bitbucket";
     const p1 = plug({ name: "jira", build: () => ({ toolStatusDescribers: { jiraCommand: jiraDescribe } }) });
     const p2 = plug({ name: "bitbucket", build: () => ({ toolStatusDescribers: { bitbucketCommand: bbDescribe } }) });
-    const loaded = await loadPlugins([p1, p2], baseCtx({ enabledClis: ["jira", "bitbucket"] }));
+    const loaded = await loadPlugins([p1, p2], baseCtx());
     expect(loaded.toolStatusDescribers).toEqual({ jiraCommand: jiraDescribe, bitbucketCommand: bbDescribe });
   });
 
@@ -64,21 +63,21 @@ describe("loadPlugins", () => {
     let seen: unknown;
     const model = { id: "m" } as never;
     const plugin = plug({ name: "jira", build: (ctx) => { seen = ctx; return {}; } });
-    await loadPlugins([plugin], baseCtx({ enabledClis: ["jira"], model, env: { JIRA_SITE_URL: "u" } }));
+    await loadPlugins([plugin], baseCtx({ model, env: { JIRA_SITE_URL: "u" } }));
     expect((seen as { model: unknown }).model).toBe(model);
     expect((seen as { env: unknown }).env).toEqual({ JIRA_SITE_URL: "u" });
     expect(typeof (seen as { log: unknown }).log).toBe("function");
   });
 
-  it("skips a plugin not listed in enabledClis — never runs its build, contributes nothing", async () => {
-    const plugin = plug({
-      name: "jira",
-      systemPromptFragment: "FRAG",
-      build: () => { throw new Error("build should not run for a disabled plugin"); },
-    });
-    const loaded = await loadPlugins([plugin], baseCtx({ enabledClis: [] }));
-    expect(loaded.activated).toEqual([]);
-    expect(loaded.promptFragments).toEqual([]);
+  // #142: a declared plugin also had to be listed in MERCURY_CLIS, or the
+  // loader skipped it without a word.
+  it("loads every declared plugin, with nothing else to enable it", async () => {
+    let built = false;
+    const plugin = plug({ name: "jira", systemPromptFragment: "FRAG", build: () => ((built = true), {}) });
+    const loaded = await loadPlugins([plugin], baseCtx());
+    expect(built).toBe(true);
+    expect(loaded.activated).toEqual(["jira"]);
+    expect(loaded.promptFragments).toEqual(["FRAG"]);
   });
 
   it("skips a plugin whose apiVersion is incompatible with this core — logs why, does not build it", async () => {
@@ -90,7 +89,7 @@ describe("loadPlugins", () => {
       systemPromptFragment: "FRAG",
       build: () => { built = true; return {}; },
     });
-    const loaded = await loadPlugins([plugin], baseCtx({ enabledClis: ["jira"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([plugin], baseCtx({ log: (m) => logs.push(m) }));
     expect(built).toBe(false);
     expect(loaded.activated).toEqual([]);
     expect(loaded.promptFragments).toEqual([]);
@@ -101,7 +100,7 @@ describe("loadPlugins", () => {
     const logs: string[] = [];
     const bad = plug({ name: "bad", systemPromptFragment: "B", build: () => { throw new Error("kaboom"); } });
     const good = plug({ name: "good", systemPromptFragment: "G" });
-    const loaded = await loadPlugins([bad, good], baseCtx({ enabledClis: ["bad", "good"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([bad, good], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual(["good"]);
     expect(loaded.promptFragments).toEqual(["G"]);
     expect(logs.some((l) => l.includes("bad") && l.includes("failed to load") && l.includes("kaboom"))).toBe(true);
@@ -114,7 +113,7 @@ describe("loadPlugins", () => {
     const gB = { statusLabel: "b", statusId: "b", shouldRun: () => true, run: async () => ({ text: "", outcome: "success" as const }) };
     const p1 = plug({ name: "p1", systemPromptFragment: "F1", build: () => ({ sessionTools: fA, postTurnGuards: [gA] }) });
     const p2 = plug({ name: "p2", systemPromptFragment: "F2", build: () => ({ sessionTools: fB, postTurnGuards: [gB] }) });
-    const loaded = await loadPlugins([p1, p2], baseCtx({ enabledClis: ["p1", "p2"] }));
+    const loaded = await loadPlugins([p1, p2], baseCtx());
     expect(loaded.activated).toEqual(["p1", "p2"]);
     expect(loaded.promptFragments).toEqual(["F1", "F2"]);
     expect(loaded.sessionToolBundles).toEqual([
@@ -130,7 +129,7 @@ describe("loadPlugins", () => {
     const p1 = plug({ name: "p1", skills: [s1] });
     const p2 = plug({ name: "p2", skills: [s2] });
     const plain = plug({ name: "plain" });
-    const loaded = await loadPlugins([p1, plain, p2], baseCtx({ enabledClis: ["p1", "plain", "p2"] }));
+    const loaded = await loadPlugins([p1, plain, p2], baseCtx());
     expect(loaded.skills).toEqual([s1, s2]);
   });
 });
@@ -149,7 +148,7 @@ describe("loadPlugins dependsOn", () => {
     const order: string[] = [];
     const dependent = recordingPlugin("dependent", order, ["dep"]);
     const dep = recordingPlugin("dep", order);
-    const loaded = await loadPlugins([dependent, dep], baseCtx({ enabledClis: ["dependent", "dep"] }));
+    const loaded = await loadPlugins([dependent, dep], baseCtx());
     expect(order).toEqual(["dep", "dependent"]);
     expect(loaded.activated).toEqual(["dep", "dependent"]);
   });
@@ -158,24 +157,9 @@ describe("loadPlugins dependsOn", () => {
     const order: string[] = [];
     const a = recordingPlugin("a", order);
     const b = recordingPlugin("b", order);
-    const loaded = await loadPlugins([a, b], baseCtx({ enabledClis: ["a", "b"] }));
+    const loaded = await loadPlugins([a, b], baseCtx());
     expect(order).toEqual(["a", "b"]);
     expect(loaded.activated).toEqual(["a", "b"]);
-  });
-
-  it("skips a dependent whose dependency is not enabled — logs why, leaves the rest", async () => {
-    const logs: string[] = [];
-    const order: string[] = [];
-    const dependent = recordingPlugin("dependent", order, ["dep"]);
-    const dep = recordingPlugin("dep", order);
-    const other = recordingPlugin("other", order);
-    const loaded = await loadPlugins(
-      [dependent, dep, other],
-      baseCtx({ enabledClis: ["dependent", "other"], log: (m) => logs.push(m) }), // dep NOT enabled
-    );
-    expect(loaded.activated).toEqual(["other"]);
-    expect(order).not.toContain("dependent"); // never built
-    expect(logs.some((l) => l.includes("dependent") && l.includes("dep"))).toBe(true);
   });
 
   it("skips a dependent whose dependency failed to build, propagating transitively", async () => {
@@ -184,7 +168,7 @@ describe("loadPlugins dependsOn", () => {
     const a = recordingPlugin("a", order); // ok
     const b = plug({ name: "b", dependsOn: ["a"], build: () => { throw new Error("kaboom"); } });
     const c = recordingPlugin("c", order, ["b"]); // depends on the one that throws
-    const loaded = await loadPlugins([a, b, c], baseCtx({ enabledClis: ["a", "b", "c"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([a, b, c], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual(["a"]); // only a survives
     expect(order).not.toContain("c");
     expect(logs.some((l) => l.includes("b") && l.includes("kaboom"))).toBe(true);
@@ -195,7 +179,7 @@ describe("loadPlugins dependsOn", () => {
     const logs: string[] = [];
     const order: string[] = [];
     const dependent = recordingPlugin("dependent", order, ["ghost"]);
-    const loaded = await loadPlugins([dependent], baseCtx({ enabledClis: ["dependent"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([dependent], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual([]);
     expect(order).not.toContain("dependent");
     expect(logs.some((l) => l.includes("dependent") && l.includes("ghost"))).toBe(true);
@@ -207,7 +191,7 @@ describe("loadPlugins dependsOn", () => {
     const a = recordingPlugin("a", order, ["b"]);
     const b = recordingPlugin("b", order, ["a"]); // a <-> b cycle
     const c = recordingPlugin("c", order);
-    const loaded = await loadPlugins([a, b, c], baseCtx({ enabledClis: ["a", "b", "c"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([a, b, c], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual(["c"]);
     expect(order).toEqual(["c"]);
     expect(logs.some((l) => l.includes("a") && l.toLowerCase().includes("cycle"))).toBe(true);
@@ -220,7 +204,7 @@ describe("loadPlugins dependsOn", () => {
     const b = recordingPlugin("b", order, ["a"]);
     const c = recordingPlugin("c", order, ["b"]);
     // listed out of dependency order on purpose
-    const loaded = await loadPlugins([c, b, a], baseCtx({ enabledClis: ["a", "b", "c"] }));
+    const loaded = await loadPlugins([c, b, a], baseCtx());
     expect(order).toEqual(["a", "b", "c"]);
     expect(loaded.activated).toEqual(["a", "b", "c"]);
   });
@@ -231,7 +215,7 @@ describe("loadPlugins dependsOn", () => {
     const b = recordingPlugin("b", order, ["a"]);
     const c = recordingPlugin("c", order, ["a"]);
     const d = recordingPlugin("d", order, ["b", "c"]);
-    const loaded = await loadPlugins([d, b, c, a], baseCtx({ enabledClis: ["a", "b", "c", "d"] }));
+    const loaded = await loadPlugins([d, b, c, a], baseCtx());
     // a before b and c; b and c before d. b and c keep listing order (b, c).
     expect(order).toEqual(["a", "b", "c", "d"]);
     expect(loaded.activated).toEqual(["a", "b", "c", "d"]);
@@ -242,7 +226,7 @@ describe("loadPlugins dependsOn", () => {
     const order: string[] = [];
     const selfish = recordingPlugin("selfish", order, ["selfish"]);
     const other = recordingPlugin("other", order);
-    const loaded = await loadPlugins([selfish, other], baseCtx({ enabledClis: ["selfish", "other"], log: (m) => logs.push(m) }));
+    const loaded = await loadPlugins([selfish, other], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual(["other"]);
     expect(order).toEqual(["other"]);
     expect(logs.some((l) => l.includes("selfish"))).toBe(true);
@@ -257,7 +241,7 @@ describe("loadPlugins dependsOn", () => {
     const order: string[] = [];
     const a = recordingPlugin("a", order);
     const dependent = recordingPlugin("dependent", order, ["a", "a"]);
-    const loaded = await loadPlugins([dependent, a], baseCtx({ enabledClis: ["a", "dependent"] }));
+    const loaded = await loadPlugins([dependent, a], baseCtx());
     expect(order).toEqual(["a", "dependent"]);
     expect(loaded.activated).toEqual(["a", "dependent"]);
   });

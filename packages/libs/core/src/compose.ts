@@ -123,11 +123,6 @@ function requireEnv(name: string): string {
  * app) reads its own `mercury.config.ts` and passes it in. See {@link ComposedApp}.
  */
 export async function composeMercury(config: MercuryConfig): Promise<ComposedApp> {
-  const enabledClis = (process.env.MERCURY_CLIS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
   // The model is constructed up front, before the plugins load and the system
   // prompt is built: a plugin's post-turn guard can be model-backed (Jira's
   // issue-list corrector is), and the system prompt is assembled from the
@@ -149,13 +144,11 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // handed in — this file no longer names them. The loader processes an opaque
   // list (see plugins/plugin-loader.ts): each supplies its allowlist as data, a
   // system-prompt fragment, and a `build()` that turns the runtime context into
-  // post-processors and post-turn guards. A plugin contributes only when it's
-  // both listed in MERCURY_CLIS and its allowlist validates; one that fails
-  // degrades only itself.
+  // post-processors and post-turn guards. Every declared plugin loads; one
+  // that fails (an invalid allowlist, missing configuration) degrades only itself.
   const plugins = config.plugins;
 
   const loadedPlugins = await loadPlugins(plugins, {
-    enabledClis,
     model,
     env: process.env,
     log: (msg) => console.error(msg),
