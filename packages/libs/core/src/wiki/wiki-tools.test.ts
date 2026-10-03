@@ -86,6 +86,19 @@ describe("createWikiTools", () => {
     expect(text).toContain("type: curated");
   });
 
+  // #138: grep and read_file give paths starting with curated/; updating
+  // the note grep found wrote curated/curated/….
+  it("write_file takes the vault-relative path grep and read_file give, too", async () => {
+    const vaultPath = await makeTempVault();
+    const { write_file } = createWikiTools({ vaultPath, userId: "user-a" });
+
+    const result = (await write_file.execute({ path: "curated/projects/names.md", content: "Monorepo: MON" }, {} as never)) as { ok: boolean };
+
+    expect(result.ok).toBe(true);
+    expect(await readFile(join(vaultPath, "curated/projects/names.md"), "utf-8")).toContain("Monorepo: MON");
+    await expect(readFile(join(vaultPath, "curated/curated/projects/names.md"), "utf-8")).rejects.toThrow();
+  });
+
   it("write_file cannot be used to write into inferred/ (only curated/ is reachable)", async () => {
     const vaultPath = await makeTempVault();
     const { write_file } = createWikiTools({ vaultPath, userId: "user-a" });

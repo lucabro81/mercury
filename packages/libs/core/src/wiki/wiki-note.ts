@@ -201,6 +201,12 @@ async function deleteVaultFile(vaultPath: string, fullPath: string, commitMessag
   });
 }
 
+/** `path` relative to curated/: a vault-relative one (`curated/x.md`, as
+ * listing, reading and grepping give it) loses its leading `curated/`. */
+export function relativeToCurated(path: string): string {
+  return path.replace(/^curated\//, "");
+}
+
 /** Writes a curated doc at `curated/<relativePath>` (e.g. "standards/jira-fields.md"). */
 export async function writeCuratedNote(
   vaultPath: string,
