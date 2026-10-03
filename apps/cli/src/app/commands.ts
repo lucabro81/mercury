@@ -8,7 +8,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
-import { CATALOG, type CliCredentials } from "../catalog.ts";
+import { appCliCredentials, type CliCredentials } from "@mercury-fw/utils";
 import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
 import { LOCAL_PACKS_DIR, packageNameOf, withLocalOverrides, withoutLocalOverrides } from "./local-packages.ts";
@@ -142,19 +142,19 @@ export function appCommands(app: App, deps: AppDeps) {
       setEnvVar(envFile, variable, value);
       deps.print(`${variable} set in ${envFile}, from ${source}.`);
       deps.print(
-        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run mfw credentials reset ${plugin} first.`,
+        `The app unpacks it at its next start, if the volume has no ${folder} folder yet; if it has one, run mfw credentials reset ${folder} first.`,
       );
       return 0;
     },
     /** Deletes the plugin's CLI folder from the credentials volume once the
-     * user types the plugin's name, so its variable is unpacked again at the
+     * user types the folder's name, so its variable is unpacked again at the
      * next start. A wrong answer deletes nothing. */
     credentialsReset: async (plugin: string) => {
       const { folder } = credentialsOf(app, plugin);
       const answer = await deps.ask(
-        `This deletes ${folder}'s folder from the app's credentials volume, and any token the CLI refreshed since it was unpacked. Type the plugin's name (${plugin}) to confirm: `,
+        `This deletes the ${folder} folder from the app's credentials volume, and any token the CLI refreshed since it was unpacked. Type the folder's name (${folder}) to confirm: `,
       );
-      if (answer.trim() !== plugin) {
+      if (answer.trim() !== folder) {
         deps.print("Not confirmed: nothing deleted.");
         return 1;
       }
@@ -274,22 +274,17 @@ export function appCommands(app: App, deps: AppDeps) {
   }
 }
 
-/** The credentials of the tool plugin `plugin`, which `app` must depend on;
- * throws naming the ones it has otherwise. */
+/** The CLI credentials `plugin` names, by package or by folder, among those
+ * the app's dependencies declare; throws naming the ones it has otherwise. */
 function credentialsOf(app: App, plugin: string): CliCredentials {
-  const manifest = JSON.parse(readFileSync(join(app.dir, "package.json"), "utf-8")) as {
-    dependencies?: Record<string, string>;
-  };
-  const have = CATALOG.filter(
-    (e) => e.kind === "tool" && e.credentials !== undefined && manifest.dependencies?.[e.package] !== undefined,
-  );
-  const entry = have.find((e) => e.id === plugin);
-  if (entry?.credentials === undefined) {
+  const have = appCliCredentials(app.dir);
+  const found = have.find((c) => c.package === plugin || c.folder === plugin);
+  if (found === undefined) {
     throw new Error(
-      `${app.name} has no "${plugin}" tool plugin with CLI credentials. It has: ${have.map((e) => e.id).join(", ") || "none"}.`,
+      `${app.name} has no CLI credentials named "${plugin}". It has: ${have.map((c) => `${c.package} (${c.folder})`).join(", ") || "none"}.`,
     );
   }
-  return entry.credentials;
+  return found;
 }
 
 /** The real deps: docker on the user's terminal, questions on `input`
