@@ -27,7 +27,6 @@ A scaffolded app's `src/index.ts` (the service) and `src/repl.ts` (the REPL) are
 | `OLLAMA_THINK` | `false` for a model that doesn't support thinking. |
 | `QDRANT_URL` | Qdrant, for the episodic memory (default `http://qdrant:6333`). |
 | `WIKI_VAULT_PATH` | Where the wiki lives. Required. |
-| `MERCURY_CLIS` | The tool plugins this deployment turns on, by name, comma-separated. |
 
 Qdrant being unreachable degrades memory, it doesn't stop the agent.
 

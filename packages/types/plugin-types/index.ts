@@ -258,7 +258,7 @@ export type PluginSurface = {
  *
  * - `apiVersion`: the contract version this plugin was built against (see
  *   `PLUGIN_API_VERSION`). Mandatory; the loader refuses a mismatch.
- * - `name`: the MERCURY_CLIS entry and the binary this plugin owns.
+ * - `name`: the plugin's name, what `dependsOn` and the logs refer to it by; for a CLI plugin, the binary it owns.
  * - `dependsOn`: names of plugins this one requires present. The loader loads
  *   dependencies first and skips this plugin fail-soft if any is absent or
  *   failed (see `loadPlugins`). Presence + ordering only — a dependency shares
