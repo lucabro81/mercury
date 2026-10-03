@@ -143,7 +143,11 @@ async function runOnce(c: E2eCase, deps: RunnerDeps): Promise<RunReport> {
   } catch (err) {
     checks = [{ label: `run failed: ${err instanceof Error ? err.message : String(err)}`, ok: false }];
   } finally {
-    await c.after?.(ctx);
+    try {
+      await c.after?.(ctx);
+    } catch (err) {
+      checks = [...checks, { label: `after threw: ${err instanceof Error ? err.message : String(err)}`, ok: false }];
+    }
   }
   return { ok: checks.every((ch) => ch.ok), turns, checks };
 }

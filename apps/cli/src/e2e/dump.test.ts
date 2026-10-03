@@ -37,9 +37,9 @@ const DUMP = [
 describe("turnFromDump", () => {
   test("every tool call in order, with its input, its output and whether it worked", () => {
     expect(turnFromDump(DUMP).calls).toEqual([
-      { tool: "read_skill", input: { name: "jira" }, output: { ok: true, data: "…" }, ok: true },
-      { tool: "jiraCommand", input: { command: "jira issue get SUP-1" }, output: { ok: false, error: "refusing" }, ok: false },
-      { tool: "jiraCommand", input: { command: "jira issue get SUP-1 --select key" }, output: { error: "boom" }, ok: false },
+      { tool: "read_skill", input: { name: "jira" }, output: { ok: true, data: "…" }, ok: true, pending: false },
+      { tool: "jiraCommand", input: { command: "jira issue get SUP-1" }, output: { ok: false, error: "refusing" }, ok: false, pending: false },
+      { tool: "jiraCommand", input: { command: "jira issue get SUP-1 --select key" }, output: { error: "boom" }, ok: false, pending: false },
     ]);
   });
 
@@ -59,6 +59,21 @@ describe("turnFromDump", () => {
     ]);
     expect(turn.calls.map((c) => c.ok)).toEqual([true, false]);
     expect(turn.calls[1]?.output).toBeUndefined();
+  });
+
+  // #131 review: a staged irreversible command answers ok: false with
+  // pendingConfirmation, which noFailedCalls counted as a failure.
+  test("a command staged for confirmation is pending, not failed", () => {
+    const output = { ok: false, pendingConfirmation: true, token: "AB12", summary: "jira issue delete SUP-1" };
+    const turn = turnFromDump([
+      {
+        content: [
+          { type: "tool-call", toolCallId: "a", toolName: "jiraCommand", input: { command: "jira issue delete SUP-1" } },
+          { type: "tool-result", toolCallId: "a", toolName: "jiraCommand", output },
+        ],
+      },
+    ]);
+    expect(turn.calls).toEqual([{ tool: "jiraCommand", input: { command: "jira issue delete SUP-1" }, output, ok: true, pending: true }]);
   });
 
   test("an empty dump is a turn with no calls and no answer", () => {

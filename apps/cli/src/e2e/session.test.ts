@@ -89,6 +89,20 @@ describe("openReplSession", () => {
     ).rejects.toThrow("the REPL exited with code 4: no model");
   });
 
+  // #131 review: a REPL that never got to its prompt was left running (a
+  // docker compose run container, in real use).
+  test("a REPL that doesn't start in time: opening fails, and the REPL is stopped", async () => {
+    const pidFile = join(dir, "pid");
+    const hang = join(dir, "hang.ts");
+    writeFileSync(hang, `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
+    await expect(openReplSession({ argv: ["bun", hang], cwd: dir, hostDir: dir, replDir: dir, name: "s1", timeoutMs: 1000 })).rejects.toThrow(
+      "no reply within 1 s",
+    );
+    const pid = Number(require("node:fs").readFileSync(pidFile, "utf-8"));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
   test("a turn longer than the timeout: an error saying so", async () => {
     const session = await open(500);
     await expect(session.turn("slow")).rejects.toThrow("no reply within 0.5 s");

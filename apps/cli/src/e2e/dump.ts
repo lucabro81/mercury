@@ -6,8 +6,10 @@
  */
 
 /** One tool call as a check sees it. `ok` is false when the call failed or
- * never got a result; a result without an `ok` of its own counts as worked. */
-export type Call = { tool: string; input: unknown; output: unknown; ok: boolean };
+ * never got a result; a result without an `ok` of its own counts as worked.
+ * `pending` is an irreversible command staged for confirmation, which worked
+ * (its output has the token) though it reports `ok: false`. */
+export type Call = { tool: string; input: unknown; output: unknown; ok: boolean; pending: boolean };
 
 /** What a turn did: its tool calls in order, and its final text. */
 export type TurnData = { calls: Call[]; answer: string };
@@ -24,15 +26,16 @@ export function turnFromDump(dump: unknown): TurnData {
   const calls: Array<Call & { id: unknown }> = [];
   for (const part of parts.flat()) {
     if (part.type === "tool-call") {
-      calls.push({ id: part.toolCallId, tool: String(part.toolName), input: part.input, output: undefined, ok: false });
+      calls.push({ id: part.toolCallId, tool: String(part.toolName), input: part.input, output: undefined, ok: false, pending: false });
       continue;
     }
     const call = calls.find((c) => c.id === part.toolCallId);
     if (call === undefined) continue;
     if (part.type === "tool-result") {
       call.output = part.output;
-      const reported = (part.output as { ok?: unknown } | null)?.ok;
-      call.ok = typeof reported === "boolean" ? reported : true;
+      const result = part.output as { ok?: unknown; pendingConfirmation?: unknown } | null;
+      call.pending = result?.pendingConfirmation === true;
+      call.ok = call.pending || (typeof result?.ok === "boolean" ? result.ok : true);
     } else if (part.type === "tool-error") {
       call.output = { error: part.error };
       call.ok = false;

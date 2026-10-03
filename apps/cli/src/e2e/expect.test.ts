@@ -8,7 +8,7 @@ import type { Call } from "./dump.ts";
 import type { Run, Turn } from "./define.ts";
 import { createExpect } from "./expect.ts";
 
-const call = (tool: string, input: unknown, ok = true): Call => ({ tool, input, output: { ok }, ok });
+const call = (tool: string, input: unknown, ok = true): Call => ({ tool, input, output: { ok }, ok, pending: false });
 const turn = (calls: Call[], answer: string): Turn => ({ calls, answer, seconds: 1 });
 const runOf = (...turns: Turn[]): Run => ({ turns, last: turns.at(-1)! });
 

@@ -174,6 +174,22 @@ describe("runE2e", () => {
     expect(f.printed).toContain("    ✗ check threw: bad check");
   });
 
+  // #131 review: a rejecting after() rejected the whole run: no report, the
+  // other cases skipped.
+  test("an after that throws fails its run, and the rest still runs and reports", async () => {
+    const f = fake([[answering("CS")]]);
+    const test: E2eTest = {
+      cases: [
+        { name: "a", turns: ["q"], after: () => Promise.reject(new Error("cleanup failed")), check: (run, e) => e.answer("CS") },
+        { name: "b", turns: ["q"], check: (run, e) => e.answer("CS") },
+      ],
+    };
+    expect(await runE2e([{ file: "t.e2e.ts", test }], {}, f.deps)).toBe(1);
+    expect(f.printed).toContain("    ✗ after threw: cleanup failed");
+    expect(f.printed).toContain("  b: passed");
+    expect(f.reports).toHaveLength(1);
+  });
+
   test("a case whose check records nothing fails, saying so", async () => {
     const f = fake([[answering("x")]]);
     const test: E2eTest = { cases: [{ name: "c", turns: ["q"], check: () => {} }] };
@@ -200,7 +216,7 @@ describe("runE2e", () => {
           runs: [
             {
               ok: true,
-              turns: [{ calls: [{ tool: "jiraCommand", input: { command: "x --select y" }, output: { ok: true }, ok: true }], answer: "CS", seconds: 2 }],
+              turns: [{ calls: [{ tool: "jiraCommand", input: { command: "x --select y" }, output: { ok: true }, ok: true, pending: false }], answer: "CS", seconds: 2 }],
               checks: [
                 { label: "--select everywhere", ok: true },
                 { label: "answer matches /\\bCS\\b/", ok: true },

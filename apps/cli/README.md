@@ -263,7 +263,7 @@ export default e2e({
 
 Each run of a case gets a fresh REPL session. `check` receives the run, `run.turns` in order and `run.last`, each turn with:
 
-- `calls`: the tool calls, each with `tool`, `input`, `output` and `ok` (false for a failed call, or one that never got a result);
+- `calls`: the tool calls, each with `tool`, `input`, `output`, `ok` (false for a failed call, or one that never got a result) and `pending` (an irreversible command staged for confirmation: it worked, and its output holds the token);
 - `answer`: the turn's final text (what the model wrote; a list `present` adds afterwards isn't part of it);
 - `seconds`: how long it took, for the report.
 

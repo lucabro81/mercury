@@ -67,8 +67,15 @@ export async function openReplSession(opts: ReplSessionOptions): Promise<Session
     }
   };
 
-  // What the REPL prints while starting isn't part of any turn.
-  await waitFor(() => (/> $/.test(stdout) ? true : undefined));
+  // What the REPL prints while starting isn't part of any turn. One that
+  // doesn't get there is stopped: a docker compose run container otherwise
+  // keeps running.
+  try {
+    await waitFor(() => (/> $/.test(stdout) ? true : undefined));
+  } catch (err) {
+    proc.kill();
+    throw err;
+  }
 
   let turns = 0;
   return {

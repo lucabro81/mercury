@@ -5,7 +5,7 @@
  * and validated before any of this runs (`program.ts`); what runs a command is
  * injected (`AppDeps`), which is how the tests see the exact calls.
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { CATALOG, type CliCredentials } from "../catalog.ts";
@@ -194,15 +194,17 @@ export function appCommands(app: App, deps: AppDeps) {
      * Everything is checked before anything is written. */
     localPackages: async (from: string) => {
       const source = resolve(from);
+      const target = join(app.dir, LOCAL_PACKS_DIR);
+      if (source === target) throw new Error(`${source} is the app's own .packs/: give the folder the tarballs were packed into.`);
       if (!existsSync(source)) throw new Error(`${source} doesn't exist.`);
       const files = readdirSync(source).filter((f) => f.endsWith(".tgz")).sort();
       if (files.length === 0) throw new Error(`No .tgz in ${source}: pack the packages there first (bun pm pack).`);
       const packs = await Promise.all(files.map(async (file) => ({ name: await packageNameOf(join(source, file)), file })));
-      const target = join(app.dir, LOCAL_PACKS_DIR);
+      const manifest = withLocalOverrides(readManifest(), packs);
       rmSync(target, { recursive: true, force: true });
       mkdirSync(target);
       for (const { file } of packs) cpSync(join(source, file), join(target, file));
-      writeManifest(withLocalOverrides(readManifest(), packs));
+      writeManifest(manifest);
       deps.print(`${packs.length} local packages in ${target}: ${packs.map((p) => p.name).join(", ")}.`);
       return deps.run(["bun", "install"], { cwd: app.dir });
     },
@@ -214,6 +216,9 @@ export function appCommands(app: App, deps: AppDeps) {
       const loaded = await Promise.all(files.map(async (file) => ({ file: relative(process.cwd(), file) || file, test: await loadTest(file) })));
       const results = join(app.dir, "e2e", "results", new Date().toISOString().replace(/[:.]/g, "-"));
       mkdirSync(results, { recursive: true });
+      // The container's user writes the dumps here; on a Linux host it isn't
+      // the folder's owner.
+      chmodSync(results, 0o777);
       let sessions = 0;
       return runE2e(loaded, repeat === undefined ? {} : { repeat }, {
         openSession: async () =>

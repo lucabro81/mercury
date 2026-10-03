@@ -47,6 +47,22 @@ describe("loadTest", () => {
     await expect(loadTest(file)).rejects.toThrow(`${file} doesn't export a test as default (export default e2e({ … }))`);
   });
 
+  // #131 review: repeat: 0 ran nothing and passed.
+  test("repeat and minPasses: positive whole numbers, minPasses no more than repeat", async () => {
+    const cases: Array<[string, string]> = [
+      ["repeat: 0", "repeat takes a positive whole number"],
+      ["repeat: 1.5", "repeat takes a positive whole number"],
+      ["minPasses: 0", "minPasses takes a positive whole number"],
+      ["repeat: 2, minPasses: 3", "minPasses (3) is more than repeat (2)"],
+      ["minPasses: 2", "minPasses (2) is more than repeat (1)"],
+    ];
+    for (const [i, [fields, message]] of cases.entries()) {
+      const file = join(dir, `r${i}.e2e.ts`);
+      writeFileSync(file, `export default { cases: [{ name: "c", turns: ["q"], ${fields}, check: () => {} }] };\n`);
+      await expect(loadTest(file)).rejects.toThrow(`${file}: case 1 ("c") ${message}`);
+    }
+  });
+
   test("a case without name, turns or check: an error naming the file and the case", async () => {
     const file = join(dir, "half.e2e.ts");
     writeFileSync(file, 'export default { cases: [{ name: "c", turns: [] , check: () => {} }, { name: "d", check: () => {} }] };\n');

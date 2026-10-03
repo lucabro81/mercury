@@ -93,6 +93,28 @@ describe("local-packages <folder>", () => {
     expect(f.runs).toEqual([]);
   });
 
+  // #131 review: pointed at the app's own .packs/, it deleted the tarballs
+  // before copying them.
+  test("the app's own .packs/ is refused, and left as it is", async () => {
+    await pack("@mercury-fw/core", "mercury-fw-core-0.30.0.tgz");
+    await appCommands(app, fake().deps).localPackages(packs);
+    const f = fake();
+    await expect(appCommands(app, f.deps).localPackages(join(app.dir, ".packs"))).rejects.toThrow("is the app's own .packs/");
+    expect(readdirSync(join(app.dir, ".packs"))).toEqual(["mercury-fw-core-0.30.0.tgz"]);
+    expect(f.runs).toEqual([]);
+  });
+
+  // #131 review: .packs/ was replaced before the manifest was read, so a
+  // broken package.json left the app half changed.
+  test("a package.json it can't read: an error, and .packs/ untouched", async () => {
+    await pack("@mercury-fw/core", "mercury-fw-core-0.30.0.tgz");
+    mkdirSync(join(app.dir, ".packs"));
+    writeFileSync(join(app.dir, ".packs", "old.tgz"), "old");
+    writeFileSync(join(app.dir, "package.json"), "{ not json");
+    await expect(appCommands(app, fake().deps).localPackages(packs)).rejects.toThrow();
+    expect(readdirSync(join(app.dir, ".packs"))).toEqual(["old.tgz"]);
+  });
+
   test("a missing folder is an error naming it", async () => {
     await expect(appCommands(app, fake().deps).localPackages(join(base, "nope"))).rejects.toThrow(join(base, "nope"));
   });

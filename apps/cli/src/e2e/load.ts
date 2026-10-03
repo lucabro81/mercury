@@ -29,6 +29,12 @@ export async function loadTest(file: string): Promise<E2eTest> {
     if (typeof c?.name !== "string") throw new Error(`${which} has no name`);
     if (!Array.isArray(c.turns) || c.turns.length === 0) throw new Error(`${which} has no turns`);
     if (typeof c.check !== "function") throw new Error(`${which} has no check`);
+    const whole = (n: unknown) => typeof n === "number" && Number.isInteger(n) && n >= 1;
+    if (c.repeat !== undefined && !whole(c.repeat)) throw new Error(`${which} repeat takes a positive whole number`);
+    if (c.minPasses !== undefined && !whole(c.minPasses)) throw new Error(`${which} minPasses takes a positive whole number`);
+    if (c.minPasses !== undefined && c.minPasses > (c.repeat ?? 1)) {
+      throw new Error(`${which} minPasses (${c.minPasses}) is more than repeat (${c.repeat ?? 1})`);
+    }
   }
   return loaded as E2eTest;
 }
