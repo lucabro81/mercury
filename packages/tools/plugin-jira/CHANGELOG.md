@@ -1,5 +1,11 @@
 # @mercury-fw/plugin-jira
 
+## 0.3.1
+
+### Patch Changes
+
+- 8df4840: - Installs jira CLI 0.8.2, whose `issue search --help` no longer suggests `currentUser()`.
+
 ## 0.3.0
 
 ### Minor Changes
