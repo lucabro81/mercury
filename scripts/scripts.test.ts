@@ -5,13 +5,13 @@
  * anything to release.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { orderByDependencies, workspaces, type Workspace } from "./workspaces.ts";
 import { isPublished, publishCommand } from "./publish.ts";
 import { comparePack } from "./check-pack.ts";
-import { pendingChangesets } from "./release.ts";
+import { pendingChangesets, stageRelease } from "./release.ts";
 
 const ws = (name: string, deps: Record<string, string> = {}, peers: Record<string, string> = {}): Workspace => ({
   dir: `/repo/${name}`,
@@ -133,6 +133,57 @@ describe("publishCommand", () => {
       "--registry=http://localhost:4873",
       "--tag=next",
       "--dry-run",
+    ]);
+  });
+});
+
+// #136: the release commit took in an untracked package.json (a test bed
+// app's), which check-pack then refused, stopping the publish.
+describe("stageRelease", () => {
+  let repo: string;
+  /** git in the throwaway repo, with no global or system config. */
+  const git = (...args: string[]) => {
+    const proc = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+      cwd: repo,
+      stdout: "pipe",
+      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+    });
+    return proc.stdout.toString().trim();
+  };
+  const write = (path: string, content: string) => {
+    mkdirSync(join(repo, path, ".."), { recursive: true });
+    writeFileSync(join(repo, path), content);
+  };
+  beforeEach(() => {
+    repo = mkdtempSync(join(tmpdir(), "release-stage-"));
+    git("init", "-q");
+    write("packages/a/package.json", '{"version":"1.0.0"}');
+    write("packages/a/CHANGELOG.md", "# a\n");
+    write(".changeset/one.md", "---\n---\n");
+    write("bun.lock", "v1");
+    write("src/code.ts", "1");
+    git("add", "-A");
+    git("commit", "-q", "-m", "init");
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  test("stages what a release changes, never an untracked package.json", () => {
+    write("packages/a/package.json", '{"version":"1.1.0"}');
+    write("packages/a/CHANGELOG.md", "# a\n## 1.1.0\n");
+    write("packages/b/CHANGELOG.md", "# b\n");
+    rmSync(join(repo, ".changeset/one.md"));
+    write("bun.lock", "v2");
+    write("apps/testbed/apps/prova/package.json", '{"name":"prova"}');
+    write("src/code.ts", "2");
+    stageRelease(repo);
+    expect(git("diff", "--cached", "--name-only").split("\n").sort()).toEqual([
+      ".changeset/one.md",
+      "bun.lock",
+      "packages/a/CHANGELOG.md",
+      "packages/a/package.json",
+      "packages/b/CHANGELOG.md",
     ]);
   });
 });

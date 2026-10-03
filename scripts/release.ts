@@ -19,6 +19,20 @@ export function pendingChangesets(dir: string): string[] {
   return readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "README.md");
 }
 
+/** Stages what a release changes in the repo at `root`: the consumed
+ * changesets, the lockfile, the manifests and the changelogs. Manifests only
+ * when tracked: a release only bumps versions, and an untracked one is
+ * something else lying in the tree (a test bed app). A new package's first
+ * changelog is untracked, so changelogs are taken either way. */
+export function stageRelease(root: string): void {
+  const git = (...args: string[]) => {
+    const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "inherit", stderr: "inherit" });
+    if (proc.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
+  };
+  git("add", "-A", ".changeset", "--", ":(glob)**/CHANGELOG.md");
+  git("add", "-u", "bun.lock", "--", ":(glob)**/package.json");
+}
+
 if (import.meta.main) {
   const root = join(import.meta.dir, "..");
 
@@ -47,7 +61,7 @@ if (import.meta.main) {
   run("bun", "install");
   const after = frameworkVersion();
 
-  run("git", "add", "-A", ".changeset", "bun.lock", "--", ":(glob)**/package.json", ":(glob)**/CHANGELOG.md");
+  stageRelease(root);
   const message = after !== before ? `Release v${after}` : "Release plugins";
   run("git", "commit", "-m", message);
   run("bunx", "changeset", "tag");
