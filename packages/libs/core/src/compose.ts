@@ -21,6 +21,7 @@ import { createConfirmationStore, createStageConfirmation, tryConfirm, resolveCo
 import { createDisplayStore } from "./tools/display-store.ts";
 import { createPresentTool } from "./tools/present-tool.ts";
 import { loadPlugins } from "./plugins/plugin-loader.ts";
+import { materializeCliCredentials } from "./credentials/materialize.ts";
 import type { MercuryConfig } from "./config/define-config.ts";
 import { createSessionHistory, type SessionHistory, type Message } from "./session/history.ts";
 import { createSummarizer } from "./session/summarizer.ts";
@@ -66,6 +67,7 @@ import { listWikiFilesInRoots, readWikiFile, readWikiFileInRoots, readIndexFile 
 import { runRawTriagePass, runIndexAndOrphanPass, runContradictionCheckPass } from "./wiki/self-review-runner.ts";
 import { startSelfReviewCron } from "./cron/self-review-cron.ts";
 import { resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
 import type { Tool } from "ai";
 import { startAdminServer } from "./admin/server.ts";
 // The HTTP surface's read routes (4b) reuse the admin panel's per-domain
@@ -147,6 +149,15 @@ export async function composeMercury(config: MercuryConfig): Promise<ComposedApp
   // post-processors and post-turn guards. Every declared plugin loads; one
   // that fails (an invalid allowlist, missing configuration) degrades only itself.
   const plugins = config.plugins;
+
+  // A plugin's CLI that keeps its login in a folder finds it in place before
+  // the plugin loads: unpacked from the env file on a fresh credentials volume.
+  await materializeCliCredentials({
+    appDir: process.cwd(),
+    homeDir: homedir(),
+    env: process.env,
+    log: (msg) => console.error(msg),
+  });
 
   const loadedPlugins = await loadPlugins(plugins, {
     model,

@@ -25,7 +25,7 @@ function fakeConfig(dir: string): void {
   writeFileSync(join(dir, "profiles", "default.json"), '{"token":"fake"}\n');
 }
 
-/** Unpacks `value` the way the entrypoint does (base64 -d | tar xzf - -C dest)
+/** Unpacks `value` the way the core does at startup (base64 -d | tar xzf - -C dest)
  * and returns every file path under `dest`, sorted. */
 async function unpack(value: string): Promise<string[]> {
   const dest = join(base, "unpacked");

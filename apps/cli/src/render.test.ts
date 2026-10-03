@@ -56,11 +56,11 @@ const ALWAYS = [
 ];
 
 describe("renderApp: files", () => {
-  test("the same set of files whatever was chosen, plus the entrypoint with a tool plugin", () => {
-    expect([...renderApp(EMPTY).keys()].sort()).toEqual(ALWAYS);
-    expect([...renderApp(input({ channels: ["http"] })).keys()].sort()).toEqual(ALWAYS);
-    for (const choice of [HTTP_JIRA, FULL]) {
-      expect([...renderApp(choice).keys()].sort()).toEqual([...ALWAYS, "docker-entrypoint.sh"].sort());
+  // #144: no generated entrypoint, the core unpacks the CLI credentials
+  // each plugin declares, so the files don't depend on the tool plugins.
+  test("the same set of files whatever was chosen", () => {
+    for (const choice of [EMPTY, input({ channels: ["http"] }), HTTP_JIRA, FULL]) {
+      expect([...renderApp(choice).keys()].sort()).toEqual(ALWAYS);
     }
   });
 
@@ -72,18 +72,8 @@ describe("renderApp: files", () => {
   });
 });
 
-describe("renderApp: CLI credentials", () => {
-  test("the entrypoint materializes each chosen tool plugin's credentials, then starts the service", () => {
-    expect(renderApp(FULL).get("docker-entrypoint.sh")).toBe(golden("full.docker-entrypoint.sh"));
-  });
-
-  test("only the chosen plugins get a line", () => {
-    const entrypoint = renderApp(HTTP_JIRA).get("docker-entrypoint.sh") ?? "";
-    expect(entrypoint).toContain("materialize jira-cli JIRA_CLI_CONFIG_TAR_B64\n");
-    expect(entrypoint).not.toContain("bitbucket");
-  });
-
-  test("with a tool plugin the Dockerfile starts through the entrypoint", () => {
+describe("renderApp: Dockerfile", () => {
+  test("http + jira: the template as it is, starting the service directly", () => {
     expect(renderApp(HTTP_JIRA).get("Dockerfile")).toBe(golden("http-jira.Dockerfile"));
   });
 
@@ -96,10 +86,11 @@ describe("renderApp: CLI credentials", () => {
     expect(gitignore.split("\n")).toEqual(expect.arrayContaining([".packs/", "e2e/results/"]));
   });
 
-  test("without one it's the template as it is, starting the service directly", () => {
+  test("whatever was chosen, the same Dockerfile", () => {
     const dockerfile = renderApp(input({ channels: ["http"] })).get("Dockerfile") ?? "";
     expect(dockerfile.endsWith('CMD ["bun", "src/index.ts"]\n')).toBe(true);
-    expect(dockerfile).not.toContain("docker-entrypoint.sh");
+    expect(renderApp(FULL).get("Dockerfile")).toBe(dockerfile);
+    expect(renderApp(EMPTY).get("Dockerfile")).toBe(dockerfile);
   });
 });
 
@@ -180,23 +171,32 @@ describe("renderApp: .env.example", () => {
 
   // #142: MERCURY_CLIS repeated the config, and a plugin missing from it
   // was skipped silently.
-  test("no MERCURY_CLIS: declaring a plugin is what enables it; each tool plugin's section carries its credentials variable", () => {
+  test("no MERCURY_CLIS: declaring a plugin is what enables it", () => {
     const env = renderApp(FULL).get(".env.example") ?? "";
     expect(env).not.toContain("MERCURY_CLIS");
     expect(env).toContain("# --- google-chat\n");
-    expect(env).toMatch(/# --- bitbucket\n# bitbucket-cli's config folder, packed: mfw credentials set bitbucket [^\n]*\nBITBUCKET_CLI_CONFIG_TAR_B64=\n/);
-    expect(env).toMatch(/# --- atlassian-admin\n# [^\n]*\nATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64=\n/);
+  });
+
+  // #144: the credentials variable comes from the plugin's own declaration,
+  // written by mfw credentials set, not from the CLI's catalog.
+  test("no CLI credentials variable: mfw credentials set writes it", () => {
+    const env = renderApp(FULL).get(".env.example") ?? "";
+    expect(env).not.toContain("CONFIG_TAR_B64");
+    expect(env).not.toContain("# --- bitbucket");
+    expect(env).not.toContain("# --- atlassian-admin");
   });
 });
 
 describe("renderApp: docker-compose.yml", () => {
-  test("everything: volumes named after the app, CLI credentials volume for the tool plugins", () => {
+  test("everything: volumes named after the app, CLI credentials volume included", () => {
     expect(renderApp(FULL).get("docker-compose.yml")).toBe(golden("full.docker-compose.yml"));
   });
 
-  test("no tool plugin: no CLI credentials volume", () => {
+  // #144: a plugin with a CLI added after the scaffold finds its volume there.
+  test("no tool plugin: the CLI credentials volume all the same", () => {
     const compose = renderApp(input({ channels: ["http"] })).get("docker-compose.yml") ?? "";
-    expect(compose).not.toContain("cli-credentials");
+    expect(compose).toContain("      - cli-credentials:/home/mercury/.config\n");
+    expect(compose).toContain("name: demo_cli-credentials");
     expect(compose).toContain("name: demo_wiki-vault");
   });
 
@@ -284,13 +284,19 @@ describe("renderApp: README.md", () => {
     expect(readme).not.toContain("docker compose run --rm mercury bun run repl");
   });
 
-  test("with a tool plugin it explains how its CLI gets credentials; without, nothing", () => {
-    const withTools = renderApp(HTTP_JIRA).get("README.md") ?? "";
-    expect(withTools).toContain("## CLI credentials");
-    expect(withTools).toContain("mfw credentials set jira");
-    expect(withTools).toContain("mfw credentials reset jira");
-    expect(withTools).not.toContain("starts empty");
-    expect(renderApp(input({ channels: ["http"] })).get("README.md")).not.toContain("CLI credentials");
+  // #144: the section said every tool plugin runs a CLI with a login folder,
+  // and listed them; a CLI is a feature of some plugins, from any author.
+  test("explains, for any app and without naming plugins, how a plugin's CLI gets its login", () => {
+    for (const choice of [EMPTY, HTTP_JIRA, FULL]) {
+      const readme = renderApp(choice).get("README.md") ?? "";
+      const section = readme.slice(readme.indexOf("## CLI credentials"));
+      expect(section).toStartWith("## CLI credentials\n\nSome tool plugins run a CLI. When that CLI keeps its login in a folder");
+      expect(section).toContain("\nmfw credentials set <plugin>\n");
+      expect(section).toContain("\nmfw credentials reset <plugin>\n");
+      expect(section).toContain("a folder under \`~/.config\`, or a path anywhere under the home");
+      expect(section).toContain("A CLI that authenticates any other way isn't covered by this, and nothing guarantees it works in Mercury;");
+      for (const name of ["jira", "bitbucket", "atlassian"]) expect(section).not.toContain(name);
+    }
   });
 
   test("an empty selection says so instead of listing nothing", () => {

@@ -1,7 +1,7 @@
 /**
  * The two halves of `mfw credentials set`: packing a CLI's config folder into
  * its credentials variable (a base64 tar.gz with the folder at its root, what
- * the app's `docker-entrypoint.sh` unpacks into `~/.config` on the volume), and
+ * the core unpacks into `~/.config` on the volume at startup), and
  * writing that variable into the app's env file. Also reading a service
  * account key file, for `mfw google-chat set-key`.
  */

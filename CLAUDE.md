@@ -113,7 +113,7 @@ mercury/                       # repo root
 │   │   ├── kit/                  # @mercury-fw/kit — the plugin-authoring facade: re-exports plugin-types + channel-types (the future SDK #27 lands here). Apps consume core; authors consume kit
 │   │   ├── cli-engine/            # the CLI-execution mechanism (parser/executor/allowlist) every CLI plugin builds its tool with
 │   │   ├── confirm-engine/       # the core-owned confirm mechanism (store + stage + resolve), consumed by the core, injected into channels
-│   │   └── utils/                 # shared dependency-free helpers (CLI-binary provisioning today)
+│   │   └── utils/                 # shared dependency-free helpers: CLI-binary provisioning, the CLI login folder a plugin declares (`mercury.cliCredentials`)
 │   └── config/
 │       └── typescript-config/     # the shared Bun tsconfig every workspace extends
 └── apps/
@@ -146,6 +146,7 @@ packages/libs/core/
     │   ├── channel-loader.ts   # generic fail-soft channel-plugin loader — turns the hand-listed channel set into started providers
     │   ├── terminal.ts         # the REPL loop (stdin/stdout), driven by the app's repl.ts — a dev console, not a channel
     │   └── tool-log.ts         # terminal-only debug visibility helpers
+    ├── credentials/           # unpacks each plugin-declared CLI login from the env file onto the volume (~/.config) at startup, linking one declared elsewhere in the home
     ├── memory/                # Layer 3 — episodic store (Qdrant)
     ├── wiki/                  # Layer 2 — vault init/read/write + vault-cli.ts (maintenance CLI, see Operational notes)
     ├── admin/                 # POC admin panel — dev-only, no auth, off unless ADMIN_PANEL_ENABLED=true

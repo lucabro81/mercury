@@ -164,9 +164,9 @@ describe("app commands reach the app with their arguments", () => {
     [["memory", "list"], ["memory", ["list"]]],
     [["memory", "read", "episodic_memory"], ["memory", ["read", "episodic_memory"]]],
     [["memory", "read", "episodic_memory", "--limit", "5"], ["memory", ["read", "episodic_memory", "--limit", "5"]]],
-    [["credentials", "set", "jira"], ["credentialsSet", "jira", { print: false }]],
-    [["credentials", "set", "jira", "--from", "/x/login", "--print"], ["credentialsSet", "jira", { from: "/x/login", print: true }]],
-    [["credentials", "reset", "jira"], ["credentialsReset", "jira"]],
+    [["credentials", "set", "jira-cli"], ["credentialsSet", "jira-cli", { print: false }]],
+    [["credentials", "set", "@mercury-fw/plugin-jira", "--from", "/x/login", "--print"], ["credentialsSet", "@mercury-fw/plugin-jira", { from: "/x/login", print: true }]],
+    [["credentials", "reset", "jira-cli"], ["credentialsReset", "jira-cli"]],
     [["google-chat", "set-key", "key.json"], ["googleChatSetKey", "key.json", {}]],
     [
       ["google-chat", "set-key", "key.json", "--subscription", "projects/p/subscriptions/s"],

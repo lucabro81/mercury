@@ -218,20 +218,20 @@ Examples:
 
   const credentials = program
     .command("credentials")
-    .summary("the tool plugins' CLI credentials")
+    .summary("the login of a plugin's CLI")
     .description(
-      "Hands a tool plugin's CLI its login: the CLI's config folder travels in a variable of the env file, and the container unpacks it onto the credentials volume at the first start without that folder. What the CLI refreshes afterwards stays on the volume.",
+      "For a tool plugin whose CLI keeps its login in a folder (under ~/.config, or elsewhere in the home), and declares it (mercury.cliCredentials in its package.json): the folder travels in a variable of the env file, and the app unpacks it onto the credentials volume at the first start without that folder. What the CLI refreshes afterwards stays on the volume.",
     )
     .helpCommand(false)
     .addHelpText("after", INSIDE_AN_APP);
   credentials
     .command("set")
-    .summary("packs a CLI's config folder into the env file")
+    .summary("packs a CLI's login folder into the env file")
     .description(
-      "Packs the plugin's CLI config folder (~/.config/<cli> unless --from says otherwise) and writes it as the plugin's variable in the app's env file, replacing an older value. The value is never printed, unless --print asks for the line instead.",
+      "Packs the plugin's CLI login folder (where the plugin declares it, ~/.config/<folder> or another path under the home, unless --from says otherwise) and writes it as the plugin's variable in the app's env file, replacing an older value. The value is never printed, unless --print asks for the line instead.",
     )
-    .argument("<plugin>", "a tool plugin of the app: jira, bitbucket, atlassian-admin")
-    .option("--from <dir>", "the CLI's config folder, when it isn't ~/.config/<cli>")
+    .argument("<plugin>", "the plugin's package (@mercury-fw/plugin-jira) or its CLI's folder as declared (jira-cli)")
+    .option("--from <dir>", "the CLI's login folder, when it isn't where the plugin declares it")
     .option("--print", "print the line to paste elsewhere, and leave the env file alone")
     .action(async (plugin: string, opts: { from?: string; print?: boolean }) =>
       inApp((app) => app.credentialsSet(plugin, { ...(opts.from === undefined ? {} : { from: opts.from }), print: opts.print ?? false }))(),
@@ -240,9 +240,9 @@ Examples:
     .command("reset")
     .summary("clears a CLI's folder from the volume")
     .description(
-      "Deletes the plugin's CLI folder from the credentials volume, after you type the plugin's name, so its variable is unpacked again at the next start: what to run after correcting the variable. Any token the CLI refreshed on the volume goes with it.",
+      "Deletes the plugin's CLI folder from the credentials volume, after you type the folder's name, so its variable is unpacked again at the next start: what to run after correcting the variable. Any token the CLI refreshed on the volume goes with it.",
     )
-    .argument("<plugin>", "a tool plugin of the app")
+    .argument("<plugin>", "the plugin's package or its CLI's folder")
     .action(async (plugin: string) => inApp((app) => app.credentialsReset(plugin))());
 
   const googleChat = program

@@ -1,7 +1,8 @@
 /**
  * `@mercury-fw/utils` — shared, plugin-agnostic helpers used across the monorepo.
- * Currently the CLI-binary provisioning used by each plugin's postinstall;
- * more shared utilities land here as they're factored out.
+ * Currently the CLI-binary provisioning used by each plugin's postinstall and
+ * the plugin-declared CLI credentials folder; more shared utilities land here
+ * as they're factored out.
  */
 export {
   downloadPinnedBinary,
@@ -11,3 +12,12 @@ export {
   type Platform,
   type PinnedBinary,
 } from "./cli-binary.ts";
+export {
+  readCliCredentials,
+  credentialsVariable,
+  appCliCredentials,
+  volumePath,
+  type DeclaredCredentials,
+  type CliCredentials,
+  type AppCliCredentials,
+} from "./cli-credentials.ts";

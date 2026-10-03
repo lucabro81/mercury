@@ -29,16 +29,6 @@ describe("CATALOG", () => {
     }
   });
 
-  test("every tool plugin declares its CLI's credentials: the config folder and the variable carrying it", () => {
-    const tools = CATALOG.filter((e) => e.kind === "tool");
-    expect(Object.fromEntries(tools.map((e) => [e.id, e.credentials]))).toEqual({
-      jira: { folder: "jira-cli", variable: "JIRA_CLI_CONFIG_TAR_B64" },
-      bitbucket: { folder: "bitbucket-cli", variable: "BITBUCKET_CLI_CONFIG_TAR_B64" },
-      "atlassian-admin": { folder: "atlassian-admin-cli", variable: "ATLASSIAN_ADMIN_CLI_CONFIG_TAR_B64" },
-    });
-    expect(CATALOG.filter((e) => e.kind === "channel").every((e) => e.credentials === undefined)).toBe(true);
-  });
-
   test("every env var has a comment, and no var is declared twice", () => {
     const names = CATALOG.flatMap((e) => e.env.map((v) => v.name));
     expect(new Set(names).size).toBe(names.length);
