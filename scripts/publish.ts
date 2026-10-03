@@ -54,7 +54,7 @@ export function publishCommand(
 }
 
 /** Packs the workspace in `dir` into `destination` and returns the tarball's path. */
-function pack(dir: string, destination: string): string {
+export function pack(dir: string, destination: string): string {
   const proc = Bun.spawnSync(["bun", "pm", "pack", "--destination", destination, "--quiet"], {
     cwd: dir,
     stdout: "pipe",
