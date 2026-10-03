@@ -70,6 +70,8 @@ export function createTerminalProvider(deps: TerminalProviderDeps): Provider {
             userId: TERMINAL_SESSION_KEY,
           });
           if (confirmReply !== null) {
+            // A turn of its own, with no model steps: /dump mustn't show the one before.
+            lastSteps = [];
             return confirmReply;
           }
 

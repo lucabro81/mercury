@@ -20,6 +20,8 @@
   - [`mfw credentials set <plugin> [--from <dir>] [--print]`](#mfw-credentials-set-plugin---from-dir---print)
   - [`mfw credentials reset <plugin>`](#mfw-credentials-reset-plugin)
   - [`mfw google-chat set-key <key-file> [--subscription <name>]`](#mfw-google-chat-set-key-key-file---subscription-name)
+  - [`mfw local-packages <folder>` / `mfw local-packages --off`](#mfw-local-packages-folder--mfw-local-packages---off)
+  - [`mfw e2e [tests...] [--repeat N]`](#mfw-e2e-tests---repeat-n)
   - [`mfw upgrade`](#mfw-upgrade)
 - [Help](#help)
 
@@ -210,6 +212,88 @@ It checks everything before writing: the app has to depend on `@mercury-fw/chann
 ```bash
 mfw google-chat set-key key.json --subscription projects/my-project/subscriptions/mercury-chat-sub
 mfw google-chat set-key new-key.json
+```
+
+### `mfw local-packages <folder>` / `mfw local-packages --off`
+
+Makes the app install `@mercury-fw/*` packages from local tarballs instead of the registry: the way to try a framework or plugin change in a real app before it's published. `<folder>` holds the `.tgz` files `bun pm pack` writes, one per package; the command copies them into the app's `.packs/`, points each package at its tarball with `overrides` in `package.json`, and runs `bun install`.
+
+Overrides, and not the dependencies themselves, because a packed package names the packages it depends on by version, and the registry has those versions too: only an override sends them to the tarballs as well (a packed `@mercury-fw/core` depends on `@mercury-fw/plugin-types`, for example). The Dockerfile `mfw create` writes copies `.packs/` before installing, so the image gets the same packages (an app created before 0.31.0 needs `COPY --chown=mercury:mercury .pack[s] ./.packs/` added after the line copying `package.json`); `.gitignore` leaves it out of the repository.
+
+Run it again after packing anew: it replaces the tarballs and the overrides of the previous run, and leaves alone the overrides you wrote yourself. `--off` takes the app back to the registry: the overrides it wrote and `.packs/` go, then `bun install`. After either, `mfw start` rebuilds the image with the packages now installed.
+
+```bash
+mfw local-packages ../mercury-fw/apps/testbed/.packs
+mfw local-packages --off
+```
+
+### `mfw e2e [tests...] [--repeat N]`
+
+Runs end-to-end tests against the app's real model: each test case sends its turns to the app's REPL in the container, as `mfw repl` would, and checks what each turn did, the tool calls with their inputs and results, and the answer. It's how you find out whether the model actually uses a plugin the way its skill says, at the first try, with the app's own model, configuration, wiki and credentials. That's also why it doesn't belong in CI: the results depend on the model, on what's in the vault and in Qdrant, and on accounts a CI runner shouldn't have.
+
+Without arguments it runs every `e2e/*.e2e.ts` in the app; with files, those (they can live anywhere). It prints every check of every run, keeps everything (each turn's calls and answer, each check) in `e2e/results/<time>/`, which `.gitignore` leaves out, and exits 1 when a case didn't pass. The app must be built and its `.env` filled in, as for `mfw repl`. `--repeat N` runs each case N times, overriding its own `repeat`.
+
+#### Writing a test
+
+A test is a TypeScript file whose default export is `e2e({ … })`, from `@mercury-fw/cli/e2e` (every app has the CLI among its devDependencies, so the types are there):
+
+```ts
+import { e2e } from "@mercury-fw/cli/e2e";
+
+export default e2e({
+  // What the app must have, by catalog id: checked before anything runs.
+  plugins: ["jira"],
+  channels: [],
+  cases: [
+    {
+      name: "project key, at the first try",
+      turns: ["On Jira, what is the project key of Customer Support?"],
+      repeat: 3, // the model isn't deterministic
+      minPasses: 3, // how many runs must pass; default every one
+      check: (run, expect) => {
+        expect.everyCall("jiraCommand", (c) => String((c.input as { command: string }).command).includes("--select "));
+        expect.noFailedCalls();
+        expect.callCount({ max: 3 });
+        expect.answer(/\bCS\b/);
+      },
+    },
+  ],
+});
+```
+
+Each run of a case gets a fresh REPL session. `check` receives the run, `run.turns` in order and `run.last`, each turn with:
+
+- `calls`: the tool calls, each with `tool`, `input`, `output`, `ok` (false for a failed call, or one that never got a result) and `pending` (an irreversible command staged for confirmation: it worked, and its output holds the token);
+- `answer`: the turn's final text (what the model wrote; a list `present` adds afterwards isn't part of it);
+- `seconds`: how long it took, for the report.
+
+The `expect` helpers record a named check each and never stop the others, so a failed run shows every check that failed:
+
+| Helper | Passes when |
+|---|---|
+| `call(tool, match?)` | at least one call to `tool` (matching `match`, when given) |
+| `everyCall(tool, match)` | there are calls to `tool`, and every one matches |
+| `noFailedCalls()` | no call failed |
+| `callCount({ min?, max? }, tool?)` | the number of calls, to any tool or to `tool`, is within the bounds |
+| `answer(text \| regex)` | the last answer contains the text, or matches |
+| `answerNot(text \| regex)` | it doesn't |
+| `that(label, condition)` | `condition` is true |
+
+The call helpers look at every turn of the run, the answer helpers at the last one; each takes an optional label as its last argument. A case that records no check fails: it proves nothing.
+
+A turn can be a function of the one before, for a follow-up or a confirmation: `(previous) => …` returns the next message from `previous.calls` and `previous.answer` (an irreversible command comes back as a call whose output holds the pending confirmation's token, and sending the token as the next turn confirms it). Each turn is one line, as the REPL reads them.
+
+`before`, `after` and `check` also get `cli(command)`, which runs `sh -c command` in the app's container, outside the model, and resolves to its exit code and output: to prepare data (an issue to work on, a note in the wiki with the vault CLI), to check what a turn changed (`jira issue get KEY --select fields.assignee.displayName` after an assignment), to clean up. `after` runs even when the run or the check failed. A test that changes an external system has to clean up after itself, so start from read-only ones.
+
+#### What it can and can't test
+
+It can test how the model uses a plugin through its skill (the commands and flags it picks, rejected or failed calls, how many calls it takes), what the answer says or must not say, what a turn changed in an external system, the confirmation of an irreversible command, conversations over several turns, several plugins working together, and what the wiki and memory make of a conversation.
+
+It can't test how a channel shows a turn (Google Chat's cards, the HTTP channel's events: the REPL runs the same turn, without them), the background jobs (the nightly wiki review, idle-session capture), or the exact wording of an answer: checks look for properties, and `repeat` with `minPasses` says how steady the behaviour is. Durations are in the report and in `e2e/results/`, never a check.
+
+```bash
+mfw e2e
+mfw e2e e2e/jira.e2e.ts --repeat 3
 ```
 
 ### `mfw upgrade`

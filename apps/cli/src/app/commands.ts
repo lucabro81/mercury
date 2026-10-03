@@ -5,12 +5,16 @@
  * and validated before any of this runs (`program.ts`); what runs a command is
  * injected (`AppDeps`), which is how the tests see the exact calls.
  */
-import { readFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { CATALOG, type CliCredentials } from "../catalog.ts";
 import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
+import { LOCAL_PACKS_DIR, packageNameOf, withLocalOverrides, withoutLocalOverrides } from "./local-packages.ts";
+import { findTests, loadTest } from "../e2e/load.ts";
+import { runE2e } from "../e2e/runner.ts";
+import { openReplSession } from "../e2e/session.ts";
 
 export type AppDeps = {
   /** Runs `argv` in `cwd` on the user's terminal (stdin, stdout, stderr) and returns its exit code. */
@@ -47,6 +51,16 @@ export const RESET_TARGETS = {
   wiki: { service: SERVICE, volume: "wiki-vault", what: "the wiki vault (every note)" },
 } as const;
 export type ResetTarget = keyof typeof RESET_TARGETS;
+
+/** How long one e2e turn may take: a local model on a long, tool-heavy turn is slow. */
+const E2E_TURN_TIMEOUT_MS = 10 * 60_000;
+
+/** Runs `argv` in `cwd`, returning its exit code and its output (stdout and stderr together). */
+async function captureCode(argv: string[], cwd: string): Promise<{ code: number; output: string }> {
+  const proc = Bun.spawn(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  return { code, output: stdout + stderr };
+}
 
 /** The compose calls that build and start the app; `recreate` restarts containers even when nothing changed. */
 function startCalls(noCache: boolean, recreate: boolean): string[][] {
@@ -174,7 +188,76 @@ export function appCommands(app: App, deps: AppDeps) {
       deps.print(`Delete ${source} now, the env file holds the key. mfw start applies it to a running app.`);
       return 0;
     },
+    /** Makes the app install the packages in `from`'s tarballs (`bun pm
+     * pack`) instead of the registry's: copied into `.packs/` (which the
+     * image copies too), overridden in the manifest, then installed.
+     * Everything is checked before anything is written. */
+    localPackages: async (from: string) => {
+      const source = resolve(from);
+      const target = join(app.dir, LOCAL_PACKS_DIR);
+      if (source === target) throw new Error(`${source} is the app's own .packs/: give the folder the tarballs were packed into.`);
+      if (!existsSync(source)) throw new Error(`${source} doesn't exist.`);
+      const files = readdirSync(source).filter((f) => f.endsWith(".tgz")).sort();
+      if (files.length === 0) throw new Error(`No .tgz in ${source}: pack the packages there first (bun pm pack).`);
+      const packs = await Promise.all(files.map(async (file) => ({ name: await packageNameOf(join(source, file)), file })));
+      const manifest = withLocalOverrides(readManifest(), packs);
+      rmSync(target, { recursive: true, force: true });
+      mkdirSync(target);
+      for (const { file } of packs) cpSync(join(source, file), join(target, file));
+      writeManifest(manifest);
+      deps.print(`${packs.length} local packages in ${target}: ${packs.map((p) => p.name).join(", ")}.`);
+      return deps.run(["bun", "install"], { cwd: app.dir });
+    },
+    /** Runs e2e tests (`tests`, or the app's `e2e/*.e2e.ts`) against the app's
+     * REPL in its container, keeping the turns and checks in
+     * `e2e/results/<time>/`; returns 1 when a case didn't pass. */
+    e2e: async (tests: string[], { repeat }: { repeat?: number }) => {
+      const files = findTests(tests, { appDir: app.dir, cwd: process.cwd() });
+      const loaded = await Promise.all(files.map(async (file) => ({ file: relative(process.cwd(), file) || file, test: await loadTest(file) })));
+      const results = join(app.dir, "e2e", "results", new Date().toISOString().replace(/[:.]/g, "-"));
+      mkdirSync(results, { recursive: true });
+      // The container's user writes the dumps here; on a Linux host it isn't
+      // the folder's owner.
+      chmodSync(results, 0o777);
+      let sessions = 0;
+      return runE2e(loaded, repeat === undefined ? {} : { repeat }, {
+        openSession: async () =>
+          openReplSession({
+            argv: [...COMPOSE, "run", "--rm", "-T", "-v", `${results}:/e2e`, SERVICE, "bun", "run", "repl"],
+            cwd: app.dir,
+            hostDir: results,
+            replDir: "/e2e",
+            name: `run-${++sessions}`,
+            timeoutMs: E2E_TURN_TIMEOUT_MS,
+          }),
+        cli: (command) => captureCode([...COMPOSE, "run", "--rm", "-T", "--no-deps", SERVICE, "sh", "-c", command], app.dir),
+        appPackages: (readManifest() as { dependencies?: Record<string, string> }).dependencies ?? {},
+        print: deps.print,
+        now: Date.now,
+        writeReport: async (report) => {
+          writeFileSync(join(results, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+          deps.print(`Turns and checks in ${results}`);
+        },
+      });
+    },
+    /** Undoes `localPackages`: the app installs from the registry again. */
+    localPackagesOff: async () => {
+      writeManifest(withoutLocalOverrides(readManifest()));
+      rmSync(join(app.dir, LOCAL_PACKS_DIR), { recursive: true, force: true });
+      deps.print("Local packages removed: installing from the registry.");
+      return deps.run(["bun", "install"], { cwd: app.dir });
+    },
   };
+
+  /** The app's manifest, as an object. */
+  function readManifest(): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(app.dir, "package.json"), "utf-8")) as Record<string, unknown>;
+  }
+
+  /** Writes the app's manifest, two-space indented like the one `mfw create` writes. */
+  function writeManifest(manifest: Record<string, unknown>): void {
+    writeFileSync(join(app.dir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  }
 
   /** Stops `service`, runs `steps`, starts it again; stops at the first
    * failure and, once the service is stopped, says it's down and how to bring

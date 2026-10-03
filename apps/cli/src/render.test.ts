@@ -87,6 +87,15 @@ describe("renderApp: CLI credentials", () => {
     expect(renderApp(HTTP_JIRA).get("Dockerfile")).toBe(golden("http-jira.Dockerfile"));
   });
 
+  // #131: mfw local-packages puts tarballs in .packs/, which the image needs
+  // before bun install, and git doesn't.
+  test("copies .packs/ before installing, and git ignores it with the e2e results", () => {
+    const dockerfile = renderApp(input({ channels: ["http"] })).get("Dockerfile") ?? "";
+    expect(dockerfile).toContain("COPY --chown=mercury:mercury .pack[s] ./.packs/\nRUN bun install --production");
+    const gitignore = renderApp(input({ channels: ["http"] })).get(".gitignore") ?? "";
+    expect(gitignore.split("\n")).toEqual(expect.arrayContaining([".packs/", "e2e/results/"]));
+  });
+
   test("without one it's the template as it is, starting the service directly", () => {
     const dockerfile = renderApp(input({ channels: ["http"] })).get("Dockerfile") ?? "";
     expect(dockerfile.endsWith('CMD ["bun", "src/index.ts"]\n')).toBe(true);

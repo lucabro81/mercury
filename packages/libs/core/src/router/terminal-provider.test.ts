@@ -72,6 +72,31 @@ describe("createTerminalProvider", () => {
     expect(tryConfirmArgs).toEqual(["ABC123", "terminal", "terminal"]);
   });
 
+  // #131: /dump after a confirmation still wrote the turn before it, so an
+  // e2e test read that turn's calls as the confirmation's.
+  test("a confirmation is a turn of its own: /dump after it writes no steps", async () => {
+    let capturedHandleInput!: CapturedHandleInput;
+    const provider = createTerminalProvider({
+      confirmDeps: fakeConfirmDeps(),
+      ollamaHost: "http://host",
+      ollamaModel: "model",
+      getLoadedContextLengthFn: async () => 4096,
+      startTerminalReplFn: async (handleInput) => {
+        capturedHandleInput = handleInput;
+      },
+      tryConfirmFn: async (input) => (input === "ABC123" ? "Confermato ed eseguito." : null),
+    });
+    await provider.start(async (_turn, sink) => {
+      sink.onStep?.({ toolCalls: [], toolResults: [], content: [] });
+      await sink.finalize("staged");
+    });
+
+    await capturedHandleInput("delete SUP-1", () => {});
+    expect(await capturedHandleInput("/dump", () => {})).toContain("wrote 1 tool step(s)");
+    await capturedHandleInput("ABC123", () => {});
+    expect(await capturedHandleInput("/dump", () => {})).toContain("wrote 0 tool step(s)");
+  });
+
   test("a normal message calls handleTurn and returns the sink's finalized text", async () => {
     let capturedHandleInput!: CapturedHandleInput;
     let capturedTurn!: InboundTurn;
