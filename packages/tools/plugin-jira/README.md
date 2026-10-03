@@ -1,6 +1,6 @@
 # @mercury-fw/plugin-jira
 
-Gives a [Mercury](https://github.com/lucabro81/mercury-fw) agent Jira, through the `jira` CLI: searching with JQL, reading an issue and its transitions, creating issues, moving them, commenting, and deleting one (only after the user confirms it with the token Mercury hands back). The pinned `jira` binary downloads when the package installs, so nothing else needs installing.
+Gives a [Mercury](https://github.com/lucabro81/mercury-fw) agent Jira, through the `jira` CLI: searching with JQL, reading an issue and its transitions, finding people and projects, creating issues, moving and assigning them, commenting (mentions included), and deleting one (only after the user confirms it with the token Mercury hands back). The pinned `jira` binary downloads when the package installs, so nothing else needs installing.
 
 ```bash
 bun add @mercury-fw/plugin-jira
