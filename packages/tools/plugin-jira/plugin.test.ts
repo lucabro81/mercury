@@ -46,6 +46,16 @@ describe("jiraPlugin", () => {
       expect(body).toContain("issueCount");
     });
 
+    // #134: the skill sent the model to curated/projects/project-codes.md,
+    // which a new app's wiki doesn't have: a failed read on every informal
+    // project name.
+    it("names no wiki file for project names: the model searches the wiki, then Jira", () => {
+      expect(body).not.toMatch(/curated\/[\w/-]+\.md/);
+      expect(body).toContain(
+        "- If the user refers to a project by an informal name (e.g. \"the monorepo\") rather than its JQL project key, grep the wiki for that name first: a note may map it to a key. If nothing comes up, use project search with a fragment of the name.",
+      );
+    });
+
     it("never says to drop --select, and points to no instance vault note", () => {
       expect(body).not.toContain("without --select");
       expect(body).not.toContain("curated/standards");
