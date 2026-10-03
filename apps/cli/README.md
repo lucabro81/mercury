@@ -133,7 +133,7 @@ Maintains the wiki vault, which lives on a Docker volume and not in the app's fo
 |---|---|
 | `list` | Every note. |
 | `read <path>` | One note (a path that isn't one says so, exit 1). |
-| `grep <pattern>` | Every line matching `<pattern>`, a regular expression, as `path:line:text`. A pattern starting with `-` goes after `--` (`mfw vault grep -- -h`). |
+| `grep <pattern>` | Every line matching `<pattern>`, a regular expression (case ignored), as `path:line:text`. A pattern starting with `-` goes after `--` (`mfw vault grep -- -h`). |
 | `write-curated <path> [--author NAME]` | Writes a curated note, the body read from stdin. |
 | `write-raw <path>` | Writes raw material for the nightly review to triage, the body read from stdin. |
 

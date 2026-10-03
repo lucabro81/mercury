@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     case "grep": {
       const pattern = args[0];
       if (!pattern) usage();
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(pattern, "i");
       const glob = new Bun.Glob("**/*.md");
       for await (const file of glob.scan({ cwd: vaultPath })) {
         const content = await Bun.file(`${vaultPath}/${file}`).text();
