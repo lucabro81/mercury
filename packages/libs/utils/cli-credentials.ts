@@ -27,22 +27,23 @@ export type AppCliCredentials = { declared: CliCredentials[]; problems: string[]
 /** A single folder name: no separators, no `.`/`..`, no leading dot. */
 const FOLDER = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** One segment of a home-relative path; `.` and `..` are refused apart. */
-const SEGMENT = /^[A-Za-z0-9._-]+$/;
+/** One segment of a home-relative path, never starting with a dash (the last
+ * one is a tar member name, not an option); `.` and `..` are refused apart. */
+const SEGMENT = /^[A-Za-z0-9._][A-Za-z0-9._-]*$/;
 
 /** The credentials volume is mounted on `~/.config`; a login declared
  * anywhere else in the home lives on it under this folder. */
 const ELSEWHERE = ".config/mercury-home";
 
 const INVALID =
-  "invalid mercury.cliCredentials in package.json: expected { folder } with a single folder name under ~/.config, or { path } relative to the home";
+  "invalid mercury.cliCredentials in package.json: expected { folder } with a single folder name under ~/.config, or { path } relative to the home and outside ~/.config";
 
 /** Whether `path` is a usable home-relative path for a login: inside the
- * home, not the whole volume, not Mercury's own part of it. */
+ * home and outside `~/.config`, the volume, where a login is a `folder`. */
 function isHomePath(path: string): boolean {
   const segments = path.split("/");
   if (!segments.every((s) => SEGMENT.test(s) && s !== "." && s !== "..")) return false;
-  return path !== ".config" && path !== ELSEWHERE && !path.startsWith(`${ELSEWHERE}/`);
+  return path !== ".config" && !path.startsWith(".config/");
 }
 
 /**
@@ -72,8 +73,8 @@ export function readCliCredentials(pkg: unknown): DeclaredCredentials | undefine
 
 /** Where a home-relative login lives on the credentials volume, as a path
  * relative to the home: where it is when it's under `~/.config` (the
- * volume's mount), under `~/.config/mercury-home` otherwise, with the home
- * path pointing there. */
+ * volume's mount, a declared `folder`), under `~/.config/mercury-home`
+ * otherwise, with the home path pointing there. */
 export function volumePath(path: string): string {
   return path.startsWith(".config/") ? path : `${ELSEWHERE}/${path}`;
 }
@@ -89,8 +90,10 @@ export function credentialsVariable(name: string): string {
  * read from its `node_modules`), in the manifest's order. A dependency that
  * isn't installed or declares a malformed folder is left out with a problem
  * line, and so are all the ones whose declarations map to the same variable (one
- * variable can't carry two logins): one bad plugin never costs the others
- * their login. Throws only when the app's own package.json can't be read.
+ * variable can't carry two logins) or whose paths are one inside the other
+ * (one would be linked inside the other's copy on the volume): one bad plugin
+ * never costs the others their login. Throws only when the app's own
+ * package.json can't be read.
  */
 export function appCliCredentials(appDir: string): AppCliCredentials {
   const manifest = JSON.parse(readFileSync(join(appDir, "package.json"), "utf-8")) as {
@@ -111,16 +114,25 @@ export function appCliCredentials(appDir: string): AppCliCredentials {
       problems.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const declared: CliCredentials[] = [];
+  const excluded = new Set<CliCredentials>();
   for (const c of found) {
     const sharing = found.filter((o) => o.variable === c.variable);
-    if (sharing.length === 1) {
-      declared.push(c);
-    } else if (sharing[0] === c) {
+    if (sharing.length === 1) continue;
+    sharing.forEach((o) => excluded.add(o));
+    if (sharing[0] === c) {
       problems.push(
         `${sharing.map((o) => o.package).join(" and ")} declare CLI credentials (${sharing.map((o) => o.name).join(", ")}) carried by the same variable ${c.variable}: neither is used`,
       );
     }
   }
-  return { declared, problems };
+  const inside = (outer: string, inner: string) => inner.startsWith(`${outer}/`);
+  found.forEach((a, i) => {
+    for (const b of found.slice(i + 1)) {
+      if (!inside(a.path, b.path) && !inside(b.path, a.path)) continue;
+      excluded.add(a);
+      excluded.add(b);
+      problems.push(`${a.package} and ${b.package} declare CLI credentials (${a.name}, ${b.name}) one inside the other: neither is used`);
+    }
+  });
+  return { declared: found.filter((c) => !excluded.has(c)), problems };
 }

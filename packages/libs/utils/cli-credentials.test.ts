@@ -52,8 +52,17 @@ describe("readCliCredentials", () => {
     }
   });
 
+  // Review of #144: under ~/.config a path would duplicate a folder with
+  // another variable; that's what `folder` is for.
+  it("rejects a path under ~/.config: that's a folder", () => {
+    for (const path of [".config/x", ".config/x/y"]) {
+      expect(() => readCliCredentials({ mercury: { cliCredentials: { path } } }), path).toThrow(/mercury\.cliCredentials/);
+    }
+  });
+
   it("rejects a path that leaves the home, or covers the whole volume or Mercury's part of it", () => {
-    for (const path of ["", "/abs", "../x", "a/../../x", "./a", "a//b", "a/", "with space", ".config", ".config/mercury-home", ".config/mercury-home/x"]) {
+    // "-x": the last segment is a tar member name, never an option. Review of #144.
+    for (const path of ["", "/abs", "../x", "a/../../x", "./a", "a//b", "a/", "with space", "-x", "a/-x", ".config", ".config/mercury-home", ".config/mercury-home/x"]) {
       expect(() => readCliCredentials({ mercury: { cliCredentials: { path } } }), path).toThrow(/mercury\.cliCredentials/);
     }
   });
@@ -153,6 +162,23 @@ describe("appCliCredentials", () => {
     expect(declared.map((c) => c.package)).toEqual(["good"]);
     expect(problems).toHaveLength(1);
     expect(problems[0]).toStartWith("bad-plugin: invalid mercury.cliCredentials");
+  });
+
+  // Review of #144: a login inside another's would be linked inside that
+  // one's copy on the volume.
+  it("drops both dependencies whose paths are one inside the other, and keeps the others", () => {
+    writeFileSync(
+      join(app, "package.json"),
+      JSON.stringify({ dependencies: { outer: "^1.0.0", good: "^1.0.0", inner: "^1.0.0", sibling: "^1.0.0" } }),
+    );
+    installed("outer", { mercury: { cliCredentials: { path: ".aws" } } });
+    installed("good", { mercury: { cliCredentials: { folder: "good-cli" } } });
+    installed("inner", { mercury: { cliCredentials: { path: ".aws/sso" } } });
+    // Same prefix as a string, not as a path: no overlap.
+    installed("sibling", { mercury: { cliCredentials: { path: ".aws-other" } } });
+    const { declared, problems } = appCliCredentials(app);
+    expect(declared.map((c) => c.package)).toEqual(["good", "sibling"]);
+    expect(problems).toEqual(["outer and inner declare CLI credentials (.aws, .aws/sso) one inside the other: neither is used"]);
   });
 
   // Review of #144: the clash was checked on the folder, but two folders can
