@@ -5,12 +5,13 @@
  * and validated before any of this runs (`program.ts`); what runs a command is
  * injected (`AppDeps`), which is how the tests see the exact calls.
  */
-import { readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { CATALOG, type CliCredentials } from "../catalog.ts";
 import { packCredentials, readServiceAccountKey, setEnvVar } from "./credentials.ts";
 import type { App } from "./find-app.ts";
+import { LOCAL_PACKS_DIR, packageNameOf, withLocalOverrides, withoutLocalOverrides } from "./local-packages.ts";
 
 export type AppDeps = {
   /** Runs `argv` in `cwd` on the user's terminal (stdin, stdout, stderr) and returns its exit code. */
@@ -174,7 +175,42 @@ export function appCommands(app: App, deps: AppDeps) {
       deps.print(`Delete ${source} now, the env file holds the key. mfw start applies it to a running app.`);
       return 0;
     },
+    /** Makes the app install the packages in `from`'s tarballs (`bun pm
+     * pack`) instead of the registry's: copied into `.packs/` (which the
+     * image copies too), overridden in the manifest, then installed.
+     * Everything is checked before anything is written. */
+    localPackages: async (from: string) => {
+      const source = resolve(from);
+      if (!existsSync(source)) throw new Error(`${source} doesn't exist.`);
+      const files = readdirSync(source).filter((f) => f.endsWith(".tgz")).sort();
+      if (files.length === 0) throw new Error(`No .tgz in ${source}: pack the packages there first (bun pm pack).`);
+      const packs = await Promise.all(files.map(async (file) => ({ name: await packageNameOf(join(source, file)), file })));
+      const target = join(app.dir, LOCAL_PACKS_DIR);
+      rmSync(target, { recursive: true, force: true });
+      mkdirSync(target);
+      for (const { file } of packs) cpSync(join(source, file), join(target, file));
+      writeManifest(withLocalOverrides(readManifest(), packs));
+      deps.print(`${packs.length} local packages in ${target}: ${packs.map((p) => p.name).join(", ")}.`);
+      return deps.run(["bun", "install"], { cwd: app.dir });
+    },
+    /** Undoes `localPackages`: the app installs from the registry again. */
+    localPackagesOff: async () => {
+      writeManifest(withoutLocalOverrides(readManifest()));
+      rmSync(join(app.dir, LOCAL_PACKS_DIR), { recursive: true, force: true });
+      deps.print("Local packages removed: installing from the registry.");
+      return deps.run(["bun", "install"], { cwd: app.dir });
+    },
   };
+
+  /** The app's manifest, as an object. */
+  function readManifest(): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(app.dir, "package.json"), "utf-8")) as Record<string, unknown>;
+  }
+
+  /** Writes the app's manifest, two-space indented like the one `mfw create` writes. */
+  function writeManifest(manifest: Record<string, unknown>): void {
+    writeFileSync(join(app.dir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  }
 
   /** Stops `service`, runs `steps`, starts it again; stops at the first
    * failure and, once the service is stopped, says it's down and how to bring

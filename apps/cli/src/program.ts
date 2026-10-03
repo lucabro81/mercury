@@ -267,6 +267,20 @@ Examples:
       )(),
     );
 
+  program
+    .command("local-packages")
+    .summary("installs @mercury-fw packages from local tarballs")
+    .description(
+      "Makes the app install the packages in <folder>'s tarballs (bun pm pack) instead of the registry's: copies them into .packs/ (the image copies it too), points each package at its tarball with overrides in package.json, so packages that depend on it get it as well, and runs bun install. Run it again after packing anew. --off removes them and installs from the registry.",
+    )
+    .argument("[folder]", "the folder holding the .tgz files")
+    .option("--off", "go back to the registry's packages")
+    .addHelpText("after", `\nExamples:\n  mfw local-packages ../mercury-fw/apps/testbed/.packs\n  mfw local-packages --off${INSIDE_AN_APP}`)
+    .action(async (folder: string | undefined, opts: { off?: boolean }) => {
+      if ((folder === undefined) === (opts.off !== true)) throw new Error("local-packages takes a folder of tarballs, or --off");
+      await inApp((app) => (folder === undefined ? app.localPackagesOff() : app.localPackages(folder)))();
+    });
+
   return program;
 }
 
