@@ -24,8 +24,10 @@ export type ReplSessionOptions = {
   timeoutMs: number;
 };
 
-/** Starts the REPL and returns the session over it. */
-export function openReplSession(opts: ReplSessionOptions): Session {
+/** Starts the REPL and returns the session over it once the REPL is ready
+ * (its first prompt is out), so a turn's time is only the turn's; throws
+ * when the REPL exits or doesn't get there in time. */
+export async function openReplSession(opts: ReplSessionOptions): Promise<Session> {
   const proc = Bun.spawn(opts.argv, { cwd: opts.cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
   let stdout = "";
   let stderr = "";
@@ -65,12 +67,12 @@ export function openReplSession(opts: ReplSessionOptions): Session {
     }
   };
 
+  // What the REPL prints while starting isn't part of any turn.
+  await waitFor(() => (/> $/.test(stdout) ? true : undefined));
+
   let turns = 0;
   return {
     turn: async (line) => {
-      // The first turn waits for the REPL's first prompt: what it prints
-      // while starting isn't part of any turn.
-      if (turns === 0) await waitFor(() => (/> $/.test(stdout) ? true : undefined));
       turns++;
       const file = `${opts.name}-turn-${turns}.json`;
       const marker = `to ${opts.replDir}/${file}`;

@@ -42,12 +42,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const open = (timeoutMs = 10_000) =>
-  openReplSession({ argv: ["bun", fakeRepl], cwd: dir, hostDir: dir, replDir: dir, name: "s1", timeoutMs });
+const open = async (timeoutMs = 10_000) =>
+  await openReplSession({ argv: ["bun", fakeRepl], cwd: dir, hostDir: dir, replDir: dir, name: "s1", timeoutMs });
 
 describe("openReplSession", () => {
   test("a turn sends the line and /dump, and hands back the dump and what was printed before it", async () => {
-    const session = open();
+    const session = await open();
     const first = await session.turn("hello");
     expect(first.dump).toEqual([{ content: [{ type: "text", text: "answer to hello" }] }]);
     expect(first.output).toBe("thinking…\nanswer to hello\n[~1k/~2k tokens] > ");
@@ -57,7 +57,7 @@ describe("openReplSession", () => {
   });
 
   test("each turn's dump has its own file", async () => {
-    const session = open();
+    const session = await open();
     await session.turn("a");
     await session.turn("b");
     await session.close();
@@ -66,12 +66,31 @@ describe("openReplSession", () => {
   });
 
   test("a REPL that exits mid-turn: an error with its exit code and stderr", async () => {
-    const session = open();
+    const session = await open();
     await expect(session.turn("die")).rejects.toThrow("the REPL exited with code 3: model unreachable");
   });
 
+  // #131: the first turn waited for the REPL to start, so its seconds
+  // counted the container's startup too.
+  test("opening waits for the REPL's first prompt: a turn's time is its own", async () => {
+    writeFileSync(fakeRepl.replace(".ts", "-slow-start.ts"), `await new Promise((r) => setTimeout(r, 1500));\nawait import(${JSON.stringify(fakeRepl)});\n`);
+    const opened = Date.now();
+    const session = await openReplSession({ argv: ["bun", fakeRepl.replace(".ts", "-slow-start.ts")], cwd: dir, hostDir: dir, replDir: dir, name: "s1", timeoutMs: 10_000 });
+    expect(Date.now() - opened).toBeGreaterThanOrEqual(1500);
+    const sent = Date.now();
+    await session.turn("hello");
+    expect(Date.now() - sent).toBeLessThan(1000);
+    await session.close();
+  });
+
+  test("a REPL that never starts: opening fails with its exit code and stderr", async () => {
+    await expect(
+      openReplSession({ argv: ["bun", "-e", "console.error('no model'); process.exit(4)"], cwd: dir, hostDir: dir, replDir: dir, name: "s1", timeoutMs: 10_000 }),
+    ).rejects.toThrow("the REPL exited with code 4: no model");
+  });
+
   test("a turn longer than the timeout: an error saying so", async () => {
-    const session = open(500);
+    const session = await open(500);
     await expect(session.turn("slow")).rejects.toThrow("no reply within 0.5 s");
     await session.close();
   });
