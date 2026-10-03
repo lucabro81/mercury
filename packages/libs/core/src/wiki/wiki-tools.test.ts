@@ -99,6 +99,16 @@ describe("createWikiTools", () => {
     await expect(readFile(join(vaultPath, "curated/curated/projects/names.md"), "utf-8")).rejects.toThrow();
   });
 
+  it("write_file can't use the curated/ prefix to leave curated/", async () => {
+    const vaultPath = await makeTempVault();
+    const { write_file } = createWikiTools({ vaultPath, userId: "user-a" });
+
+    const result = (await write_file.execute({ path: "curated/../inferred/users/user-a/x.md", content: "x" }, {} as never)) as { ok: boolean };
+
+    expect(result.ok).toBe(false);
+    await expect(readFile(join(vaultPath, "inferred/users/user-a/x.md"), "utf-8")).rejects.toThrow();
+  });
+
   it("write_file cannot be used to write into inferred/ (only curated/ is reachable)", async () => {
     const vaultPath = await makeTempVault();
     const { write_file } = createWikiTools({ vaultPath, userId: "user-a" });

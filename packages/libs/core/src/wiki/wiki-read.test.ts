@@ -129,6 +129,14 @@ describe("grepWiki", () => {
     expect(matches.map((m) => m.path)).toEqual(["inferred/users/user-a/ticket_closing_style.md"]);
   });
 
+  it("finds a capitalised note with a lowercase pattern", async () => {
+    const vaultPath = await makeTempVault();
+    await writeCuratedNote(vaultPath, "projects/names.md", {}, "Monorepo: MON");
+
+    const matches = await grepWiki(vaultPath, "user-a", "the monorepo|monorepo");
+    expect(matches.map((m) => [m.path, m.text])).toEqual([["curated/projects/names.md", "Monorepo: MON"]]);
+  });
+
   it("returns no matches for content that only exists in another user's inferred notes", async () => {
     const vaultPath = await makeTempVault();
     await seedVault(vaultPath);
