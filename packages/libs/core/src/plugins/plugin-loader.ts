@@ -114,8 +114,8 @@ export function orderByDependencies(plugins: Plugin[]): { ordered: Plugin[]; cyc
  * dependency between them. Never throws — a plugin that fails is logged and
  * skipped, its contributions staged and merged only once the whole plugin
  * succeeds so a later failure can't leave it half-wired. A plugin whose
- * declared `dependsOn` isn't fully activated (a dependency disabled, failed,
- * unknown, or itself skipped) is skipped fail-soft too, transitively.
+ * declared `dependsOn` isn't fully activated (a dependency failed, unknown,
+ * or itself skipped) is skipped fail-soft too, transitively.
  */
 export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Promise<LoadedPlugins> {
   const promptFragments: string[] = [];
@@ -149,8 +149,8 @@ export async function loadPlugins(plugins: Plugin[], ctx: PluginLoadContext): Pr
     }
     // Every declared dependency must have fully activated first. Because we
     // process in dependency-first order, a dependency that was going to load
-    // already has; anything still missing is disabled, failed, unknown, or
-    // itself skipped — so this dependent degrades fail-soft too. Checked before
+    // already has; anything still missing failed, is unknown, or was itself
+    // skipped — so this dependent degrades fail-soft too. Checked before
     // touching this plugin's own build, so a doomed plugin does no work.
     const missingDeps = (plugin.dependsOn ?? []).filter((dep) => !activated.has(dep));
     if (missingDeps.length > 0) {

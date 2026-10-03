@@ -194,8 +194,11 @@ describe("loadPlugins dependsOn", () => {
     const loaded = await loadPlugins([a, b, c], baseCtx({ log: (m) => logs.push(m) }));
     expect(loaded.activated).toEqual(["c"]);
     expect(order).toEqual(["c"]);
-    expect(logs.some((l) => l.includes("a") && l.toLowerCase().includes("cycle"))).toBe(true);
-    expect(logs.some((l) => l.includes("b") && l.toLowerCase().includes("cycle"))).toBe(true);
+    // Each plugin in the cycle reported by name, the unrelated one not at all.
+    expect(logs).toEqual([
+      'plugin "a" not activated: part of or depends on a dependency cycle',
+      'plugin "b" not activated: part of or depends on a dependency cycle',
+    ]);
   });
 
   it("loads a chain of dependencies in order (a <- b <- c)", async () => {
